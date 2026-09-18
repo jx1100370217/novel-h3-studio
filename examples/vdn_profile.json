@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "commit": "3eb63496c24ca70faaf8a14b6c75fcb480e34bf1",
+  "version": "1.5.2",
+  "inputs": {
+    "vdn_checkpoint": "vdn-minimax-h3-int8-convrot-comfyui",
+    "apply_turbo_adapter": true,
+    "strength": 1.0,
+    "lora_mode": "merge",
+    "branch_weights": "auto",
+    "retain_buffers": "auto",
+    "verbose": true,
+    "attention_backend": "grouped"
+  }
+}

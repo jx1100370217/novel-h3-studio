@@ -1,0 +1,165 @@
+{
+  "measured_at": "2026-09-14",
+  "gpu": "NVIDIA RTX 5090 32GB",
+  "base": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+  "resolution": [
+    1024,
+    576
+  ],
+  "fps": 24,
+  "plain_h3": {
+    "steps": 32,
+    "sampler": "res_multistep",
+    "scheduler": "simple"
+  },
+  "vdn_h3": {
+    "base": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+    "generation": {
+      "width": 1024,
+      "height": 576,
+      "steps": 8,
+      "fps": 24,
+      "sampler": "er_sde",
+      "scheduler": "beta"
+    },
+    "vdn": {
+      "enabled": true,
+      "commit": "3eb63496c24ca70faaf8a14b6c75fcb480e34bf1",
+      "version": "1.5.2",
+      "inputs": {
+        "vdn_checkpoint": "vdn-minimax-h3-int8-convrot-comfyui",
+        "apply_turbo_adapter": true,
+        "strength": 1.0,
+        "lora_mode": "merge",
+        "branch_weights": "auto",
+        "retain_buffers": "auto",
+        "verbose": true,
+        "attention_backend": "grouped"
+      },
+      "checkpoint_sha256": {
+        "adapters/default/adapter_config.json": "89e0ff8920b9629b826eb99ab6150cce6924a53aa445186d1b493225fd091b96",
+        "adapters/default/adapter_model.safetensors": "58558fef506f88bb41649242de9b9b3a365da806b51b2e96afbbe1625222058a",
+        "adapters/turbo/adapter_config.json": "627968f670747c29cd7a0d3f8c75166e501d70f9e829b5cd3242a8f14cefbc18",
+        "adapters/turbo/adapter_model.safetensors": "24fc93c82fe84dc45d0627f4e72c637bc387d282ba18f60ed3b7f8c81089392c",
+        "linear_branch/config.json": "decb06ac7e664610f677fb445318502b3c51f9c1b8603a2cdd00b16042be5bc8",
+        "linear_branch/model_int8_convrot_comfyui.safetensors": "1fa18c3ebd94caa804ae3dc3a93df7ae069d8f5c363a00b6eb5288112c0f5abc",
+        "metadata.json": "54054ceb1c91b3fdf7fa0278e4a8841c127e8cf666b5e240d69613661f9d3e9e",
+        "model_spec.json": "4171f4384e952f1f73467981a893440c03298af4956b947e2c8a857ba9f5a62b"
+      }
+    }
+  },
+  "measure": "ComfyUI execution_start through execution_success, including model preparation, sampling, decode and save",
+  "rows": [
+    {
+      "shot": "洪水首镜",
+      "video_seconds": 5.166666666666667,
+      "plain_h3": {
+        "take_id": "t_dc4dc60d4518",
+        "video_sha256": "303830801ca5758640db5bf66e8e0eeaa7fd9239d1588f7b277304715a6a6278",
+        "history": "/home/jx/codes/novel-h3-studio/projects/rendao-wuji/renders/t_dc4dc60d4518/comfy_history.json",
+        "start_ms": 1789375087584,
+        "end_ms": 1789375281007,
+        "generation_seconds": 193.423
+      },
+      "vdn_h3": {
+        "take_id": "t_67b0125a03c5",
+        "video_sha256": "ec2cae325af51b3dab959ebb5de6d2b8b4efbc75c9b2999a6f0606f40071c10d",
+        "history": "/home/jx/codes/novel-h3-studio/projects/rendao-wuji/renders/t_67b0125a03c5/comfy_history.json",
+        "start_ms": 1789380069393,
+        "end_ms": 1789380138939,
+        "generation_seconds": 69.546
+      },
+      "speedup": 2.7812239381129036,
+      "input_checks": {
+        "prompt_identical": true,
+        "seed_identical": true,
+        "first_frame_files_identical": true
+      },
+      "continuation_uses_each_engines_own_previous_latent": false
+    },
+    {
+      "shot": "洪水续镜",
+      "video_seconds": 5.666666666666667,
+      "plain_h3": {
+        "take_id": "t_f051f68b7c3f",
+        "video_sha256": "c5c184edce6a6da8a6c2897dae75ba061181d40f9ee9bbaa63d63ecddbe83e42",
+        "history": "/home/jx/codes/novel-h3-studio/projects/rendao-wuji/renders/t_f051f68b7c3f/comfy_history.json",
+        "start_ms": 1789375595852,
+        "end_ms": 1789375922743,
+        "generation_seconds": 326.891
+      },
+      "vdn_h3": {
+        "take_id": "t_c063bd33bfda",
+        "video_sha256": "cfc1b71db6221945c97fa208ac617dd0c7bfc93d479abf24dd35889574084f12",
+        "history": "/home/jx/codes/novel-h3-studio/projects/rendao-wuji/renders/t_c063bd33bfda/comfy_history.json",
+        "start_ms": 1789380277057,
+        "end_ms": 1789380372862,
+        "generation_seconds": 95.805
+      },
+      "speedup": 3.4120453003496687,
+      "input_checks": {
+        "prompt_identical": true,
+        "seed_identical": true,
+        "first_frame_files_identical": true
+      },
+      "continuation_uses_each_engines_own_previous_latent": true
+    },
+    {
+      "shot": "振明狩猎",
+      "video_seconds": 5.166666666666667,
+      "plain_h3": {
+        "take_id": "t_ccd1fdfbed4a",
+        "video_sha256": "e08ca22e3d909c52305e8ad12eabcc16cbb6e9b6519de349ddbdeefdae550286",
+        "history": "/home/jx/codes/novel-h3-studio/projects/rendao-wuji/renders/t_ccd1fdfbed4a/comfy_history.json",
+        "start_ms": 1789379066786,
+        "end_ms": 1789379263937,
+        "generation_seconds": 197.151
+      },
+      "vdn_h3": {
+        "take_id": "t_8a74c820e90a",
+        "video_sha256": "6a9c5dffb582dc9b645675aa278086829508854803ea8df775ff85ec9e8494d2",
+        "history": "/home/jx/codes/novel-h3-studio/projects/rendao-wuji/renders/t_8a74c820e90a/comfy_history.json",
+        "start_ms": 1789380779947,
+        "end_ms": 1789380848107,
+        "generation_seconds": 68.16
+      },
+      "speedup": 2.892473591549296,
+      "input_checks": {
+        "prompt_identical": true,
+        "seed_identical": true,
+        "first_frame_files_identical": true
+      },
+      "continuation_uses_each_engines_own_previous_latent": false
+    }
+  ],
+  "totals": {
+    "output_seconds": 16,
+    "plain_seconds": 717.465,
+    "vdn_seconds": 233.51100000000002,
+    "speedup": 3.0725105027172166,
+    "time_saved_fraction": 0.6745332524931529,
+    "plain_minutes_per_output_minute": 44.8415625,
+    "vdn_minutes_per_output_minute": 14.594437500000002
+  },
+  "excluded_interrupted_attempt": {
+    "take": "t_cef7f742789d",
+    "reason": "专用 ComfyUI 进程收到 SIGTERM (exit 143)，第 4/8 步中断，无完整视频；恢复服务后另建 take 重试。",
+    "known_sampling_progress": "4/8 steps, about 24 sampling seconds",
+    "end_to_end_duration_available": false,
+    "note": "Successful-job timings exclude the interrupted run and recovery. They do not measure total elapsed production time or reliability."
+  },
+  "limitations": [
+    "One completed run per shot and engine; old runs are previously saved measurements.",
+    "32 versus 8 steps: production-configuration comparison, not same-step attention-only benchmark.",
+    "Warmup and loading vary; hunter VDN retry followed a service restart.",
+    "Pruned base skips 51 folded AdaLN updates in merge mode; not full unpruned-checkpoint equivalence.",
+    "Does not include queue waiting, image generation, human review, re-renders, composition, or VOSR2."
+  ],
+  "preview": "/home/jx/codes/novel-h3-studio/projects/rendao-wuji/previews/opening_vdn_h3_16s_rough_cut.mp4",
+  "preview_sha256": "587505945782e2f3860f78594902c78611030ddf1ce087501e3b65db123f3301",
+  "audio_review": {
+    "report": "/home/jx/codes/novel-h3-studio/projects/rendao-wuji/audio_reviews/audio_1789380982239_58750594/report.json",
+    "sha256": "bbfb20d56a5f2def6dd5eb6206f7ef6a0e6179159c616837217dbd114f5b76bc",
+    "release_approved": false
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "status": "passed",
+  "tests": 24,
+  "real_film_seconds": 16,
+  "actual_models": {
+    "speech": {
+      "id": "openai/whisper-large-v3-turbo",
+      "revision": "41f01f3fe87f28c78e2fbf8b568835947dd65ed9"
+    },
+    "events": {
+      "id": "MIT/ast-finetuned-audioset-10-10-0.4593",
+      "revision": "f826b80d28226b62986cc218e5cec390b1096902"
+    },
+    "understanding": {
+      "id": "Qwen/Qwen2.5-Omni-7B",
+      "revision": "ae9e1690543ffd5c0221dc27f79834d0294cba00"
+    }
+  },
+  "film_analysis_seconds": 5.72,
+  "film_music": "模型未判断出配乐，弱声仍需复核",
+  "false_transcription_blocked": true,
+  "release_approved": false,
+  "ui_verified": [
+    "analysis submission",
+    "report rendering",
+    "audio range response",
+    "video metadata 16s 1920x1080"
+  ],
+  "evidence": [
+    "audio-review.png",
+    "audio-music-control.png",
+    "three-shot-preview.png"
+  ]
+}

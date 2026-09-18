@@ -1,0 +1,20 @@
+{
+  "motion_context": {
+    "url": "https://github.com/NikoDemon80/ComfyUI-H3-Motion-Context",
+    "commit": "5335715abe54c1a9bfbe3494da29aae3e8635ce3",
+    "license": "GPL-3.0"
+  },
+  "arcreel": {
+    "url": "https://github.com/ArcReel/ArcReel",
+    "commit": "93f14642506f13a6ee78c4b7c6d54ce3dfa8ad7c",
+    "license": "AGPL-3.0",
+    "usage": "制作流程与剧本结构参考；独立适配器，不修改上游，不部署完整 ArcReel 服务"
+  },
+  "vdn": {
+    "url": "https://github.com/Saganaki22/ComfyUI-VDN-H3",
+    "commit": "3eb63496c24ca70faaf8a14b6c75fcb480e34bf1",
+    "version": "1.5.2",
+    "license": "Apache-2.0",
+    "usage": "本项目独立固定副本；复用已有 INT8 branch 和 DMD Turbo 权重"
+  }
+}

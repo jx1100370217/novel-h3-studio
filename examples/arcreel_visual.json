@@ -1,0 +1,117 @@
+{
+  "scenes": [
+    {
+      "scene_id": "E1S001",
+      "h3": {
+        "mode": "fl2va",
+        "references": [],
+        "soundscape": "Continuous wind and rain over rushing flood water; boat creaks faintly. No speech, no singing, no non-diegetic score.",
+        "continuity": "cut",
+        "seed": 184721,
+        "first_frame": "keyframe_tongtian_001",
+        "dramatic_function": "以洪水和空船建立灾变压力，微弱金光埋下转折。",
+        "action": "An empty boat rocks in a fast flooded river below Tongtian Peak at night. Rain and water move throughout the frame.",
+        "camera": {
+          "size": "Wide establishing shot",
+          "lens_mm": 35,
+          "movement": "Slow 0.6 meter dolly forward over five seconds, eye-level camera with controlled inertia.",
+          "motivation": "靠近洪水中的空船，让宏观灾变具有可感知的尺度。"
+        },
+        "handoff_in": "Eye-level wide view: fence post on the left, empty boat lower-left, twin-notched Tongtian Peak center-right. Flood flows left to right; cool moonlit rain, faint warm gold hidden behind summit clouds.",
+        "handoff_out": "Wide view after a 0.6 meter forward dolly: fence post slipping toward left edge, empty boat lower-left rocking, Tongtian Peak center-right. Flood still flows left to right, moonlit rain, faint gold behind summit cloud.",
+        "timeline": [
+          {
+            "start_frame": 0,
+            "end_frame": 24,
+            "description": "Begin exactly on the first-frame composition. Rain streaks pass through moonlight; current travels left to right."
+          },
+          {
+            "start_frame": 24,
+            "end_frame": 48,
+            "description": "Move gently forward. Foreground fence post shifts slightly left with real parallax; boat rises on a small surge."
+          },
+          {
+            "start_frame": 48,
+            "end_frame": 72,
+            "description": "Continue the same forward dolly; the boat settles and ropes strain. The mountain remains fixed in world space."
+          },
+          {
+            "start_frame": 72,
+            "end_frame": 96,
+            "description": "A narrow warm glow appears behind the summit cloud, subtle and distant. No laser or explosion."
+          },
+          {
+            "start_frame": 96,
+            "end_frame": 120,
+            "description": "Ease the dolly almost to rest. Continue ripples, rain and gentle rocking."
+          },
+          {
+            "start_frame": 120,
+            "end_frame": 124,
+            "description": "Hold the closing framing with moving water, never freeze."
+          }
+        ],
+        "location_id": "tongtian_night"
+      },
+      "speech_timing": [],
+      "image_prompt": "Photorealistic 16:9 Chinese mythological cinema. Use the reference mountain's exact profile and geography. Flooded river below Tongtian Peak at night. Distant summit to the right, old fence post left, empty wooden boat lower left. Cool moonlight, rain, thin mist, barely visible warm gold behind summit clouds. Natural camera at human eye level, 35mm lens, restrained color. No people, text, split panels or collage. Boat and fence are adaptation set dressing."
+    },
+    {
+      "scene_id": "E1S002",
+      "h3": {
+        "mode": "fl2va",
+        "references": [],
+        "soundscape": "Continuous wind and rain over rushing flood water; boat creaks faintly. No speech, no singing, no non-diegetic score.",
+        "continuity": "continue",
+        "seed": 184722,
+        "hold_frames": 48,
+        "dramatic_function": "延续同一空间，从水患压力转向通天峰金光的因果转折。",
+        "action": "The same stormy flood scene continues. A restrained golden light behind the peak grows and the nearest waves begin to lose force.",
+        "camera": {
+          "size": "Wide shot continuing into a slightly higher wide composition",
+          "lens_mm": 35,
+          "movement": "Hold composition for two seconds with live environmental motion, then gently tilt upward by 8 degrees.",
+          "motivation": "从水面后果引导观众寻找山顶光源，使运镜承担信息揭示。"
+        },
+        "handoff_in": "Wide view after a 0.6 meter forward dolly: fence post slipping toward left edge, empty boat lower-left rocking, Tongtian Peak center-right. Flood still flows left to right, moonlit rain, faint gold behind summit cloud.",
+        "handoff_out": "Camera rests after an 8 degree upward tilt. The same twin-notched peak and golden cloud gap dominate, the boat remains at lower-left edge, flood surges soften but still flow left to right.",
+        "timeline": [
+          {
+            "start_frame": 0,
+            "end_frame": 24,
+            "description": "Hold the exact previous closing frame while rain and left-to-right water remain in motion. The same boat rocks, no new object enters."
+          },
+          {
+            "start_frame": 24,
+            "end_frame": 48,
+            "description": "Continue living motion in the same framing. Keep the boat and summit identical; no cut and no speech."
+          },
+          {
+            "start_frame": 48,
+            "end_frame": 72,
+            "description": "Begin a slow 8 degree tilt upward toward the summit. Foreground remains stable in physical space."
+          },
+          {
+            "start_frame": 72,
+            "end_frame": 96,
+            "description": "Warm gold gradually diffuses behind summit cloud, lighting a thin band of mist rather than forming a beam."
+          },
+          {
+            "start_frame": 96,
+            "end_frame": 120,
+            "description": "Finish the upward tilt. In the lower frame, the nearest wave crests settle slightly while water keeps moving."
+          },
+          {
+            "start_frame": 120,
+            "end_frame": 136,
+            "description": "Rest in the final composition; cloud, rain and water continue moving."
+          }
+        ],
+        "location_id": "tongtian_night"
+      },
+      "speech_timing": [],
+      "image_prompt": "Photorealistic 16:9 Chinese mythological cinema. Use the reference mountain's exact profile and geography. Flooded river below Tongtian Peak at night. Distant summit to the right, old fence post left, empty wooden boat lower left. Cool moonlight, rain, thin mist, barely visible warm gold behind summit clouds. Natural camera at human eye level, 35mm lens, restrained color. No people, text, split panels or collage. Boat and fence are adaptation set dressing."
+    }
+  ],
+  "content_sha256": "192110a1090a76d3141a40dce25e866d44c653825291d9503cdd614f92cba7ce"
+}

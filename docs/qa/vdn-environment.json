@@ -1,0 +1,52 @@
+{
+  "url": "http://127.0.0.1:8191",
+  "reachable": true,
+  "missing_nodes": [],
+  "missing_models": [],
+  "version": "0.34.0",
+  "devices": [
+    {
+      "name": "cuda:0 NVIDIA GeForce RTX 5090 : cudaMallocAsync",
+      "type": "cuda",
+      "index": 0,
+      "vram_total": 33667612672,
+      "vram_free": 29742333952,
+      "torch_vram_total": 0,
+      "torch_vram_free": 0
+    }
+  ],
+  "video_engine": {
+    "name": "VDN-H3 Turbo",
+    "steps": 8,
+    "enabled": true,
+    "commit": "3eb63496c24ca70faaf8a14b6c75fcb480e34bf1",
+    "version": "1.5.2",
+    "inputs": {
+      "vdn_checkpoint": "vdn-minimax-h3-int8-convrot-comfyui",
+      "apply_turbo_adapter": true,
+      "strength": 1.0,
+      "lora_mode": "merge",
+      "branch_weights": "auto",
+      "retain_buffers": "auto",
+      "verbose": true,
+      "attention_backend": "grouped"
+    },
+    "checkpoint_sha256": {
+      "adapters/default/adapter_config.json": "89e0ff8920b9629b826eb99ab6150cce6924a53aa445186d1b493225fd091b96",
+      "adapters/default/adapter_model.safetensors": "58558fef506f88bb41649242de9b9b3a365da806b51b2e96afbbe1625222058a",
+      "adapters/turbo/adapter_config.json": "627968f670747c29cd7a0d3f8c75166e501d70f9e829b5cd3242a8f14cefbc18",
+      "adapters/turbo/adapter_model.safetensors": "24fc93c82fe84dc45d0627f4e72c637bc387d282ba18f60ed3b7f8c81089392c",
+      "linear_branch/config.json": "decb06ac7e664610f677fb445318502b3c51f9c1b8603a2cdd00b16042be5bc8",
+      "linear_branch/model_int8_convrot_comfyui.safetensors": "1fa18c3ebd94caa804ae3dc3a93df7ae069d8f5c363a00b6eb5288112c0f5abc",
+      "metadata.json": "54054ceb1c91b3fdf7fa0278e4a8841c127e8cf666b5e240d69613661f9d3e9e",
+      "model_spec.json": "4171f4384e952f1f73467981a893440c03298af4956b947e2c8a857ba9f5a62b"
+    }
+  },
+  "queue": {
+    "queue_running": [],
+    "queue_pending": []
+  },
+  "h3_ready": true,
+  "image_provider": "Codex 当前对话 image_gen；本地服务只能交接任务，不能自行调用订阅工具",
+  "super_resolution": "VOSR2 one-step 1.4B，仅验收后的可选后期；本工程不冒充已安装超分模型"
+}

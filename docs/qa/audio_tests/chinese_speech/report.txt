@@ -1,0 +1,9 @@
+本地音频分析（模型辅助，尚未验收）
+runtime/audio_test/asr_zh.wav
+
+音乐判断不确定
+
+0.00–4.20 秒
+转写候选：甚至出现交易几乎停滞的情况
+转写状态：candidate
+声音理解：{"speech":"yes","transcript":"甚至出现交易几乎停滞的情况。","music":"uncertain","events":[],"description":"无明显声音变化","uncertainty":"无"}

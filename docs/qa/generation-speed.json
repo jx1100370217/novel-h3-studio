@@ -1,0 +1,39 @@
+{
+  "measured_at": "2026-09-14",
+  "source": "ComfyUI execution_start/execution_success timestamps and actual encoded frame counts",
+  "model": "minimax_h3_fl2va_pruned_int8_convrot.safetensors",
+  "gpu": "RTX 5090 32GB",
+  "generation": {
+    "width": 1024,
+    "height": 576,
+    "steps": 32,
+    "fps": 24
+  },
+  "takes": [
+    {
+      "take": "t_dc4dc60d4518",
+      "type": "独立镜头",
+      "seconds": 5.166666666666667,
+      "generation_seconds": 193.423
+    },
+    {
+      "take": "t_f051f68b7c3f",
+      "type": "连续镜头",
+      "seconds": 5.666666666666667,
+      "generation_seconds": 326.891
+    },
+    {
+      "take": "t_ccd1fdfbed4a",
+      "type": "独立角色镜头",
+      "seconds": 5.166666666666667,
+      "generation_seconds": 197.151
+    }
+  ],
+  "weighted_minutes_per_output_minute": 44.8415625,
+  "exclusions": [
+    "image generation",
+    "review and rerolls",
+    "editing",
+    "VOSR2"
+  ]
+}

@@ -1,0 +1,31 @@
+test_audio_does_not_release_or_interrupt_running_video (test_audio_review.AudioReviewTests.test_audio_does_not_release_or_interrupt_running_video) ... ok
+test_decoder_reads_real_audio_and_rejects_silent_video (test_audio_review.AudioReviewTests.test_decoder_reads_real_audio_and_rejects_silent_video) ... ok
+test_long_audio_keeps_last_partial_window (test_audio_review.AudioReviewTests.test_long_audio_keeps_last_partial_window) ... ok
+test_model_response_never_executes_or_trusts_invalid_values (test_audio_review.AudioReviewTests.test_model_response_never_executes_or_trusts_invalid_values) ... ok
+test_mixed_audio_rates_concatenate_without_silencing_tail (test_workflow.MediaTests.test_mixed_audio_rates_concatenate_without_silencing_tail) ... ok
+test_analysis_rejects_missing_paragraph_and_fabricated_evidence (test_workflow.WorkflowTests.test_analysis_rejects_missing_paragraph_and_fabricated_evidence) ... ok
+test_arcreel_changed_content_or_compiled_dialogue_revokes_approval (test_workflow.WorkflowTests.test_arcreel_changed_content_or_compiled_dialogue_revokes_approval) ... ok
+test_arcreel_merge_requires_content_review_and_preserves_order (test_workflow.WorkflowTests.test_arcreel_merge_requires_content_review_and_preserves_order) ... ok
+test_arcreel_rejects_visual_dialogue_injection_and_duplicate_scenes (test_workflow.WorkflowTests.test_arcreel_rejects_visual_dialogue_injection_and_duplicate_scenes) ... ok
+test_cancel_does_not_interrupt_another_project (test_workflow.WorkflowTests.test_cancel_does_not_interrupt_another_project) ... ok
+test_cancel_recovers_owned_submission_after_uncertain_post (test_workflow.WorkflowTests.test_cancel_recovers_owned_submission_after_uncertain_post) ... ok
+test_character_reference_regeneration_invalidates_derivative (test_workflow.WorkflowTests.test_character_reference_regeneration_invalidates_derivative) ... ok
+test_compiling_preserves_matching_generated_frame_and_invalidates_changed_prompt (test_workflow.WorkflowTests.test_compiling_preserves_matching_generated_frame_and_invalidates_changed_prompt) ... ok
+test_explicit_managed_tool_policy_preserves_unknown_and_rejects_substitution (test_workflow.WorkflowTests.test_explicit_managed_tool_policy_preserves_unknown_and_rejects_substitution) ... ok
+test_frame_grid_and_no_timing_loss (test_workflow.WorkflowTests.test_frame_grid_and_no_timing_loss) ... ok
+test_full_book_and_traversal_fail_closed (test_workflow.WorkflowTests.test_full_book_and_traversal_fail_closed) ... ok
+test_graph_chains_sampler_latent_and_trims_both_streams (test_workflow.WorkflowTests.test_graph_chains_sampler_latent_and_trims_both_streams) ... ok
+test_lossless_source_duplicate_numbers_and_glued_header (test_workflow.WorkflowTests.test_lossless_source_duplicate_numbers_and_glued_header) ... ok
+test_ref2va_reference_order (test_workflow.WorkflowTests.test_ref2va_reference_order) ... ok
+test_reject_invalidates_every_descendant (test_workflow.WorkflowTests.test_reject_invalidates_every_descendant) ... ok
+test_replacing_upstream_take_invalidates_downstream_fingerprint (test_workflow.WorkflowTests.test_replacing_upstream_take_invalidates_downstream_fingerprint) ... ok
+test_scene_break_and_hold_and_dialogue_checks (test_workflow.WorkflowTests.test_scene_break_and_hold_and_dialogue_checks) ... ok
+test_switching_to_vdn_does_not_reuse_plain_h3_takes (test_workflow.WorkflowTests.test_switching_to_vdn_does_not_reuse_plain_h3_takes) ... ok
+test_unverified_image_cannot_be_approved_even_for_a_proof (test_workflow.WorkflowTests.test_unverified_image_cannot_be_approved_even_for_a_proof) ... ok
+test_vdn_patches_both_sampler_consumers_and_keeps_motion_context (test_workflow.WorkflowTests.test_vdn_patches_both_sampler_consumers_and_keeps_motion_context) ... ok
+test_visual_sampling_cannot_approve_audio_or_release (test_workflow.WorkflowTests.test_visual_sampling_cannot_approve_audio_or_release) ... ok
+
+----------------------------------------------------------------------
+Ran 26 tests in 0.731s
+
+OK

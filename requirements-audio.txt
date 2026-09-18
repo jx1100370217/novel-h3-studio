@@ -1,0 +1,3 @@
+librosa==0.11.0
+# Torch, Transformers, Accelerate and SoundFile are read from the existing ComfyUI runtime.
+# No modification or upgrade is performed in that environment.

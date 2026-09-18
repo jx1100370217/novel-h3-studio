@@ -1,0 +1,10 @@
+{
+  "tool": "image_gen",
+  "job_sha256": "780bbfc059f68bbf7f2b44029934f7c7d1562dccc54ce6fda20ab6e1ee7e8995",
+  "generated_at": "2026-09-14T07:57:59.521829+00:00",
+  "prompt": "Generate a single 16:9 widescreen first-frame image for a photorealistic Chinese mythological period film adaptation of 人道无极. Asset type: an actual clean film frame, not a storyboard, contact sheet, illustration or poster. Setting: Tongtian Peak rises from the middle of the Mo River at night during a catastrophic flood twenty years before the main story. The towering dark ancient mountain dominates the center-right background, its distinctive twin notched summit mostly lost in low storm cloud. On the near riverbank, camera at human eye height, one weathered timber fence post and wet river stones in foreground left create parallax. Swollen water sweeps steadily left to right, a small empty wooden fishing boat rocks near the bank in the middle ground. No people, bodies or animals. The physical scale feels photographed on location, tangible rock and real rain, restrained natural moonlight scattered through clouds, charcoal blacks with readable detail, cold grey-green floodwater, very subtle warm gold barely visible through cloud over the peak as an omen, not a magical laser or glowing portal. 35mm lens, deep layered composition, subtle atmospheric perspective, controlled highlight rolloff, fine natural film texture, realistic wet surfaces. No plastic CGI look, no anime, no videogame, no oversaturated teal/orange, no giant text, no letters, no watermark, no panel borders. This is the beginning of a slow dolly forward shot in which the water and the boat continue moving. Landscape 16:9.",
+  "model_verified": false,
+  "actual_model": "unknown",
+  "embedded_metadata": "softwareAgent name=gpt-image, version=2.0; no 2.5 attestation returned",
+  "usage": "链路测试专用，不作为 Images 2.5 已核实素材"
+}

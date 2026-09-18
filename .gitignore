@@ -1,0 +1,12 @@
+__pycache__/
+*.egg-info/
+.venv/
+.venv-audio/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.py[cod]
+runtime/
+projects/
+vendor/
+object_info.snapshot.json

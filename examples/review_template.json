@@ -1,0 +1,15 @@
+{
+  "approved": false,
+  "reviewer": "填写实际看片人",
+  "note": "观看并听音后填写具体结论，不能直接将所有检查设为通过",
+  "checks": {
+    "story": false,
+    "identity": false,
+    "performance": false,
+    "camera": false,
+    "continuity": false,
+    "dialogue": false,
+    "sound": false,
+    "no_artifacts": false
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "url": "http://127.0.0.1:8191",
+  "reachable": true,
+  "missing_nodes": [],
+  "missing_models": [],
+  "version": "0.34.0",
+  "devices": [
+    {
+      "name": "cuda:0 NVIDIA GeForce RTX 5090 : cudaMallocAsync",
+      "type": "cuda",
+      "index": 0,
+      "vram_total": 33667612672,
+      "vram_free": 29450305536,
+      "torch_vram_total": 67108864,
+      "torch_vram_free": 33554432
+    }
+  ],
+  "queue": {
+    "queue_running": [],
+    "queue_pending": []
+  },
+  "h3_ready": true,
+  "image_provider": "Codex 当前对话 image_gen；本地服务只能交接任务，不能自行调用订阅工具",
+  "super_resolution": "VOSR2 one-step 1.4B，仅验收后的可选后期；本工程不冒充已安装超分模型"
+}

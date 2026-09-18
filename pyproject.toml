@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "novel-h3-studio"
+version = "0.1.0"
+description = "可溯源的小说改编、Codex 图片交接、H3 连续镜头与成片工作台"
+requires-python = ">=3.11"
+dependencies = ["websocket-client>=1.8,<2"]
+license = {file = "LICENSE"}
+
+[project.scripts]
+novel-h3 = "novel_h3.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["novel_h3*"]
+
+[tool.setuptools.package-data]
+novel_h3 = ["web.html"]

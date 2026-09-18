@@ -1,0 +1,45 @@
+{
+  "id": "proof_tongtian",
+  "release_role": "proof",
+  "dramatic_question": "洪水会吞没神州，还是山顶异光带来转机？",
+  "turning_point": "通天峰金光出现；水面压力开始减弱。",
+  "script": {
+    "title": "通天峰 · 洪水与金光（链路样片）",
+    "scenes": [
+      {
+        "scene_id": "E1S001",
+        "duration_seconds": 5,
+        "segment_break": true,
+        "characters_in_scene": [],
+        "scenes": [
+          "通天峰"
+        ],
+        "props": [],
+        "scene_description": "An empty boat rocks in a fast flooded river below Tongtian Peak at night. Rain and water move throughout the frame.",
+        "utterances": [],
+        "source_text": "第三天夜里通天峰顶上金光闪闪"
+      },
+      {
+        "scene_id": "E1S002",
+        "duration_seconds": 5,
+        "segment_break": false,
+        "characters_in_scene": [],
+        "scenes": [
+          "通天峰"
+        ],
+        "props": [],
+        "scene_description": "The same stormy flood scene continues. A restrained golden light behind the peak grows and the nearest waves begin to lose force.",
+        "utterances": [],
+        "source_text": "第三天夜里通天峰顶上金光闪闪"
+      }
+    ]
+  },
+  "source_map": {
+    "E1S001": [
+      "s0007_p0008"
+    ],
+    "E1S002": [
+      "s0007_p0008"
+    ]
+  }
+}
