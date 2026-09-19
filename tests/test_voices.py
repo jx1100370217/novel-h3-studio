@@ -160,6 +160,22 @@ class VoiceBindingTests(unittest.TestCase):
         self.assertNotIn('Absolute digital silence',prompt)
         self.assertNotIn('Only the assigned character speaks',prompt)
 
+    def test_retake_note_is_not_a_model_vocal_source(self):
+        shot = copy.deepcopy(self.shot)
+        shot['review_note'] = '女娲有对白，但是视频没有生成女娲的声音；不要读取这段审核意见。'
+        prompt = h3_prompt(shot, 'cinema')
+        self.assertNotIn(shot['review_note'], prompt)
+        self.assertIn('VOCAL_CONTENT_LOCK', prompt)
+        self.assertIn('review-note reading', prompt)
+        self.assertIn('private review note is not a script', prompt)
+
+    def test_generation_audio_hard_gate_is_at_prompt_edges(self):
+        prompt = h3_prompt(self.shot, 'cinema')
+        marker = 'GENERATION_AUDIO_HARD_GATE (highest priority; fail closed)'
+        self.assertGreaterEqual(prompt.count(marker), 2)
+        self.assertIn('If a line cannot be produced exactly, output silence', prompt)
+        self.assertIn('reference audio is timbre-only', prompt)
+
     def test_missing_picture_is_rejected(self):
         self.shot['references'].pop()
         with self.assertRaisesRegex(ValueError,'参考图'):

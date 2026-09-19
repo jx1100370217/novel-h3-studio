@@ -66,7 +66,11 @@ def _camera_execution(shot, cast, audio):
         if cast else
         "establish depth with foreground, midground and background anchors"
     )
-    if "over-the-shoulder" in size.lower():
+    if "speaker-dominant" in size.lower():
+        start_composition = ("the assigned speaker is the only fully visible face and mouth, centered in the focal plane; "
+                             "the bound listener contributes one partial rear shoulder or back-of-head at the edge of frame, "
+                             "with the listener's face completely hidden")
+    elif "over-the-shoulder" in size.lower():
         start_composition = ("foreground listener occupies no more than 20% of frame; speaking character remains unobstructed, "
                              "both characters share one physical space and the camera stays on one side of the 180-degree axis")
     end_composition = ("settle on the reaction or revealed information and hold the final composition for the edit"
@@ -281,6 +285,18 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             character_policy,
         ],
     }
+    # Do not change ordinary-shot fingerprints when the retake-only contract
+    # is absent. These fields are emitted only for a structural speaker fix.
+    if shot.get("speaker_focus_mode") == "speaker_dominant":
+        package["interaction_contract"].update(
+            speaker_focus_mode="speaker_dominant",
+            speaker_focus_name=shot.get("speaker_focus_name"),
+            listener_face="hidden",
+        )
+        package["constraints"].append(
+            "For a speaker-dominant retake, the assigned speaker is the only fully visible face and moving mouth; "
+            "the bound listener's face remains hidden behind one partial rear shoulder or back-of-head."
+        )
     # Do not alter the fingerprint of existing ordinary takes. A review note
     # is added only for an actual retake request.
     if shot.get("review_note"):

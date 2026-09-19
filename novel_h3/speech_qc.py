@@ -103,11 +103,26 @@ def run(root, take_id):
     proc=WhisperProcessor.from_pretrained(model_path('speech'),local_files_only=True)
     pipe=pipeline('automatic-speech-recognition',model=model,tokenizer=proc.tokenizer,feature_extractor=proc.feature_extractor,device='cpu')
     def transcribe(audio, rate):
-        return pipe({'raw':audio,'sampling_rate':rate}, return_timestamps=(cleanup_enabled or unbound_enabled),
+        # Word/short-span timestamps let the cleanup pass distinguish a
+        # script line from an extra spoken fragment outside its locked window.
+        # The strict text comparison is unchanged; this only improves the
+        # time localization used by audio cleanup.
+        return pipe({'raw':audio,'sampling_rate':rate},
+                    return_timestamps=('word' if unbound_enabled else cleanup_enabled),
                     generate_kwargs={'language':'zh','task':'transcribe'})
     recognition = transcribe(samples, sr)
     heard = recognition['text']
     result=compare(expected,heard)
+    if unbound_enabled:
+        # Persist the short ASR spans used by cleanup.  This is diagnostic
+        # metadata only: strict text comparison remains exact and these spans
+        # never become model prompt content or spoken script.
+        result['transcript_chunks'] = [
+            {'text': str(chunk.get('text', '')).strip(),
+             'timestamp': list(chunk.get('timestamp', (None, None)))}
+            for chunk in (recognition.get('chunks') or [])
+            if str(chunk.get('text', '')).strip()
+        ]
     if unbound_enabled:
         # Remove only speech outside the locked script.  The cleaner preserves
         # the stereo side channel and non-speech bands, so effects remain.
@@ -157,6 +172,8 @@ def run(root, take_id):
             return result
         if cleanup.get('status') == 'blocked':
             result['audio_cleanup'] = cleanup
+            if cleanup.get('lip_sync_gate'):
+                result['lip_sync_gate'] = cleanup['lip_sync_gate']
     if not expected:
         # Environment-only shots must use the cue-driven effects track. H3 can
         # emit broadband noise that Whisper does not recognize as words; keeping

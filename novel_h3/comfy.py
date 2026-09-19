@@ -1,5 +1,6 @@
 import json
 import copy
+import hashlib
 from pathlib import Path
 import re
 import shutil
@@ -29,6 +30,48 @@ def api(base, route, payload=None, timeout=20):
 
 def config(root):
     return read(Path(root) / "config.json")
+
+
+_VISUAL_SPEAKER_RETAKE_TERMS = (
+    "说话人", "人物不匹配", "角色不匹配", "画面错", "嘴型", "嘴动",
+    "无极在说话", "盘古在说话", "女娲在说话", "人物错", "脸错",
+)
+
+
+def _speaker_visual_retake(note):
+    """Whether a review requires a structural visual speaker correction."""
+    text = str(note or "").replace(" ", "")
+    return any(term in text for term in _VISUAL_SPEAKER_RETAKE_TERMS)
+
+
+def _retake_shot_contract(shot, rework_item):
+    """Apply a repeatable speaker-dominant composition for identity retakes.
+
+    A review note alone is too weak for H3: the old rework path could submit
+    the same two-shot with the same seed and produce the same wrong mouth.
+    This override keeps the bound cast and audio unchanged, but makes the
+    declared speaker the only fully visible face and hides the listener's
+    face behind one bound shoulder/back-of-head.
+    """
+    if not rework_item or not _speaker_visual_retake(rework_item.get("note")):
+        return copy.deepcopy(shot)
+    result = copy.deepcopy(shot)
+    dialogue = result.get("dialogue") or []
+    speaker = dialogue[0].get("speaker") if dialogue else ""
+    result["speaker_focus_mode"] = "speaker_dominant"
+    result["speaker_focus_name"] = speaker
+    camera = dict(result.get("camera") or {})
+    camera["size"] = "speaker-dominant medium close-up with listener rear shoulder"
+    camera["motivation"] = "Correct the reviewed speaker-face mismatch; keep the assigned speaker as the visual focus."
+    result["camera"] = camera
+    result["retake_visual_contract"] = {
+        "mode": "speaker_dominant",
+        "speaker": speaker,
+        "listener_face": "hidden",
+        "listener": "one bound rear shoulder or back-of-head only",
+        "reason": str(rework_item.get("note") or "").strip(),
+    }
+    return result
 
 
 def doctor(root):
@@ -226,6 +269,11 @@ def fingerprint(root, episode, shot, previous_fingerprint=None, review_note=None
                "asset_package": package,
                "voices": prompt_shot["speech_bindings"],
                "resolved_prompt": h3_prompt(prompt_shot, cfg["style"])}
+    # Keep ordinary historical fingerprints byte-compatible. The additional
+    # contract is part of the fingerprint only for a real user retake.
+    if shot.get("retake_visual_contract") or _speaker_visual_retake(review_note):
+        payload["retake_visual_contract"] = (shot.get("retake_visual_contract")
+                                              or "speaker_dominant")
     if review_note:
         payload["review_note"] = str(review_note)
     return digest(payload)
@@ -266,10 +314,13 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
             "non_dialogue_extras_must_be_silent_and_background_only": True,
             "speaker_audio_one_to_one": True,
             "speaker_picture_binding_exact": True,
+            "speaker_dominant_retake_contract": shot.get("speaker_focus_mode") == "speaker_dominant",
             "identity_binding_table_present": bool(asset_package.get("identity_bindings")),
             "present_time_dialogue_lock": bool(asset_package.get("character_identity_lock", {}).get("present_time_only")),
             "no_flashback_or_apparition": bool(asset_package.get("character_identity_lock", {}).get("no_flashback_or_apparition")),
             "dialogue_only_audio": bool(shot.get("dialogue")),
+            "vocal_content_lock": bool(shot.get("dialogue")),
+            "review_note_excluded_from_model_prompt": True,
             "diegetic_only_audio": not bool(shot.get("dialogue")),
             "professional_camera_execution_present": bool(asset_package.get("camera_execution")),
             "retake_review_note_injected": bool(shot.get("review_note")),
@@ -466,23 +517,23 @@ def current_takes(root, episode):
         # A user-requested retake has a distinct fingerprint because its
         # review note is part of the prompt. Once rendered, it is nevertheless
         # the current production take and must not be submitted again by the
-        # ordinary queue after the priority item is drained.
-        if not candidates:
-            retakes = [t for t in state["takes"].values()
-                       if (not t.get("retired") and t.get("rework")
-                           and t.get("episode") == episode["id"] and t.get("shot") == shot["id"]
-                           and t.get("fingerprint") == fp
-                           and t.get("status") in ("rendered", "approved") and t.get("video"))]
-            valid_retakes = []
-            for retake in retakes:
-                try:
-                    if file_hash(inside(root, retake["video"])) == retake.get("video_sha256"):
-                        valid_retakes.append(retake)
-                except (OSError, ValueError):
-                    pass
-            if valid_retakes:
-                valid_retakes.sort(key=lambda x: x.get("created_at", 0))
-                candidates = valid_retakes[-1:]
+        # ordinary queue after the priority item is drained. Do not compare its
+        # retake fingerprint with the ordinary fingerprint: the deliberate
+        # prompt/seed change is exactly what makes it different.
+        retakes = [t for t in state["takes"].values()
+                   if (not t.get("retired") and t.get("rework")
+                       and t.get("episode") == episode["id"] and t.get("shot") == shot["id"]
+                       and t.get("status") in ("rendered", "approved") and t.get("video"))]
+        valid_retakes = []
+        for retake in retakes:
+            try:
+                if file_hash(inside(root, retake["video"])) == retake.get("video_sha256"):
+                    valid_retakes.append(retake)
+            except (OSError, ValueError):
+                pass
+        if valid_retakes:
+            valid_retakes.sort(key=lambda x: x.get("created_at", 0))
+            candidates = valid_retakes[-1:]
         # A retained speech exception is intentionally reusable after a
         # prompt-only change (for example a pronunciation hint). Match the
         # locked source dialogue and verify the media hash before allowing the
@@ -555,13 +606,27 @@ def submit_next(root, episode_id, preview=False, independent_cuts=False, check_p
                 # Establish the prior approved take for a possible continuation
                 # before reaching the requested shot. A retake never changes
                 # the ordinary queue's current take until its new render exists.
+                # The ordinary index intentionally ignores retake fingerprints;
+                # for a retake prerequisite, resolve the newest usable take for
+                # this shot so a completed prior retake is not mistaken for the
+                # old rejected sample.
+                if not take or take.get("status") not in ("rendered", "approved"):
+                    prior = [candidate for candidate in state["takes"].values()
+                             if candidate.get("episode") == episode["id"]
+                             and candidate.get("shot") == shot["id"]
+                             and not candidate.get("retired")
+                             and candidate.get("status") in ("rendered", "approved")
+                             and candidate.get("video")]
+                    if prior:
+                        take = max(prior, key=lambda candidate: candidate.get("created_at", 0))
                 if not take or take.get("status") not in ("rendered", "approved"):
                     raise ValueError(f"重拍前置镜头尚未完成：{shot['id']}")
                 previous = take
                 continue
             if rework_item and shot["id"] == target_shot:
                 target_found = True
-                fp = fingerprint(root, episode, shot, None if shot["continuity"] == "cut" else
+                retake_shot = _retake_shot_contract(shot, rework_item)
+                fp = fingerprint(root, episode, retake_shot, None if shot["continuity"] == "cut" else
                                  (digest({"take": previous["id"], "video": previous.get("video_sha256"),
                                          "observed_handoff": previous.get("observed_handoff_out")}) if previous else None),
                                  review_note=rework_item.get("note"))
@@ -592,8 +657,18 @@ def submit_next(root, episode_id, preview=False, independent_cuts=False, check_p
             retries = sum(t.get('speech_retry') is True and t['episode'] == episode_id
                           and t['shot'] == shot['id'] and t['fingerprint'] == fp
                           for t in state['takes'].values())
-            generation_shot = dict(shot, seed=(shot['seed'] + retries) % (2**64))
+            generation_shot = copy.deepcopy(shot)
+            generation_shot["seed"] = (shot["seed"] + retries) % (2**64)
             if rework_item:
+                generation_shot = _retake_shot_contract(generation_shot, rework_item)
+                # A user-requested retake must not silently repeat the
+                # rejected sample. Review identity fixes also receive a
+                # structural speaker-focused composition above.
+                attempt = max(1, int(rework_item.get("attempt", 1)))
+                seed_material = "|".join((str(shot.get("seed", 0)), str(rework_item.get("id", "")),
+                                            str(rework_item.get("note", "")), str(attempt)))
+                generation_shot["seed"] = int.from_bytes(
+                    hashlib.sha256(seed_material.encode("utf-8")).digest()[:8], "big")
                 generation_shot.update(review_note=rework_item.get("note"),
                                        rework_source_take_id=rework_item.get("source_take_id"),
                                        rework_request_id=rework_item.get("id"))
@@ -623,7 +698,7 @@ def submit_next(root, episode_id, preview=False, independent_cuts=False, check_p
             take['actual_seed'] = generation_shot['seed']
             take['speech_retry_attempt'] = retries
             from .voices import bindings
-            take["speech_bindings"] = bindings(root, shot)
+            take["speech_bindings"] = bindings(root, generation_shot)
             # The generation path may place the scene plate first in the H3
             # reference list.  Keep the persisted manifest's Picture ordinal
             # aligned with the exact execution sheet sent to ComfyUI.
@@ -634,7 +709,7 @@ def submit_next(root, episode_id, preview=False, independent_cuts=False, check_p
             for binding in take["speech_bindings"]:
                 if binding.get("asset_id") in picture_by_asset:
                     binding["picture"] = picture_by_asset[binding["asset_id"]]
-            take["assigned_dialogue"] = shot.get("dialogue", [])
+            take["assigned_dialogue"] = generation_shot.get("dialogue", [])
             write(root / "renders" / take_id / "speech_manifest.json",
                   {"shot": shot["id"], "dialogue": shot.get("dialogue", []),
                    "bindings": take["speech_bindings"]})

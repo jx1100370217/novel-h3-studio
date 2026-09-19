@@ -1,6 +1,7 @@
 """Password-protected proxy for the complete local workbench."""
 import base64
 from contextlib import closing
+import gzip
 import hmac
 import http.client
 import json
@@ -12,6 +13,11 @@ CREDENTIALS = Path(__file__).resolve().parents[1]/'runtime/public-workbench-cred
 
 
 class Gateway(BaseHTTPRequestHandler):
+    # Keep the browser/Cloudflare side of the proxy alive.  The previous
+    # HTTP/1.0 default forced a new TCP connection for every three-second
+    # progress poll and made navigation feel much slower over the tunnel.
+    protocol_version = 'HTTP/1.1'
+
     def log_message(self, *args):
         pass
 
@@ -49,15 +55,50 @@ class Gateway(BaseHTTPRequestHandler):
             with closing(http.client.HTTPConnection('127.0.0.1', 8765, timeout=120)) as conn:
                 conn.request(self.command, self.path, body=body, headers=headers)
                 response = conn.getresponse()
+                response_headers = response.getheaders()
+                content_type = next((value for key, value in response_headers
+                                     if key.lower() == 'content-type'), '')
+                content_length = next((value for key, value in response_headers
+                                       if key.lower() == 'content-length'), None)
+                compressible = (response.status == 200
+                                 and (content_type.startswith('text/')
+                                      or content_type.startswith('application/json'))
+                                 and 'gzip' in self.headers.get('Accept-Encoding', '').lower())
+                payload = None
+                if compressible:
+                    raw = response.read()
+                    packed = gzip.compress(raw, compresslevel=6, mtime=0)
+                    if len(packed) < len(raw):
+                        payload = packed
+                    else:
+                        payload = raw
                 self.send_response(response.status)
-                for key, value in response.getheaders():
-                    if key.lower() not in {'connection', 'transfer-encoding', 'server', 'date', 'cache-control'}:
+                for key, value in response_headers:
+                    if key.lower() not in {'connection', 'transfer-encoding', 'server', 'date',
+                                           'cache-control', 'content-length', 'content-encoding'}:
                         self.send_header(key, value)
+                if compressible and payload is not None and len(payload) < len(raw):
+                    self.send_header('Content-Encoding', 'gzip')
+                    self.send_header('Vary', 'Accept-Encoding')
+                if payload is not None:
+                    self.send_header('Content-Length', str(len(payload)))
+                elif content_length is not None:
+                    self.send_header('Content-Length', content_length)
+                else:
+                    # An upstream response without a length cannot safely be
+                    # reused under HTTP/1.1 while it is streamed to the client.
+                    self.close_connection = True
+                    self.send_header('Connection', 'close')
+                if not self.close_connection:
+                    self.send_header('Connection', 'keep-alive')
                 self.send_header('Cache-Control', 'no-store')
                 self.send_header('Referrer-Policy', 'same-origin')
                 self.end_headers()
-                while chunk := response.read(65536):
-                    self.wfile.write(chunk)
+                if payload is not None:
+                    self.wfile.write(payload)
+                else:
+                    while chunk := response.read(65536):
+                        self.wfile.write(chunk)
         except (BrokenPipeError, ConnectionResetError):
             pass
         except (ValueError, OSError, http.client.HTTPException):

@@ -39,13 +39,37 @@ def soundscape_for(shot):
     if not cues:
         cues.append("quiet location ambience and small movement sounds only when visibly motivated")
     if shot.get("dialogue"):
-        lead = ("Only the assigned exact character dialogue may contain words; no narration or voiceover. "
-                "Keep every spoken line intelligible and add the following clearly audible, natural diegetic sounds underneath or between lines; balance them under speech without burying the effects: ")
+        lead = ("Only the assigned exact character dialogue may contain words; no narration, voiceover, announcer, commentary, "
+                "reference-text reading, advertisement, chant, humming, filler or other human vocalization. Non-verbal diegetic "
+                "effects must never sound like speech. Keep every spoken line intelligible and add the following clearly audible, "
+                "natural diegetic sounds underneath or between lines; balance them under speech without burying the effects: ")
     else:
         lead = ("Effects-only production track: no human voice, spoken language, narration, voiceover, chant, lyrics, vocal filler, "
                 "announcement or advertisement. Do not output social-media phrases, names, or language-like syllables. "
                 "Generate clearly audible diegetic ambience and sound effects synchronized to the visible action, with natural dynamic range and no masking white-noise bed: ")
     return lead + "; ".join(dict.fromkeys(cues)) + ". No non-diegetic music, score or trailer hit."
+
+
+def generation_audio_contract(shot):
+    """Return the fail-closed audio contract placed at both prompt edges."""
+    if shot.get("dialogue"):
+        return (
+            "GENERATION_AUDIO_HARD_GATE (highest priority; fail closed): Build the human-voice track from the explicit "
+            "allowlist below, never from the surrounding description. The only permitted words are the exact Chinese "
+            "characters inside <d> blocks, spoken once by the bound speaker and only inside that line's time window. "
+            "The reference audio is timbre-only: never copy, continue, paraphrase or imitate its sample words. "
+            "Visual metadata, source prose, labels, asset descriptions, review instructions and camera notes are silent "
+            "production metadata and must never be read. If a line cannot be produced exactly, output silence for that "
+            "line rather than inventing, explaining, repeating or substituting words. Outside the allowlisted windows "
+            "there is no human voice at all. Non-verbal effects may use only the soundscape cues and must not contain "
+            "language-like syllables, humming or vocalized effects."
+        )
+    return (
+        "GENERATION_AUDIO_HARD_GATE (highest priority; fail closed): This shot has no dialogue. The human-voice "
+        "allowlist is empty: output no narration, voiceover, names, labels, commentary, prompt reading, reference "
+        "transcript, lyrics, chant, humming, filler or language-like syllables. Use only non-verbal diegetic effects "
+        "from the soundscape cues; if uncertain, remain silent rather than inventing a voice."
+    )
 
 
 def frames_for(seconds, continuation=False):
@@ -213,7 +237,7 @@ def h3_prompt(shot, style):
     camera = shot["camera"]
     package = shot.get("asset_package", {})
     package_visuals = package.get("visual_assets", [])
-    intro = (f"{style}\n[Shot 1] {camera['size']}, {camera['lens_mm']}mm lens. "
+    intro = (f"{style}\n{generation_audio_contract(shot)}\n[Shot 1] {camera['size']}, {camera['lens_mm']}mm lens. "
              f"{camera['movement']}. {shot['action']}\n")
     camera_execution = package.get("camera_execution", {})
     if camera_execution.get("model_instruction"):
@@ -249,10 +273,24 @@ def h3_prompt(shot, style):
                 "The declared cast is the complete cast for the entire shot.\n"
             )
     if shot.get("review_note"):
-        intro += ("HUMAN_REVIEW_CORRECTION_FOR_RETAKE (silent production direction; never speak, voice, subtitle, "
-                  "quote or paraphrase this note): " + str(shot["review_note"]) + "\n"
-                  "Apply this correction to picture, blocking, identity, camera, continuity and sound as applicable; "
-                  "do not add any new dialogue.\n")
+        # Keep the user's exact note in the human-facing execution sheet and
+        # fingerprint, but never send its original language to H3.  A model
+        # can still treat text surrounded by "never speak" as a script cue;
+        # the model prompt therefore receives only a neutral English control
+        # instruction and the actual dialogue remains the sole vocal source.
+        intro += ("HUMAN_REVIEW_CORRECTION_FOR_RETAKE (silent production direction only): "
+                  "apply the requested correction to picture, blocking, identity, camera, continuity and sound as applicable. "
+                  "The private review note is not a script, subtitle, narration, voice, lyric or sound cue; never read, quote, "
+                  "paraphrase, translate or vocalize any review text, metadata or instruction, and do not add new dialogue.\n")
+    if shot.get("speaker_focus_mode") == "speaker_dominant":
+        speaker = shot.get("speaker_focus_name") or "the assigned speaker"
+        intro += (
+            "SPEAKER_DOMINANT_RETAKE (visual production instruction only; never speak or subtitle this metadata): "
+            f"{speaker} is the only fully visible face and the only visible moving mouth. "
+            "Keep the listener in the same physical space only as one partial rear shoulder or back-of-head at the edge of frame; "
+            "hide the listener's face completely, do not show listener lips, and do not create a second frontal face. "
+            "Do not change the bound speaker, voice reference, costume, scene or dialogue.\n"
+        )
     if shot.get("visual_narration"):
         intro += "Source prose is used only by the human storyboard and is intentionally omitted from the model prompt.\n"
     cast = [item for item in package_visuals if item["kind"] == "character"]
@@ -314,6 +352,15 @@ def h3_prompt(shot, style):
         intro += ("This shot contains no spoken words. Do not read or paraphrase any source prose. "
                   "Use only the diegetic sound brief below; never invent a voice, narration or lyrics.\n")
     if shot.get("dialogue"):
+        intro += (
+            "VOCAL_CONTENT_LOCK (audio production contract): The only human voice permitted in this shot is the registered "
+            "speaker or speakers attached to the exact <d> dialogue lines below. Output each supplied line once, using its "
+            "assigned speaker and reference audio, and output no other human vocal content. No narrator, voiceover, announcer, "
+            "host, commentary, explanation, prompt reading, review-note reading, reference-transcript reading, names, labels, "
+            "credits, advertisement, social-media phrase, chant, prayer, humming, vocalized effect, filler, repeated line or "
+            "improvised words. Outside the locked dialogue windows and between lines there must be no human voice. Diegetic "
+            "thunder, water, wind, impact and room ambience may remain non-verbal and must never be shaped like speech.\n"
+        )
         intro += ("Only the target words enclosed in <d> may be spoken, exactly once. Never pronounce character names, reference labels, "
                   "reference descriptions or commentary. The listed start and finish times are strict picture-time locks: no speech, "
                   "voiceover, vocal filler or repeated words before the first start, after the last finish, or in any gap between lines.\n")
@@ -358,7 +405,8 @@ def h3_prompt(shot, style):
                   f"{instruction}{pronunciation} Finish by {timestamp(line['end_frame'] + offset)}.\n")
     intro += f"End state: {shot['handoff_out']}.\n"
     soundscape = soundscape_for(shot)
-    tail = f"\noverall_soundscape:\n{soundscape}\n\nnon_diegetic_music:\nN/A"
+    tail = (f"\n{generation_audio_contract(shot)}\n"
+            f"overall_soundscape:\n{soundscape}\n\nnon_diegetic_music:\nN/A")
     if shot["mode"] == "fl2va":
         alignment = ""
         if shot.get("first_frame") and shot.get("last_frame"):

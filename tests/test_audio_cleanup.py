@@ -1,5 +1,5 @@
 import unittest
-from novel_h3.audio_cleanup import speech_windows, timing_alignment
+from novel_h3.audio_cleanup import speech_windows, timing_alignment, lip_sync_overlap
 
 class CleanupTests(unittest.TestCase):
     def test_padding_and_merge(self):
@@ -18,6 +18,16 @@ class CleanupTests(unittest.TestCase):
         result = timing_alignment([[2.0, 3.0]], [{'start_frame': 24, 'end_frame': 48}])
         self.assertEqual(result['status'], 'blocked')
         self.assertIn('嘴动无声', result['reason'])
+
+    def test_lip_sync_overlap_blocks_audio_only_cleanup_inside_dialogue(self):
+        result = lip_sync_overlap([[2.0, 3.0]], [{'start_frame': 24, 'end_frame': 96}])
+        self.assertEqual(result['status'], 'blocked')
+        self.assertEqual(result['unsafe_windows'], [[2.0, 3.0]])
+        self.assertIn('嘴动无声', result['reason'])
+
+    def test_lip_sync_overlap_allows_audio_outside_dialogue(self):
+        result = lip_sync_overlap([[0.0, .5]], [{'start_frame': 24, 'end_frame': 96}])
+        self.assertEqual(result['status'], 'passed')
 
 class FailedSpeechCleanupTests(unittest.TestCase):
     def test_extra_speech_outside_complete_line_can_be_removed(self):
@@ -60,3 +70,19 @@ class FailedSpeechCleanupTests(unittest.TestCase):
                  'timestamp':(0,4.0)}]
         self.assertIsNone(likely_dialogue_span(
             chunks, '我们都是混沌所生光所幻化我只有创造的力量'))
+
+    def test_near_match_extracts_inserted_voice_chunks(self):
+        from novel_h3.audio_cleanup import aligned_unbound_chunks
+        chunks = [
+            {'text': '永无休止的轮回', 'timestamp': (0.0, 1.38)},
+            {'text': '已经证明你已经看清', 'timestamp': (1.62, 3.38)},
+            {'text': '竟且永远的无极下', 'timestamp': (3.9, 5.4)},
+            {'text': '弯字激起了', 'timestamp': (5.84, 6.84)},
+            {'text': '突那伤面撕着点着', 'timestamp': (7.14, 8.62)},
+            {'text': '你彻底地破灭', 'timestamp': (8.94, 10.1)},
+            {'text': '又成为了混沌出生时的样子', 'timestamp': (10.36, 12.42)},
+            {'text': '不再受无极的轮回', 'timestamp': (12.68, 14.16)},
+        ]
+        expected = '永无休止的轮回已经证明你已经看清，并且永远的无极了，你彻底的破灭，又成为了混沌初生时的样子，不再受无极的轮回。'
+        extras = aligned_unbound_chunks(chunks, expected)
+        self.assertEqual([item['text'] for item in extras], ['弯字激起了', '突那伤面撕着点着'])

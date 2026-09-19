@@ -1,8 +1,10 @@
 """Serial chapter handoff; reuse the same per-chapter readiness gate."""
 from pathlib import Path
+import subprocess
 from novel_h3.project import read, load_state, locked
 from novel_h3.safety import check_paused
 from start_next_chapter_when_ready import run
+from novel_h3.rework_queue import snapshot as rework_snapshot
 
 ROOT = Path(__file__).resolve().parent/'projects/rendao-wuji'
 
@@ -29,6 +31,19 @@ if __name__ == '__main__':
             if chapter.get('kind') != 'story':
                 continue
             check_paused()
+            # User-requested retakes are independent of unrelated chapter
+            # preparation blockers. Drain them first so the serial renderer
+            # cannot sit inside an asset-gate polling loop while a review fix
+            # waits forever in the priority queue.
+            pending = rework_snapshot(ROOT)
+            if pending['total']:
+                item = pending['items'][0]
+                subprocess.run([
+                    '/home/jx/miniconda3/bin/python3',
+                    str(Path(__file__).resolve().parent / 'render_chapter.py'),
+                    item['episode'], '--project', str(ROOT), '--rework-only'],
+                    cwd=Path(__file__).resolve().parent, check=True)
+                continue
             episode = 'chapter_'+chapter['id']
             if complete(ROOT,episode):
                 continue

@@ -62,18 +62,23 @@ def _spoken_text(text):
 def likely_dialogue_span(chunks, expected):
     """Find a probable locked-dialogue span without changing strict QC.
 
-    Whisper commonly substitutes one character or omits punctuation.  When
-    that happens, treating every ASR chunk as an unbound voice would attenuate
-    the actor's entire line.  A high-similarity span therefore blocks cleanup
-    and preserves the source for review.  It never makes a failed comparison
-    pass and it is intentionally conservative for short lines.
+    Whisper commonly substitutes one character or omits punctuation.  This
+    diagnostic span is retained so the cleanup report can explain why the
+    line failed; character-level cleanup decides which sub-chunks are safe to
+    attenuate. It never makes a failed comparison pass and is intentionally
+    conservative for short lines.
     """
     target = _spoken_text(expected)
     if not target:
         return None
     # Very short utterances have too little information for a similarity
     # fallback; exact matching remains the only safe decision there.
-    threshold = .96 if len(target) <= 8 else .86
+    # Cleanup is intentionally more conservative than strict transcription.
+    # A long H3 line with a few ASR substitutions is still likely the assigned
+    # actor; attenuating every chunk in that case removes the only valid voice
+    # and leaves a silent shot. Strict QC remains failed, but the source is
+    # preserved for review unless the text is clearly unrelated.
+    threshold = .96 if len(target) <= 8 else .72
     best = None
     for start in range(len(chunks)):
         text = ''
@@ -101,6 +106,61 @@ def likely_dialogue_span(chunks, expected):
     }
 
 
+def aligned_unbound_chunks(chunks, expected, min_keep_ratio=.45):
+    """Return ASR-timed character spans that cannot be aligned to the line.
+
+    Whisper can produce one continuous chunk containing valid dialogue, ASR
+    substitutions and an inserted prompt-like phrase.  Treating the complete
+    high-similarity span as either safe or unsafe leaves the inserted voice in
+    the delivered mix.  We align the normalized character stream to the
+    locked line, then project only unmatched character runs back to each
+    chunk's timestamps.  Small substitutions stay with the actor's line when
+    a chunk has enough aligned characters; larger unmatched runs are cleaned.
+    This is cleanup metadata only; strict transcription remains exact.
+    """
+    from difflib import SequenceMatcher
+
+    target = _spoken_text(expected)
+    records = []
+    cursor = 0
+    for index, chunk in enumerate(chunks or []):
+        text = _spoken_text(chunk.get('text', ''))
+        timestamp = chunk.get('timestamp', (None, None))
+        if not text or not isinstance(timestamp, (list, tuple)) or len(timestamp) != 2:
+            continue
+        start, end = timestamp
+        if start is None or end is None or not end > start:
+            continue
+        records.append({'index': index, 'text': text, 'start': float(start),
+                        'end': float(end), 'offset': cursor})
+        cursor += len(text)
+    actual = ''.join(item['text'] for item in records)
+    if not actual or not target:
+        return []
+    matcher = SequenceMatcher(None, target, actual, autojunk=False)
+    equal_ranges = []
+    for tag, target_start, target_end, actual_start, actual_end in matcher.get_opcodes():
+        if tag == 'equal':
+            equal_ranges.append((actual_start, actual_end))
+
+    def matched_count(first, last):
+        return sum(max(0, min(last, b) - max(first, a))
+                   for a, b in equal_ranges)
+
+    extras = []
+    for item in records:
+        first, last = item['offset'], item['offset'] + len(item['text'])
+        keep = matched_count(first, last)
+        # A chunk with a meaningful exact overlap is retained as actor speech;
+        # this avoids cutting normal lines for a single Whisper substitution.
+        if keep / max(len(item['text']), 1) >= min_keep_ratio:
+            continue
+        extras.append({'text': item['text'], 'timestamp': (item['start'], item['end']),
+                       'source_chunk': item['index'], 'matched_characters': keep,
+                       'total_characters': len(item['text'])})
+    return extras
+
+
 def dialogue_windows(dialogue, fps=24):
     """Return the locked picture-time windows for the shot's dialogue."""
     windows = []
@@ -110,6 +170,22 @@ def dialogue_windows(dialogue, fps=24):
             raise ValueError('分镜对白时间边界不完整，不能自动静音')
         windows.append([start / fps, end / fps])
     return windows
+
+
+def lip_sync_overlap(speech, dialogue):
+    """Return speech windows that overlap a locked mouth-movement window."""
+    planned = dialogue_windows(dialogue)
+    unsafe = []
+    for start, end in speech:
+        if any(max(start, left) < min(end, right)
+               for left, right in planned):
+            unsafe.append([start, end])
+    return {'status': 'blocked' if unsafe else 'passed',
+            'planned_windows': planned,
+            'speech_windows': speech,
+            'unsafe_windows': unsafe,
+            'reason': ('对白时间窗内存在需要清理的人声；静音会造成嘴动无声，'
+                       '保留原音并转入重拍。' if unsafe else None)}
 
 
 def normalize_diegetic_mix(source, out, samples, sr, target_db=-18.0, peak_db=-1.0):
@@ -416,25 +492,19 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
     if expected.strip():
         span = matching_dialogue_span(chunks, expected)
         if span is None:
-            # Do not destroy a complete actor line merely because Whisper
-            # made a small recognition error.  This is a safety stop only:
-            # strict transcription remains failed and the take is still
-            # retained/flagged by the caller.
             probable = likely_dialogue_span(chunks, expected)
-            if probable:
-                return {
-                    'status': 'blocked',
-                    'reason': '严格转写未通过，但识别文本与锁定对白高度相近；为避免误清理，保留原始对白音频',
-                    'dialogue_near_match': probable,
-                    'unverified_dialogue': True,
-                }
-            # The strict gate still fails, but keeping this mixed segment
-            # would leave unknown human speech in the delivered clip. Treat
-            # every recognized speech chunk as unbound when the exact locked
-            # utterance cannot be located; the result remains marked for
-            # review instead of weakening the transcription rule.
-            extras = [chunk for chunk in chunks if chunk.get('text', '').strip()]
+            # A near-match is no longer a reason to keep the whole mixed line.
+            # Align the ASR characters and clean only chunks with no meaningful
+            # overlap with the locked dialogue.  This removes inserted prompt
+            # speech while preserving the actor's correctly aligned words.
+            extras = aligned_unbound_chunks(chunks, expected)
+            if not extras:
+                extras = [chunk for chunk in chunks if chunk.get('text', '').strip()]
             unverified_dialogue = True
+            if probable:
+                near_match = probable
+            else:
+                near_match = None
         else:
             extras = [chunk for index, chunk in enumerate(chunks)
                       if index < span[0] or index >= span[1]
@@ -449,6 +519,26 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
         windows = speech_windows(extras, duration, padding=.08)
     except ValueError as exc:
         return {'status': 'blocked', 'reason': '脚本外语音时间戳不可用：' + str(exc)}
+    # The mouth is already animated for the complete locked dialogue window.
+    # Never replace only its audio: doing so creates an observable lip-sync
+    # failure.  The caller records this gate and routes the take to retake.
+    if expected.strip() and dialogue:
+        raw_windows = speech_windows(extras, duration, padding=0)
+        gate = lip_sync_overlap(raw_windows, dialogue)
+        if gate['status'] == 'blocked':
+            return {'status': 'blocked',
+                    'policy': 'lip_sync_safe_no_audio_only_cleanup',
+                    'reason': gate['reason'],
+                    'lip_sync_gate': gate,
+                    'unverified_dialogue': bool(unverified_dialogue),
+                    'dialogue_near_match': near_match if 'near_match' in locals() else None,
+                    'unbound_chunks': [
+                        {'text': item.get('text', ''),
+                         'timestamp': list(item.get('timestamp', (None, None))),
+                         'source_chunk': item.get('source_chunk'),
+                         'matched_characters': item.get('matched_characters'),
+                         'total_characters': item.get('total_characters')}
+                        for item in extras]}
 
     data = np.asarray(samples, dtype=np.float64)
     if data.ndim == 1:
@@ -565,7 +655,7 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
         checked, rate = sf.read(wav, dtype='float32')
         before = file_hash(source)
         os.replace(candidate, source)
-        return {'status': 'applied', 'policy': 'unbound_speech_center_attenuation',
+        result = {'status': 'applied', 'policy': 'unbound_speech_center_attenuation',
                 'aggressive': bool(aggressive),
                 'makeup_gain_db': makeup_gain_db,
                 'removed_windows': [[round(a, 3), round(b, 3)] for a, b in windows],
@@ -576,6 +666,17 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
                 'audio_peak': float(np.max(np.abs(checked))) if checked.size else 0.0,
                 'duration_seconds': round(duration, 3),
                 'audio_before_cleanup': before_audio.name}
+        if expected.strip() and span is None:
+            result['alignment_cleanup'] = 'character_aligned_unmatched_chunks'
+            result['dialogue_near_match'] = near_match
+            result['unbound_chunks'] = [
+                {'text': item.get('text', ''),
+                 'timestamp': list(item.get('timestamp', (None, None))),
+                 'source_chunk': item.get('source_chunk'),
+                 'matched_characters': item.get('matched_characters'),
+                 'total_characters': item.get('total_characters')}
+                for item in extras]
+        return result
     except (OSError, subprocess.SubprocessError) as exc:
         return {'status': 'blocked', 'reason': '脚本外人声清理未完成，保留原视频：' + str(exc)}
     finally:
