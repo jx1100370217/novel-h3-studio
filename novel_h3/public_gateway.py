@@ -13,7 +13,7 @@ CREDENTIALS = Path(__file__).resolve().parents[1]/'runtime/public-workbench-cred
 
 
 class Gateway(BaseHTTPRequestHandler):
-    # Keep the browser/Cloudflare side of the proxy alive.  The previous
+    # Keep the browser/public-tunnel side of the proxy alive.  The previous
     # HTTP/1.0 default forced a new TCP connection for every three-second
     # progress poll and made navigation feel much slower over the tunnel.
     protocol_version = 'HTTP/1.1'
@@ -109,4 +109,7 @@ class Gateway(BaseHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    ThreadingHTTPServer(('127.0.0.1', 8766), Gateway).serve_forever()
+    # The gateway remains password-protected, but listens on the host's
+    # network interfaces so a LAN client, router port-forward, or Tailscale
+    # Funnel can use the server without a temporary tunnel-specific bind.
+    ThreadingHTTPServer(('0.0.0.0', 8766), Gateway).serve_forever()
