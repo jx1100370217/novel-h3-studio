@@ -13,6 +13,29 @@ from novel_h3.safety import PAUSE, SLICE, check_paused, check_power_cap, user_se
 
 MAX_SPEECH_RETRIES = 3
 AUDIO_QC_TIMEOUT = 300
+DEFAULT_OFFICIAL_SHOT_TIMEOUT_SECONDS = 3600
+
+
+def shot_timeout_seconds(cfg, shot):
+    """Return a model-aware wall-clock budget without killing long H3 shots.
+
+    The official 20-step H3 graph can take substantially longer for longer
+    clips.  Keep the old short budget only for the distilled VDN path; the
+    official path gets a one-hour floor and scales with authored duration.
+    Resource, temperature and power guards remain active during the wait.
+    """
+    policy = cfg.get('resource_policy', {})
+    vdn_enabled = bool(cfg.get('vdn', {}).get('enabled'))
+    configured = int(policy.get(
+        'max_shot_seconds',
+        1500 if vdn_enabled else DEFAULT_OFFICIAL_SHOT_TIMEOUT_SECONDS,
+    ))
+    if vdn_enabled:
+        return max(1500, configured)
+    fps = max(1, int(cfg.get('generation', {}).get('fps', 24)))
+    duration = max(1.0, float(shot.get('frames', 0)) / fps)
+    duration_budget = int(600 + duration * 180)
+    return max(DEFAULT_OFFICIAL_SHOT_TIMEOUT_SECONDS, configured, duration_budget)
 
 
 def run_speech_check(repo, root, take_id):
@@ -148,6 +171,7 @@ def run(root, episode, rework_only=False):
                 print('SUBMITTED', take['id'], take['shot'],
                       'REWORK' if current_rework else 'NORMAL', flush=True)
                 started = time.monotonic()
+                shot_budget = shot_timeout_seconds(cfg, take)
                 while True:
                     check_paused()
                     sample = snapshot()
@@ -155,8 +179,9 @@ def run(root, episode, rework_only=False):
                     log.write(json.dumps(sample) + '\n')
                     if sample['temperature_c'] >= 82 or sample['available_gib'] < 4:
                         raise RuntimeError('生成中资源超出保护阈值：' + json.dumps(sample))
-                    if time.monotonic() - started > 1500:
-                        raise RuntimeError('单镜头超过25分钟，停止生成')
+                    if time.monotonic() - started > shot_budget:
+                        raise RuntimeError(
+                            f'单镜头超过{shot_budget // 60}分钟，停止生成；请检查 ComfyUI 是否卡死')
                     result = sync(root).get(take['id'])
                     if result:
                         write(dest/'status.json', dict(id=take['id'], shot=take['shot'],

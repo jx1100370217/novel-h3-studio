@@ -142,7 +142,7 @@ function guide(main){
 }
 function execution(main){
  const episodes=data.episodes||[];if(!episodes.length){main.append(el('p','尚无可编译的导演分镜。','empty'));return}
- main.append(el('p','这里展示生成前最终送入 VDN-H3 的资产绑定镜头执行单。角色四视图、声音、场景、道具、多人走位和运镜计划必须在同一份记录中。','warn'));
+ main.append(el('p','这里展示生成前最终送入当前 H3 引擎的资产绑定镜头执行单。角色四视图、声音、场景、道具、多人走位和运镜计划必须在同一份记录中。','warn'));
  const controls=el('div',undefined,'row'),episodePicker=el('select'),shotPicker=el('select'),panel=el('div');
  episodes.forEach(ep=>{const option=el('option',displayTitle(ep.title));option.value=ep.id;episodePicker.append(option)});
  function fillShots(){shotPicker.replaceChildren();const ep=episodes.find(item=>item.id===episodePicker.value)||episodes[0];for(const shot of ep.shots){const option=el('option',shot.id+' · '+shot.camera.size+' · '+shot.camera.movement);option.value=shot.id;shotPicker.append(option)}}

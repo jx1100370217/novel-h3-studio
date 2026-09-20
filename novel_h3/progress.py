@@ -157,6 +157,11 @@ def snapshot(root):
     delivery = cfg.get('delivery', generation)
     resolution_label = (f"成片 {delivery.get('width', '—')} × {delivery.get('height', '—')}"
                         f" · 镜头生成 {generation.get('width', '—')} × {generation.get('height', '—')}")
+    video_engine = {
+        'name': 'VDN-H3 Turbo' if cfg.get('vdn', {}).get('enabled') else 'MiniMax H3',
+        'steps': int(generation.get('steps', total_steps)),
+        'generation': generation,
+    }
     from .video_control import next_pending_episode, status as video_status
     # Gate reports are per chapter.  Selecting the newest file globally can
     # surface an obsolete blocker from a completed chapter after the queue has
@@ -182,7 +187,7 @@ def snapshot(root):
                     if blockers else None)
     from .preparation_progress import summary as preparation_summary
     from .rework_queue import snapshot as rework_snapshot
-    return {'video_control': video_activity, 'preparation_progress': preparation_summary(root), 'book_progress': book_progress(root, takes), 'resolution_label': resolution_label, 'updated_at': time.time(), 'paused': PAUSE.exists(),
+    return {'video_control': video_activity, 'preparation_progress': preparation_summary(root), 'book_progress': book_progress(root, takes), 'video_engine': video_engine, 'resolution_label': resolution_label, 'updated_at': time.time(), 'paused': PAUSE.exists(),
             'pause_reason': PAUSE.read_text() if PAUSE.exists() else None,
             'chapter': episode.get('title', '尚无任务'), 'episode': latest['episode'] if latest else None,
             'total': len(episode['shots']), 'completed': len(completed),
