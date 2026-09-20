@@ -35,13 +35,41 @@ def config(root):
 _VISUAL_SPEAKER_RETAKE_TERMS = (
     "说话人", "人物不匹配", "角色不匹配", "画面错", "嘴型", "嘴动",
     "无极在说话", "盘古在说话", "女娲在说话", "人物错", "脸错",
+    "说了对白", "说了对话", "误说", "错用对白", "对白错",
 )
 
 
-def _speaker_visual_retake(note):
+def _speaker_review_correction(note, dialogue=()):
+    """Compile a human review note into a silent, model-safe identity fix."""
+    text = re.sub(r"\s+", "", str(note or ""))
+    explicit_mapping = re.search(r"[\u4e00-\u9fff]{1,8}说了[\u4e00-\u9fff]{1,8}(?:的)?(?:对白|对话)", text)
+    if not text or (not explicit_mapping and not any(term in text for term in _VISUAL_SPEAKER_RETAKE_TERMS)):
+        return None
+    speakers = [str(line.get("speaker", "")).strip() for line in dialogue or []
+                if line.get("kind") != "voiceover" and str(line.get("speaker", "")).strip()]
+    correct = speakers[0] if len(set(speakers)) == 1 else None
+    wrong = None
+    match = re.search(r"([\u4e00-\u9fff]{1,8})说了([\u4e00-\u9fff]{1,8})(?:的)?(?:对白|对话)", text)
+    if match:
+        wrong, mentioned = match.groups()
+        wrong = re.sub(r"^(?:视频中|画面中|镜头中|视频里|画面里|镜头里)", "", wrong)
+        if mentioned in speakers:
+            correct = mentioned
+    if correct and wrong and correct != wrong:
+        return {"wrong_visual_speaker": wrong, "correct_speaker": correct,
+                "reason": "reviewed_speaker_identity_mismatch"}
+    if any(term in text for term in ("人物不匹配", "角色不匹配", "说话人", "嘴型", "嘴动", "画面错", "人物错", "脸错")):
+        if correct:
+            return {"wrong_visual_speaker": "unresolved_visible_subject", "correct_speaker": correct,
+                    "reason": "reviewed_speaker_identity_mismatch"}
+        return {"wrong_visual_speaker": "unresolved_visible_subject", "correct_speaker": None,
+                "reason": "reviewed_speaker_identity_mismatch"}
+    return None
+
+
+def _speaker_visual_retake(note, dialogue=()):
     """Whether a review requires a structural visual speaker correction."""
-    text = str(note or "").replace(" ", "")
-    return any(term in text for term in _VISUAL_SPEAKER_RETAKE_TERMS)
+    return _speaker_review_correction(note, dialogue) is not None
 
 
 def _retake_shot_contract(shot, rework_item):
@@ -53,11 +81,12 @@ def _retake_shot_contract(shot, rework_item):
     declared speaker the only fully visible face and hides the listener's
     face behind one bound shoulder/back-of-head.
     """
-    if not rework_item or not _speaker_visual_retake(rework_item.get("note")):
+    dialogue = shot.get("dialogue") or []
+    correction = _speaker_review_correction(rework_item.get("note"), dialogue) if rework_item else None
+    if not rework_item or not correction:
         return copy.deepcopy(shot)
     result = copy.deepcopy(shot)
-    dialogue = result.get("dialogue") or []
-    speaker = dialogue[0].get("speaker") if dialogue else ""
+    speaker = correction.get("correct_speaker") or (dialogue[0].get("speaker") if dialogue else "")
     result["speaker_focus_mode"] = "speaker_dominant"
     result["speaker_focus_name"] = speaker
     camera = dict(result.get("camera") or {})
@@ -69,8 +98,10 @@ def _retake_shot_contract(shot, rework_item):
         "speaker": speaker,
         "listener_face": "hidden",
         "listener": "one bound rear shoulder or back-of-head only",
-        "reason": str(rework_item.get("note") or "").strip(),
+        "reason": correction["reason"],
+        "wrong_visual_speaker": correction.get("wrong_visual_speaker"),
     }
+    result["speaker_review_correction"] = correction
     return result
 
 
@@ -263,7 +294,7 @@ def fingerprint(root, episode, shot, previous_fingerprint=None, review_note=None
                "resolved_prompt": h3_prompt(prompt_shot, cfg["style"])}
     # Keep ordinary historical fingerprints byte-compatible. The additional
     # contract is part of the fingerprint only for a real user retake.
-    if shot.get("retake_visual_contract") or _speaker_visual_retake(review_note):
+    if shot.get("retake_visual_contract") or _speaker_visual_retake(review_note, shot.get("dialogue", [])):
         payload["retake_visual_contract"] = (shot.get("retake_visual_contract")
                                               or "speaker_dominant")
     if review_note:
@@ -278,6 +309,14 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
     if observed_handoff:
         prompt_shot["handoff_in"] = observed_handoff
     model_prompt = h3_prompt(prompt_shot, cfg["style"])
+    unresolved_events = [event for event in asset_package.get("dialogue_event_bindings", [])
+                         if event.get("binding_status") == "unresolved"]
+    if unresolved_events:
+        labels = ", ".join(event.get("event_id", "D?") for event in unresolved_events)
+        raise ValueError(f"对白事件缺少完整角色图片/参考音频绑定：{labels}")
+    correction = _speaker_review_correction(shot.get("review_note"), shot.get("dialogue", []))
+    if correction and shot.get("speaker_focus_mode") != "speaker_dominant":
+        raise ValueError("说话人纠错重拍必须启用 speaker-dominant 构图，禁止沿用双人正面镜头")
     execution_sheet = {
         **asset_package,
         "schema": "h3_asset_bound_execution_v5",
@@ -316,10 +355,14 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
             "diegetic_only_audio": not bool(shot.get("dialogue")),
             "professional_camera_execution_present": bool(asset_package.get("camera_execution")),
             "retake_review_note_injected": bool(shot.get("review_note")),
+            "speaker_event_binding_version": 1,
+            "speaker_review_correction_compiled": bool(correction),
         },
     }
     if shot.get("review_note"):
         execution_sheet["retake_review_note"] = shot["review_note"]
+    if correction:
+        execution_sheet["speaker_review_correction"] = correction
     if persist:
         path = Path(root) / "execution_sheets" / episode["id"] / f"{shot['id']}.json"
         write(path, execution_sheet)
@@ -502,6 +545,49 @@ def current_takes(root, episode):
         except (OSError, ValueError, TypeError):
             return False
 
+    def is_migrated_bound_take(take, shot):
+        """Accept a rendered take whose persisted fingerprint predates a
+        prompt-contract migration, provided its reviewable execution sheet
+        and media are already on the current binding schema.
+
+        Fingerprints include the compiled prompt and asset package.  A global
+        prompt migration therefore changes the calculated value even when the
+        existing video was already rebuilt and its execution sheet was
+        migrated.  Treating such a take as missing causes the serial worker to
+        restart at the first old shot after every migration.
+        """
+        if take.get("status") not in ("rendered", "approved") or not take.get("video"):
+            return False
+        try:
+            if file_hash(inside(root, take["video"])) != take.get("video_sha256"):
+                return False
+            sheet = read(root / "renders" / str(take.get("id", "")) / "h3_execution_sheet.json")
+        except (OSError, ValueError, TypeError, KeyError):
+            return False
+        if (sheet.get("schema") != "h3_asset_bound_execution_v5"
+                or sheet.get("episode_id") != episode["id"]
+                or sheet.get("shot_id") != shot["id"]):
+            return False
+        expected_dialogue = [{k: line.get(k) for k in ("kind", "speaker", "text")}
+                             for line in shot.get("dialogue", [])]
+        assigned = [{k: line.get(k) for k in ("kind", "speaker", "text")}
+                    for line in take.get("assigned_dialogue", [])]
+        if assigned != expected_dialogue:
+            return False
+        quality = sheet.get("quality_gate", {})
+        if quality.get("speaker_event_binding_version") != 1:
+            return False
+        if shot.get("dialogue"):
+            prompt_path = root / "renders" / str(take.get("id", "")) / "prompt.json"
+            try:
+                prompt = read(prompt_path)
+                prompt_text = json.dumps(prompt, ensure_ascii=False)
+            except (OSError, ValueError, TypeError):
+                return False
+            if "DIALOGUE_EVENT_BINDING_LOCK" not in prompt_text:
+                return False
+        return True
+
     for shot in episode["shots"]:
         prev_hash = digest({"take": previous["id"], "video": previous.get("video_sha256"), "observed_handoff": previous.get("observed_handoff_out")}) if shot["continuity"] == "continue" and previous else None
         fp = fingerprint(root, episode, shot, prev_hash)
@@ -554,6 +640,17 @@ def current_takes(root, episode):
                 retained.append(take)
             retained.sort(key=lambda x: x.get("created_at", 0))
             candidates = retained[-1:]
+        if not candidates:
+            # A migrated execution sheet is authoritative for an already
+            # rendered take even when its old state fingerprint was calculated
+            # before the current prompt contract.  This preserves book order
+            # and prevents duplicate renders after a global migration.
+            migrated = [t for t in state["takes"].values()
+                        if not t.get("retired") and t.get("episode") == episode["id"]
+                        and t.get("shot") == shot["id"]
+                        and is_migrated_bound_take(t, shot)]
+            migrated.sort(key=lambda x: x.get("created_at", 0))
+            candidates = migrated[-1:]
         candidates.sort(key=lambda x: x["created_at"])
         take = candidates[-1] if candidates else None
         result.append((shot, fp, take))
@@ -689,6 +786,7 @@ def submit_next(root, episode_id, preview=False, independent_cuts=False, check_p
                     "width": cfg["generation"]["width"], "height": cfg["generation"]["height"]}}
             take['actual_seed'] = generation_shot['seed']
             take['speech_retry_attempt'] = retries
+            take['speaker_event_binding_version'] = 1
             from .voices import bindings
             take["speech_bindings"] = bindings(root, generation_shot)
             # The generation path may place the scene plate first in the H3

@@ -291,6 +291,33 @@ def h3_prompt(shot, style):
             "hide the listener's face completely, do not show listener lips, and do not create a second frontal face. "
             "Do not change the bound speaker, voice reference, costume, scene or dialogue.\n"
         )
+    dialogue_events = package.get("dialogue_event_bindings", [])
+    if dialogue_events:
+        intro += (
+            "DIALOGUE_EVENT_BINDING_LOCK (silent production metadata only; never speak, subtitle, quote, paraphrase "
+            "or vocalize this table): each event below has one immutable visual mouth owner and one matching voice reference.\n"
+        )
+        for event in dialogue_events:
+            if event.get("kind") == "voiceover":
+                intro += (
+                    f"- {event['event_id']} at {timestamp(event.get('start_frame', 0) + offset)}-"
+                    f"{timestamp(event.get('end_frame', 0) + offset)}: offscreen narrator, "
+                    f"{event.get('audio_label') or 'no visual subject'}, mouth_owner=none; no visible character may lip-sync.\n"
+                )
+                continue
+            intro += (
+                f"- {event['event_id']} at {timestamp(event.get('start_frame', 0) + offset)}-"
+                f"{timestamp(event.get('end_frame', 0) + offset)}: speaker={event['speaker']}; "
+                f"visual_subject={event['subject_label']}; visual_picture={event['picture_label']}; "
+                f"voice_reference={event['audio_label']}; mouth_owner={event['subject_label']}; "
+                "the voice reference cannot authorize another face or body.\n"
+            )
+        if len(dialogue_events) and len(package.get("visual_assets", [])) > 1:
+            intro += (
+                "For every speaking event, the assigned visual picture is the only fully visible moving mouth. "
+                "Keep all listener faces rear-facing, occluded or outside the focal plane with closed lips; never show two "
+                "full frontal faces competing for the same dialogue. Do not infer the speaker from audio, position or costume.\n"
+            )
     if shot.get("visual_narration"):
         intro += "Source prose is used only by the human storyboard and is intentionally omitted from the model prompt.\n"
     cast = [item for item in package_visuals if item["kind"] == "character"]

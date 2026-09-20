@@ -88,7 +88,7 @@ def _camera_execution(shot, cast, audio):
         f"Use a {rig} with a {camera.get('lens_mm', 50)}mm lens at eye level relative to the primary subject. "
         f"Start: {start_composition}. Execute one {path} on {axis}, extent {extent}; "
         f"{'ease in over 12 frames, maintain an even physical speed, then ease out over the final 12 frames' if moving else 'no translation, rotation, zoom, roll or stabilization drift'}. "
-        f"Focus: {focus}. End: {end_composition}. The move is motivated by: {camera.get('motivation', '')}. "
+        f"Focus: {focus}. End: {end_composition}. "
         "No unmotivated zoom, whip pan, orbit, drone rise, floating camera, axis crossing or mid-shot lens change."
     )
     return {
@@ -163,6 +163,49 @@ def compile_package(root, shot, visual_assets, speech_bindings):
     speaking_names = {binding["speaker"] for binding in audio}
     listeners = [item["name"] for item in cast if item["name"] not in speaking_names]
     props = [item for item in visuals if item["kind"] == "prop"]
+    picture_by_asset = {item["asset_id"]: item["picture_label"] for item in visuals}
+    subject_by_asset = {item["asset_id"]: item["subject_label"] for item in visuals}
+    audio_by_speaker = {item["speaker"]: item for item in audio}
+    dialogue_events = []
+    for index, line in enumerate(shot.get("dialogue", []), 1):
+        speaker = str(line.get("speaker", ""))
+        binding = audio_by_speaker.get(speaker)
+        if line.get("kind") == "voiceover":
+            dialogue_events.append({
+                "event_id": f"D{index}", "kind": "voiceover", "speaker": speaker,
+                "text": line.get("text", ""), "start_frame": line.get("start_frame"),
+                "end_frame": line.get("end_frame"), "audio_label": binding.get("audio_label") if binding else None,
+                "visual_subject": "offscreen narrator", "visual_picture": None,
+                "mouth_owner": "none",
+            })
+            continue
+        if not binding or not binding.get("asset_id"):
+            dialogue_events.append({
+                "event_id": f"D{index}", "kind": line.get("kind", "dialogue"), "speaker": speaker,
+                "text": line.get("text", ""), "start_frame": line.get("start_frame"),
+                "end_frame": line.get("end_frame"), "binding_status": "unresolved",
+                "mouth_owner": "unresolved",
+            })
+            continue
+        asset_id = binding["asset_id"]
+        picture = picture_by_asset.get(asset_id)
+        subject = subject_by_asset.get(asset_id)
+        if not picture or not subject:
+            dialogue_events.append({
+                "event_id": f"D{index}", "kind": line.get("kind", "dialogue"), "speaker": speaker,
+                "text": line.get("text", ""), "start_frame": line.get("start_frame"),
+                "end_frame": line.get("end_frame"), "binding_status": "unresolved",
+                "mouth_owner": "unresolved",
+            })
+            continue
+        dialogue_events.append({
+            "event_id": f"D{index}", "kind": line.get("kind", "dialogue"), "speaker": speaker,
+            "asset_id": asset_id, "subject_label": subject, "picture_label": picture,
+            "audio_label": binding["audio_label"], "speaker_label": binding["speaker_label"],
+            "text": line.get("text", ""), "start_frame": line.get("start_frame"),
+            "end_frame": line.get("end_frame"), "mouth_owner": subject,
+            "listener_lips": "closed_and_occluded" if len(cast) > 1 else "closed",
+        })
     # Keep visual identity, speaking role, picture ordinal and voice ordinal in
     # one immutable table.  H3 receives multiple reference images and can
     # otherwise satisfy the prose instruction with the wrong face or by
@@ -258,6 +301,10 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "unregistered_humans_allowed": False if shot.get("dialogue") else True,
             "over_shoulder_foreground_listener_only": over_shoulder,
             "blocking_source": shot.get("action"),
+            "dialogue_event_bindings": dialogue_events,
+            "speaker_face_ownership": "one_event_one_bound_picture",
+            "listener_face_policy": ("rear_or_occluded; no full frontal listener face during a speaking event"
+                                      if shot.get("dialogue") and len(cast) > 1 else "closed_lips"),
         },
         "prop_contract": {
             "count": len(props),
@@ -266,6 +313,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
         },
         "dialogue": [{key: line.get(key) for key in ("kind", "speaker", "text", "start_frame", "end_frame")}
                      for line in shot.get("dialogue", [])],
+        "dialogue_event_bindings": dialogue_events,
         "audio_policy": "dialogue_and_diegetic_sfx" if shot.get("dialogue") else "diegetic_only",
         "visual_narration_policy": {
             "used_for_storyboard_only": bool(shot.get("visual_narration")),
@@ -281,6 +329,8 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "Do not add an unbound character, prop, readable text, line of dialogue or sound source.",
             "A multi-character interaction stays in one physical composition; do not replace it with isolated solo portraits.",
             "The total visible human-body count equals the bound cast count; a foreground shoulder is part of its bound listener, never a new subject.",
+            "Every dialogue event has exactly one visual mouth owner and one matching reference audio; never infer a mouth owner from the voice alone.",
+            "During a speaking event, the assigned picture is the only fully visible moving mouth; listener faces are rear-facing, occluded or closed-lipped.",
             "The scene anchor is the exclusive background plate and has highest visual priority; never import a character-reference background.",
             character_policy,
         ],

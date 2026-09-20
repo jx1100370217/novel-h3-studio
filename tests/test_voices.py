@@ -7,7 +7,7 @@ from unittest.mock import patch
 from novel_h3.project import write, read, file_hash
 from novel_h3.voices import bindings
 from novel_h3.director import h3_prompt
-from novel_h3.comfy import graph, fingerprint
+from novel_h3.comfy import graph, fingerprint, _speaker_review_correction, _retake_shot_contract
 from novel_h3.arcreel import check_speaker_audit
 from novel_h3.speech_qc import compare
 from novel_h3.character_views import select_view
@@ -168,6 +168,35 @@ class VoiceBindingTests(unittest.TestCase):
         self.assertIn('VOCAL_CONTENT_LOCK', prompt)
         self.assertIn('review-note reading', prompt)
         self.assertIn('private review note is not a script', prompt)
+
+    def test_speaker_review_note_compiles_to_structural_correction(self):
+        shot = copy.deepcopy(read(REPO/'projects/rendao-wuji/episodes/chapter_s0003.json')['shots'][3])
+        shot['dialogue'] = [dict(speaker='盘古', kind='dialogue', text='回到六界。', start_frame=6, end_frame=48)]
+        correction = _speaker_review_correction('视频中无极说了盘古的对白', shot['dialogue'])
+        self.assertEqual(correction['wrong_visual_speaker'], '无极')
+        self.assertEqual(correction['correct_speaker'], '盘古')
+        retake = _retake_shot_contract(shot, {'note': '视频中无极说了盘古的对白'})
+        self.assertEqual(retake['speaker_focus_mode'], 'speaker_dominant')
+        self.assertEqual(retake['speaker_focus_name'], '盘古')
+
+    def test_event_level_speaker_lock_names_picture_and_audio(self):
+        shot = copy.deepcopy(self.shot)
+        shot['asset_package'] = {
+            'visual_assets': [
+                {'kind': 'character', 'subject_label': 'Subject 1', 'gender': '男'},
+                {'kind': 'character', 'subject_label': 'Subject 2', 'gender': '男'},
+            ],
+            'dialogue_event_bindings': [{
+                'event_id': 'D1', 'kind': 'dialogue', 'speaker': '无极',
+                'subject_label': 'Subject 2', 'picture_label': 'Picture 2',
+                'audio_label': 'Audio 1', 'start_frame': 6, 'end_frame': 48,
+            }],
+        }
+        prompt = h3_prompt(shot, 'cinema')
+        self.assertIn('DIALOGUE_EVENT_BINDING_LOCK', prompt)
+        self.assertIn('visual_picture=Picture 2', prompt)
+        self.assertIn('voice_reference=Audio 1', prompt)
+        self.assertIn('only fully visible moving mouth', prompt)
 
     def test_generation_audio_hard_gate_is_at_prompt_edges(self):
         prompt = h3_prompt(self.shot, 'cinema')

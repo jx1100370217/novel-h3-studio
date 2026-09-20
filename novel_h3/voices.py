@@ -9,6 +9,11 @@ def bindings(root, shot):
         return []
     if shot.get("mode") != "ref2va":
         raise ValueError("有对白的镜头必须使用支持声音参考的 Ref2VA")
+    cfg_path = Path(root) / "config.json"
+    cfg = read(cfg_path) if cfg_path.exists() else {}
+    if cfg.get("speech_policy", {}).get("dialogue_only") and any(
+            line.get("kind") == "voiceover" for line in lines):
+        raise ValueError("当前项目旁白仅作画面参考，禁止绑定旁白声音")
     bank = read(Path(root) / "bible/voices.json")
     inventory_path = Path(root) / "bible/assets.json"
     characters = read(inventory_path).get("characters", {}) if inventory_path.exists() else None
