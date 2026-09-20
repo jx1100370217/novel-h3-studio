@@ -1,17 +1,54 @@
-# FastVideo FastH3-8-Step-V2 接入说明
+# FastVideo FastH3-8-Step-V2 ComfyUI 基准
 
-工作台保留生产用 VDN-H3 Turbo，并新增隔离的 FastVideo FastH3-8-Step-V2 基准路径。基准路径使用官方 FastVideo-FastH3-Comfy 提供的 INT8 convrot 权重，通过同一套 H3 音视频解码和保存节点执行；它不修改生产配置、镜头指纹或已生成视频。
+本项目保留 FastH3-8-Step-V2 的 **ComfyUI 兼容基准路径**，用于和当前生产引擎做同一镜头的速度对比。官方 VSA-H3 runner、Diffusers 多分片快照和 Triton 运行入口已移除；当前生产队列不会调用 FastH3。
 
-同时接入了官方 FastVideo/VSA-H3 runner：`novel_h3/fastvideo_runner.py` 与 `scripts/run_fasth3_official.py`。runner 使用 FastVideo 的 `VideoGenerator`、VSA-H3 attention backend、DMD 8-step schedule、显存采样和 MP4 输出回写。启动前会严格检查 Diffusers 目录、三组权重索引、所有 shard 和 `checkpoint_content.json`；Comfy 单文件 repack 或未完成下载会直接阻止运行，避免把兼容路径误标成官方后端。
+## 权重来源
 
-FastH3-8-Step-V2 官方蒸馏配方是 T2AV，视频调度偏移 10、音频调度偏移 3、8 次 transformer 前向。当前小说镜头是 Ref2VA，因此基准会取同一镜头的动作描述、运镜、分辨率、帧数和种子，改成不发送参考图的 T2AV 等效请求，只比较生成速度。这个对比不能作为 Ref2VA 画面质量等价结论；生产路径仍使用 VDN-H3。
+- 原始模型：[FastVideo/FastVideo-FastH3-8-Step-V2](https://huggingface.co/FastVideo/FastVideo-FastH3-8-Step-V2)
+- ComfyUI 兼容文件：[FastVideo/FastVideo-FastH3-Comfy](https://huggingface.co/FastVideo/FastVideo-FastH3-Comfy)
+- 本基准需要的文件：`diffusion_models/fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors`
 
-基准结果写入 `projects/rendao-wuji/benchmarks/fasth3/<镜头>/`，包括两份视频、执行单、原始 Comfy prompt、单项耗时和 `comparison.json`。切换模型前必须暂停视频队列并重启 ComfyUI，避免模型缓存污染；基准完成后再次重启 ComfyUI，再恢复生产队列。
+下载到 ComfyUI 根目录：
 
-权重文件：`comfyui-minimax-h3/models/diffusion_models/fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors`。FastVideo 原仓库仅作为实现和版本来源登记在 `config.json`，不把原始约 148GB 模型快照复制到生产目录。
+```bash
+hf download FastVideo/FastVideo-FastH3-Comfy \
+  diffusion_models/fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors \
+  --local-dir /home/jx/codes/comfyui-minimax-h3
+```
 
-## RTX 5090 官方 VSA 候选路径
+该单文件是原始 FastH3-8-Step-V2 的 ComfyUI repack，不是官方 VSA Diffusers 快照。基准复用当前 ComfyUI 已安装的 H3 文本编码器、音频 VAE、视频 VAE、Motion Context 和保存节点。
 
-不能把 RTX 5090 判定为“官方后端不支持”。FastVideo 官方卸载文档明确建议单 GPU 使用 `dit_layerwise_offload`，模型不适合一次性加载时使用 `lazy_module_load`；FastH3 配方文档也明确指出，没有 `sm100a` 扩展时可以使用 `--vsa-kernel triton`。本机的 runner 已切换为这一组合：单卡、`sp_size=1`、VSA tile 64、稀疏度 0.8、Triton、DiT 层级卸载、惰性组件加载、关闭 FA4/编译融合。
+## 运行方式
 
-当前尚未执行官方 VSA 生成，是因为本机的官方模型目录仍缺少 `checkpoint_content.json`、Transformer/Text Encoder/VAE 权重索引及对应完整 shards。官方快照的权重文件约 148GB，且本机是 32GiB 显存、61GiB 物理内存；这说明“当前无法完成可靠的官方 smoke test”，不等同于“RTX 5090 硬件绝对跑不了”。补齐完整 Diffusers 快照并确认 FastVideo CUDA 依赖后，才可以进行真实单镜头测试。
+项目配置中的 `fastvideo` 段只用于基准，不会切换生产引擎：
+
+```json
+{
+  "model_filename": "fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors",
+  "model_variant": "int8_convrot",
+  "production_enabled": false,
+  "input_mode": "fl2va",
+  "scheduler_shift_video": 10.0,
+  "scheduler_shift_audio": 3.0
+}
+```
+
+运行前暂停视频 worker，确保 ComfyUI 队列为空；运行后重新启动生产服务：
+
+```bash
+python3 scripts/run_fasth3_benchmark.py \
+  --project /absolute/project/path \
+  --episode chapter_s0004 \
+  --shots C4D001,C4D002,C4D003 \
+  --case fast
+```
+
+基准会把镜头转换为 FastH3 可接受的无参考图文本输入，只比较同一镜头的文本、帧数、分辨率和种子下的速度；不能把结果当作生产 Ref2VA 画面质量等价结论。输出写入项目 `benchmarks/fasth3/`，不纳入 Git。
+
+## 预检
+
+```bash
+python3 studio.py --project /absolute/project/path doctor
+```
+
+预检需要确认 ComfyUI 可达、`fastvideo` 单文件存在、基础 H3 节点和 VAE 可用。FastH3 基准只走 ComfyUI 兼容 graph；项目不再检查或加载官方 VSA 权重、Triton kernel 或 FastVideo Python runtime。

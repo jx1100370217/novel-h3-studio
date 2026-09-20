@@ -206,20 +206,20 @@ hf download Qwen/Qwen2.5-Omni-7B \
 
 首次分析约需要 18 GiB 可用显存。视频推理正在占用本项目显卡时，工作台会阻止并行音频分析，避免把显存打满。完整说明见 [`docs/本地音频理解.md`](docs/本地音频理解.md)。
 
-### 5. FastVideo（可选基准，不是默认生产引擎）
+### 5. FastVideo FastH3-8-Step-V2（可选 ComfyUI 速度基准）
 
-FastVideo 官方仓库：[hao-ai-lab/FastVideo](https://github.com/hao-ai-lab/FastVideo)；模型页：[FastVideo-FastH3-8-Step-V2](https://huggingface.co/FastVideo/FastVideo-FastH3-8-Step-V2)。本项目保留了官方 VSA-H3/Triton 的隔离 runner 和对比脚本，但默认生产仍使用 VDN-H3，因为官方 Diffusers 快照很大，且 FastH3 路径和当前 Ref2VA 资产绑定路径不是同一种输入条件。
+工作台保留的是 **FastH3-8-Step-V2 的 ComfyUI 兼容路径**，不包含官方 VSA-H3 runner。兼容权重由官方模型页转换为 ComfyUI 单文件格式，来源仍是 [FastVideo/FastVideo-FastH3-8-Step-V2](https://huggingface.co/FastVideo/FastVideo-FastH3-8-Step-V2)，可从 [FastVideo/FastVideo-FastH3-Comfy](https://huggingface.co/FastVideo/FastVideo-FastH3-Comfy) 获取。
 
-只有在准备好完整官方权重、FastVideo 依赖和足够磁盘后才运行基准：
+下载 ComfyUI 基准需要的 INT8 ConvRot 视频模型：
 
 ```bash
-git clone https://github.com/hao-ai-lab/FastVideo.git vendor/FastVideo
-hf download FastVideo/FastVideo-FastH3-8-Step-V2 \
-  --local-dir /absolute/path/to/FastVideo-FastH3-8-Step-V2
+hf download FastVideo/FastVideo-FastH3-Comfy \
+  diffusion_models/fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors \
+  --local-dir "$COMFY_ROOT"
 python3 scripts/run_fasth3_benchmark.py --help
 ```
 
-不要把 FastVideo 的模型快照复制到本仓库；基准结果应写入项目的 `benchmarks/`，该目录属于生成数据，不上传 Git。详细限制和官方 VSA 运行条件见 [`docs/FastVideo基准接入.md`](docs/FastVideo基准接入.md)。
+它使用现有 ComfyUI 的 H3 文本编码器、音频 VAE、视频 VAE 和保存节点，只把视频扩散模型替换为 FastH3 兼容单文件；不改变生产配置、镜头指纹或已生成视频。基准结果写入项目的 `benchmarks/`，该目录属于生成数据，不上传 Git。详细说明见 [`docs/FastVideo基准接入.md`](docs/FastVideo基准接入.md)。
 
 ## 四、启动服务并做环境自检
 

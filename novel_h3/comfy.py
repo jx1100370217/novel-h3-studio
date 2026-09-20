@@ -105,14 +105,6 @@ def doctor(root):
                 "scheduler_shift_audio": fast.get("scheduler_shift_audio"),
                 "vsa": fast.get("vsa"),
             }
-            # Keep the official FastVideo runner's strict preflight visible in
-            # the workbench diagnostics without importing or loading a model.
-            try:
-                from .fastvideo_runner import preflight as fastvideo_preflight
-                result["fastvideo_official"] = fastvideo_preflight(Path(root))
-            except (OSError, ValueError, TypeError) as exc:
-                result["fastvideo_official"] = {"backend": "fastvideo_vsa_h3", "ready": False,
-                                                  "error": str(exc)}
         result["missing_nodes"] = [n for n in required if n not in info]
         for folder, key in (("diffusion_models", "fl2va"), ("diffusion_models", "ref2va"),
                             ("text_encoders", "clip"), ("vae", "video_vae"), ("vae", "audio_vae")):
