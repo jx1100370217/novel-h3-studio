@@ -83,6 +83,94 @@ def _live_comfy_text(active):
     return '\n'.join(chunks), 'journal' if chunks else 'none'
 
 
+def _parallel_preparation(root):
+    """Expose targeted preparation batches launched outside the serial worker."""
+    manifest_path = root / 'analysis' / 'parallel_preparation.json'
+    if not manifest_path.is_file():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    jobs = []
+    for key, raw in (manifest.get('chapters') or {}).items():
+        raw = raw if isinstance(raw, dict) else {}
+        pid = raw.get('pid')
+        try:
+            proc_cmdline = Path(f'/proc/{pid}/cmdline').read_bytes() if pid else b''
+        except OSError:
+            proc_cmdline = b''
+        alive = bool(proc_cmdline and (b'codex' in proc_cmdline or b'preparation_worker.py' in proc_cmdline))
+        events_rel = raw.get('events')
+        result_rel = raw.get('result')
+        events_path = root / events_rel if events_rel else None
+        result_path = root / result_rel if result_rel else None
+        last_event = None
+        if events_path and events_path.is_file():
+            try:
+                for line in reversed(events_path.read_bytes()[-131072:].splitlines()):
+                    try:
+                        event = json.loads(line.decode('utf-8', errors='replace'))
+                    except json.JSONDecodeError:
+                        continue
+                    item = event.get('item', event) if isinstance(event, dict) else {}
+                    text = item.get('title') or item.get('text') or item.get('type') or event.get('type', '')
+                    if item.get('type') == 'command_execution' and item.get('command'):
+                        state = '执行中' if item.get('status') == 'in_progress' else '已完成'
+                        text = f"{state}：{item['command']}"
+                    if text:
+                        last_event = str(text).replace('\n', ' ')[:240]
+                        break
+            except OSError:
+                pass
+        result_bytes = result_path.stat().st_size if result_path and result_path.is_file() else 0
+        status = 'running' if alive else ('completed' if result_bytes else 'stopped')
+        jobs.append({
+            'chapter': key,
+            'episode': raw.get('episode', 'chapter_' + key),
+            'pid': pid,
+            'status': status,
+            'status_label': {'running': '运行中', 'completed': '已完成', 'stopped': '已停止'}.get(status, status),
+            'batch_dir': raw.get('batch_dir'),
+            'events': events_rel,
+            'result': result_rel,
+            'events_bytes': events_path.stat().st_size if events_path and events_path.is_file() else 0,
+            'result_bytes': result_bytes,
+            'events_updated_at': events_path.stat().st_mtime if events_path and events_path.is_file() else None,
+            'last_event': last_event,
+        })
+    return {
+        'status': 'running' if any(job['status'] == 'running' for job in jobs) else 'idle',
+        'started_at': manifest.get('started_at'),
+        'policy': manifest.get('policy'),
+        'jobs': jobs,
+    }
+
+
+def _preparation_targets(root, parallel):
+    from .preparation_control import status as preparation_status
+    book = read(root / 'book.json')
+    parallel_by_episode = {job['episode']: job for job in (parallel or {}).get('jobs', [])}
+    targets = []
+    for chapter in book.get('chapters', []):
+        if chapter.get('kind') != 'story':
+            continue
+        episode = 'chapter_' + chapter['id']
+        activity = preparation_status(root, episode)
+        parallel_job = parallel_by_episode.get(episode)
+        if parallel_job and parallel_job.get('status') == 'running':
+            activity = dict(activity, status='running', worker_alive=True,
+                            message='定向并行准备任务正在运行。', parallel=True,
+                            pid=parallel_job.get('pid'))
+        targets.append({'episode': episode, 'title': chapter.get('title', episode),
+                        'status': activity.get('status', 'paused'),
+                        'worker_alive': bool(activity.get('worker_alive')),
+                        'message': activity.get('message'),
+                        'parallel': bool(activity.get('parallel'))})
+    return targets
+
+
 def book_progress(root, takes):
     chapters = read(root / 'book.json')['chapters']
     latest = {}
@@ -187,7 +275,8 @@ def snapshot(root):
                     if blockers else None)
     from .preparation_progress import summary as preparation_summary
     from .rework_queue import snapshot as rework_snapshot
-    return {'video_control': video_activity, 'preparation_progress': preparation_summary(root), 'book_progress': book_progress(root, takes), 'video_engine': video_engine, 'resolution_label': resolution_label, 'updated_at': time.time(), 'paused': PAUSE.exists(),
+    parallel_preparation = _parallel_preparation(root)
+    return {'video_control': video_activity, 'preparation_progress': preparation_summary(root), 'parallel_preparation': parallel_preparation, 'preparation_targets': _preparation_targets(root, parallel_preparation), 'book_progress': book_progress(root, takes), 'video_engine': video_engine, 'resolution_label': resolution_label, 'updated_at': time.time(), 'paused': PAUSE.exists(),
             'pause_reason': PAUSE.read_text() if PAUSE.exists() else None,
             'chapter': episode.get('title', '尚无任务'), 'episode': latest['episode'] if latest else None,
             'total': len(episode['shots']), 'completed': len(completed),

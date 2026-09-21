@@ -185,16 +185,16 @@ def select_view(shot, ref, speech_bindings=None):
         return "back", "camera_or_blocking_rear"
     if any(word in combined for word in ("profile", "side view", "侧面", "侧脸")):
         return "side", "camera_or_blocking_profile"
-    if "over-the-shoulder" in combined or "过肩" in combined:
+    if ("over-the-shoulder" in combined or "过肩" in combined
+            or "rear shoulder" in combined or "back-of-head" in combined):
         speakers = {item.get("asset_id") for item in (speech_bindings or [])}
         if ref.get("asset_id") not in speakers:
-            # A back-only reference is not a reliable identity anchor: for
-            # 无极 it contains long hair, white robes and a hair ornament but
-            # no masculine facial/body cues, so H3 can turn the listener into
-            # an unregistered-looking woman.  Use the approved front view to
-            # lock identity, while the shot prompt still requires only the
-            # listener's rear shoulder/back to be visible in the composition.
-            return "front", "over_shoulder_listener_front_identity_anchor"
+            # The listener is rendered as a partial rear shoulder/back in an
+            # over-the-shoulder shot. Sending a front image here creates a
+            # contradictory identity/composition instruction and lets H3
+            # invent a second or gender-swapped listener. Bind the actual
+            # approved back view so the image and blocking describe one body.
+            return "back", "over_shoulder_listener_rear_identity_anchor"
         return "front", "over_shoulder_speaker_facing_camera"
     if any(word in combined for word in ("close-up", "close up", "extreme close", "特写", "近景")):
         return "face", "camera_closeup"

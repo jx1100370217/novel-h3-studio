@@ -68,7 +68,10 @@ def generation_audio_contract(shot):
         "GENERATION_AUDIO_HARD_GATE (highest priority; fail closed): This shot has no dialogue. The human-voice "
         "allowlist is empty: output no narration, voiceover, names, labels, commentary, prompt reading, reference "
         "transcript, lyrics, chant, humming, filler or language-like syllables. Use only non-verbal diegetic effects "
-        "from the soundscape cues; if uncertain, remain silent rather than inventing a voice."
+        "from the soundscape cues; if uncertain, remain silent rather than inventing a voice. Every bound character "
+        "in this shot is a silent visual body only: keep the mouth closed or neutrally at rest, do not lip-sync, mouth "
+        "words, whisper, react with speech or read any asset metadata. A reference picture or reference audio is not "
+        "permission to speak in a no-dialogue shot."
     )
 
 
@@ -265,6 +268,13 @@ def h3_prompt(shot, style):
                     f"{row['picture_label']} -> {row['audio_label']}; "
                     "the voice reference cannot authorize a different face or body, and no other subject may speak.\n"
                 )
+        for item in (item for item in identity_bindings if item.get("role") == "listener"):
+            view = item.get("selected_character_view_label") or item.get("selected_character_view") or "approved independent view"
+            intro += (
+                f"- LISTENER_LOCK: {item['name']} -> {item['asset_id']} -> {item['picture_label']} -> {view}; "
+                "this is the one silent listener body in the blocking, shown only in the requested rear/occluded framing; "
+                "never reveal a second listener, a frontal face, a mirror, a reflection or a replacement identity.\n"
+            )
         if package.get("character_identity_lock", {}).get("present_time_only"):
             intro += (
                 "PRESENT_TIME INTERACTION LOCK: this is one continuous present-time scene. "
@@ -376,8 +386,15 @@ def h3_prompt(shot, style):
                   "split screen, inset portrait, reflection, twin, clone, mirrored duplicate or second copy of a bound subject.\n")
     intro += character_visibility_policy(len(cast), bool(shot.get("dialogue"))) + "\n"
     if not shot.get("dialogue"):
-        intro += ("This shot contains no spoken words. Do not read or paraphrase any source prose. "
-                  "Use only the diegetic sound brief below; never invent a voice, narration or lyrics.\n")
+        intro += (
+            "NO_DIALOGUE_BOUNDARY (hard visual and audio lock): This shot contains no spoken words and has an empty "
+            "human-voice allowlist. Every registered character is a silent visual subject, not a speaker: keep every "
+            "bound mouth closed or neutrally at rest for the entire shot, with no lip articulation, whisper, chant, "
+            "reaction speech or off-screen voice. Do not read or paraphrase source prose, identity tables, asset labels, "
+            "review notes or reference-audio content. Use only the diegetic sound brief below; preserve thunder, water, "
+            "wind, footsteps and other non-verbal effects, but never shape them into language-like syllables. If any "
+            "human voice is uncertain, output silence for the human-voice layer.\n"
+        )
     if shot.get("dialogue"):
         intro += (
             "VOCAL_CONTENT_LOCK (audio production contract): The only human voice permitted in this shot is the registered "
@@ -391,6 +408,12 @@ def h3_prompt(shot, style):
         intro += ("Only the target words enclosed in <d> may be spoken, exactly once. Never pronounce character names, reference labels, "
                   "reference descriptions or commentary. The listed start and finish times are strict picture-time locks: no speech, "
                   "voiceover, vocal filler or repeated words before the first start, after the last finish, or in any gap between lines.\n")
+        intro += (
+            "SINGLE_PASS_DIALOGUE_LOCK: Each <d> block is one atomic performance. Read its Chinese text left-to-right exactly once, "
+            "without echoing, stuttering, restarting, doubling a clause, repeating a noun, self-correcting, paraphrasing or appending a filler. "
+            "After the final character of the line, stop the human voice immediately. Never use words from the reference-audio sample as a script. "
+            "If timing is tight, keep the exact line and finish once; do not restart the line.\n"
+        )
         if shot.get("id") == "C3P01_03":
             intro += ("This is one complete, single-sentence offscreen voiceover. Treat the clause as finished at the end of this shot; "
                       "speak it once, then output silence for the rest of the shot. Do not continue, repeat, paraphrase or add any words.\n")
@@ -456,9 +479,10 @@ def h3_prompt(shot, style):
                 f" registered visual identity {identity['name']} (asset_id {identity['asset_id']})"
                 if identity else ""
             )
-            if package_ref.get("view_selection_reason") == "over_shoulder_listener_front_identity_anchor":
-                description = (f"exactly one{identity_label} {gender} whose identity and masculine appearance are anchored by the bound independent front view; "
-                               "in this over-the-shoulder composition show only that same character's rear shoulder and back of head, never the face")
+            if package_ref.get("view_selection_reason") == "over_shoulder_listener_rear_identity_anchor":
+                description = (f"exactly one{identity_label} {gender} whose identity is anchored by the bound independent rear view; "
+                               "this is the single silent listener and must appear only as that same character's partial rear shoulder and back of head, "
+                               "never a frontal face, second body, duplicate or new person")
             else:
                 description = f"exactly one{identity_label} {gender} using only the bound independent {view} view"
             lock = ref["lock"] + "; render one instance only, with no duplicate, inset, reflection or clone"

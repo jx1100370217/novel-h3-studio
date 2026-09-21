@@ -305,6 +305,9 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "speaker_face_ownership": "one_event_one_bound_picture",
             "listener_face_policy": ("rear_or_occluded; no full frontal listener face during a speaking event"
                                       if shot.get("dialogue") and len(cast) > 1 else "closed_lips"),
+            "silent_bound_characters": not bool(shot.get("dialogue")),
+            "no_dialogue_mouth_movement": not bool(shot.get("dialogue")),
+            "human_voice_allowlist": sorted(speaking_names),
         },
         "prop_contract": {
             "count": len(props),
@@ -325,6 +328,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "For each character, use only the bound independent view image recorded above; never send or recreate the four-panel master sheet.",
             "Character gender is a locked visual attribute recorded in character_gender_contract; never change it, infer another gender, or vocalize this metadata.",
             "Only bound dialogue and its bound reference audio may produce speech.",
+            "When this shot has no dialogue, the human-voice allowlist is empty: all bound characters are silent visual bodies with closed or neutral mouths, and no reference audio may be emitted.",
             "Preserve screen direction, eyeline, pose, prop state and environment anchors across the declared handoff.",
             "Do not add an unbound character, prop, readable text, line of dialogue or sound source.",
             "A multi-character interaction stays in one physical composition; do not replace it with isolated solo portraits.",

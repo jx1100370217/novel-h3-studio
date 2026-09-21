@@ -174,6 +174,17 @@ def run(root, take_id):
             result['audio_cleanup'] = cleanup
             if cleanup.get('lip_sync_gate'):
                 result['lip_sync_gate'] = cleanup['lip_sync_gate']
+        elif cleanup.get('status') == 'not_applied' and not expected and not heard.strip():
+            # Whisper found no words and no timed speech spans. Preserve the
+            # original H3 mix so thunder, water, wind and room tone are not
+            # replaced by the synthetic fallback merely because this is a
+            # no-dialogue shot.
+            result.update(passed=True, audio_peak=peak,
+                          audio_policy=take.get('audio_policy', {}).get('policy'),
+                          video_sha256=file_hash(source), speakers=[], reference_bindings=[],
+                          audio_cleanup={**cleanup, 'policy': 'preserve_clean_diegetic_mix'})
+            write(out/'speech_check.json', result)
+            return result
     if not expected:
         # Environment-only shots must use the cue-driven effects track. H3 can
         # emit broadband noise that Whisper does not recognize as words; keeping

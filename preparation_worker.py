@@ -5,8 +5,10 @@ from novel_h3.project import read,write,locked,file_hash
 from novel_h3.preparation_control import REPO
 from novel_h3.timing import retime_content_plan
 root=Path(sys.argv[1]).resolve()
-stop=root/'analysis/PREPARATION_PAUSED'
-activity=root/'analysis/preparation_activity.json'
+target_episode = next((value for index, value in enumerate(sys.argv[2:], start=2)
+                       if value == '--episode' and index + 1 < len(sys.argv)), None)
+stop=root/'analysis'/(f'PREPARATION_PAUSED_{target_episode}' if target_episode else 'PREPARATION_PAUSED')
+activity=root/'analysis'/(f'preparation_activity_{target_episode}.json' if target_episode else 'preparation_activity.json')
 def update(state,message,**extra):
     write(activity,dict(status=state,worker_pid=os.getpid(),updated_at=time.time(),message=message,**extra))
 
@@ -30,10 +32,10 @@ def main():
     # Avoid startup race with controller's status write.
     with locked(root,'preparation_control'):
         pass
-    with locked(root,'preparation_worker'):
+    with locked(root, f'preparation_worker_{target_episode or "book"}'):
         while not stop.exists():
             chapters=[c for c in read(root/'book.json')['chapters'] if c.get('kind')=='story']
-            chapter=next((c for c in chapters if not (root/'content_plans'/f"chapter_{c['id']}.json").exists() or not (root/'analysis'/f"chapter_{c['id']}_speaker_visual.json").exists()),None)
+            chapter = next((c for c in chapters if 'chapter_' + c['id'] == target_episode), None) if target_episode else next((c for c in chapters if not (root/'content_plans'/f"chapter_{c['id']}.json").exists() or not (root/'analysis'/f"chapter_{c['id']}_speaker_visual.json").exists()),None)
             if chapter is None:
                 update('waiting_review','全书初稿已存在；需要逐章核对和图片工具补充，不自动验收或启动视频。');return
             eid='chapter_'+chapter['id'];stamp=str(time.time_ns());folder=root/'analysis/preparation_runs'/stamp;folder.mkdir(parents=True)
@@ -89,6 +91,11 @@ def main():
             update('running',f"{chapter['title']} 初稿已落盘，继续下一章。",last_output=eid,phase='chapter_saved',child_pid=None,
                    batch_dir=str(folder.relative_to(root)),elapsed_seconds=round(time.time()-started_at,1),
                    last_heartbeat=time.time(),child_alive=False,log=str((folder/'result.txt').relative_to(root)))
+            if target_episode:
+                update('completed_batch',f"章节 {chapter['title']} 制作准备已完成，等待资料核对。",episode=eid,phase='completed_batch',
+                       child_pid=None,batch_dir=str(folder.relative_to(root)),elapsed_seconds=round(time.time()-started_at,1),
+                       last_heartbeat=time.time(),child_alive=False,log=str((folder/'result.txt').relative_to(root)))
+                return
         update('paused','准备任务已暂停。')
 try:main()
 except Exception as exc:update('failed',str(exc));raise

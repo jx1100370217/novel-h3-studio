@@ -208,7 +208,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.file(Path(__file__).with_name("web.html"))
             if url.path == "/media":
                 path = inside(self.root, parse_qs(url.query)["path"][0])
-                if path.suffix.lower() not in (".mp4", ".png", ".jpg", ".jpeg", ".webp", ".srt", ".json", ".flac", ".wav", ".txt"):
+                if path.suffix.lower() not in (".mp4", ".png", ".jpg", ".jpeg", ".webp", ".srt", ".json", ".jsonl", ".flac", ".wav", ".txt"):
                     raise ValueError("不支持的文件类型")
                 return self.file(path)
             self.send_error(404)
@@ -247,7 +247,7 @@ class Handler(BaseHTTPRequestHandler):
                 result = control(self.root, data["action"])
             elif self.path == "/api/preparation-control":
                 from .preparation_control import control
-                result = control(self.root, data["action"])
+                result = control(self.root, data["action"], data.get("episode"))
             elif self.path == "/api/regenerate":
                 from .regeneration import enqueue
                 result = enqueue(self.root, data["kind"], data["target"], data.get("episode"))

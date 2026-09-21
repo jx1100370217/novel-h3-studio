@@ -105,9 +105,9 @@ class VoiceBindingTests(unittest.TestCase):
         shot=copy.deepcopy(self.shot);shot['camera']['size']='over-the-shoulder two-shot'
         speaker=[{'asset_id':'wuji'}]
         self.assertEqual(select_view(shot,{'asset_id':'wuji'},speaker)[0],'front')
-        self.assertEqual(select_view(shot,{'asset_id':'pangu'},speaker)[0],'front')
+        self.assertEqual(select_view(shot,{'asset_id':'pangu'},speaker)[0],'back')
         self.assertEqual(select_view(shot,{'asset_id':'pangu'},speaker)[1],
-                         'over_shoulder_listener_front_identity_anchor')
+                         'over_shoulder_listener_rear_identity_anchor')
         self.assertEqual(select_view(shot,{'asset_id':'pangu','view':'side'},speaker)[0],'side')
 
     def test_asset_package_contains_professional_camera_execution(self):
@@ -138,17 +138,17 @@ class VoiceBindingTests(unittest.TestCase):
         shot = copy.deepcopy(self.shot)
         shot['camera']['size'] = 'over-the-shoulder two-shot'
         shot['asset_package'] = {'visual_assets': [
-            {'kind': 'character', 'subject_label': 'Subject 1', 'gender': '男',
-             'selected_character_view': 'front',
-             'view_selection_reason': 'over_shoulder_listener_front_identity_anchor'},
+             {'kind': 'character', 'subject_label': 'Subject 1', 'gender': '男',
+             'selected_character_view': 'back',
+             'view_selection_reason': 'over_shoulder_listener_rear_identity_anchor'},
             {'kind': 'character', 'subject_label': 'Subject 2', 'gender': '男',
              'selected_character_view': 'front'},
         ]}
         prompt = h3_prompt(shot, 'cinema')
         self.assertIn('exactly two human bodies total', prompt)
         self.assertIn('foreground shoulder/back belongs to the single bound listener only', prompt)
-        self.assertIn('identity and masculine appearance are anchored by the bound independent front view', prompt)
-        self.assertIn("never the face", prompt)
+        self.assertIn('identity is anchored by the bound independent rear view', prompt)
+        self.assertIn("never a frontal face", prompt)
 
     def test_silent_visual_narration_is_omitted_from_model_prompt(self):
         shot=copy.deepcopy(read(REPO/'projects/rendao-wuji/episodes/chapter_s0003.json')['shots'][0])
