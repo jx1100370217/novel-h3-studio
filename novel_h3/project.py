@@ -63,6 +63,50 @@ def load_state(root):
     return read(p) if p.exists() else {"assets": {}, "takes": {}, "approvals": {}}
 
 
+def sync_speech_reports(root):
+    """Make the UI state reflect the latest per-take speech QC report.
+
+    Speech QC can be rerun independently of the video worker.  Its JSON report
+    is therefore the source of truth; without this reconciliation the review
+    page can keep showing an obsolete ASR hallucination from state.json.
+    """
+    root = Path(root)
+    state = load_state(root)
+    reports = {}
+    for take_id in state.get("takes", {}):
+        report_path = root / "renders" / take_id / "speech_check.json"
+        if not report_path.is_file():
+            continue
+        try:
+            report = read(report_path)
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if state["takes"][take_id].get("speech_check") != report:
+            reports[take_id] = report
+    if not reports:
+        return state
+
+    def apply(current):
+        for take_id, report in reports.items():
+            take = current.get("takes", {}).get(take_id)
+            if take is None:
+                continue
+            take["speech_check"] = report
+            if report.get("video_sha256"):
+                take["video_sha256"] = report["video_sha256"]
+            if report.get("passed") is True:
+                # A later VAD/strict-QC pass supersedes an older retained-failure
+                # marker; otherwise progress keeps counting a shot as failed.
+                take.pop("speech_qc_failed_retained", None)
+                take.pop("speech_retry_exhausted", None)
+                if take.get("review_required") in {
+                    "speech_qc_failed_retained", "speech_qc_timeout_retained",
+                }:
+                    take.pop("review_required", None)
+
+    return update_state(root, apply)
+
+
 def update_state(root, fn):
     with locked(root):
         state = load_state(root)
@@ -368,7 +412,7 @@ def approve_voice(root, speaker, reviewer, note):
 
 def status(root):
     root = Path(root)
-    book, state = read(root / "book.json"), load_state(root)
+    book, state = read(root / "book.json"), sync_speech_reports(root)
     state["takes"] = {key: take for key, take in state["takes"].items() if not take.get("retired")}
     cfg = read(root / "config.json")
     episodes = [read(p) for p in sorted((root / "episodes").glob("*.json"))]

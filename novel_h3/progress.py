@@ -5,7 +5,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .project import read
+from .project import read, sync_speech_reports
 from .safety import PAUSE, REPO, user_service_env
 
 
@@ -196,7 +196,7 @@ def book_progress(root, takes):
 
 
 def snapshot(root):
-    state = read(root/'state.json')
+    state = sync_speech_reports(root)
     takes = sorted((t for t in state['takes'].values() if not t.get('retired')), key=lambda t: t['created_at'])
     latest = takes[-1] if takes else None
     episode = read(root/'episodes'/f"{latest['episode']}.json") if latest else {'shots': []}
