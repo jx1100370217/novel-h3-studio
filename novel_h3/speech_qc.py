@@ -14,6 +14,11 @@ def _normalize_mix_if_needed(source, out, result, shot, samples, sr, expected):
     soundscape = str(shot.get('soundscape', ''))
     if 'Absolute digital silence' in soundscape:
         return result
+    # No-dialogue takes are judged on the character of H3's diegetic mix.
+    # Do not apply a second loudness lift after speech masking; it can raise
+    # residual broadband noise and change the perceived foley balance.
+    if not expected.strip():
+        return result
     from .audio_cleanup import normalize_diegetic_mix
     target = -18.0 if expected.strip() else -20.0
     normalized = normalize_diegetic_mix(source, out, samples, sr, target_db=target)
@@ -69,7 +74,11 @@ def run(root, take_id):
         # required to be silent: H3 may provide diegetic ambience and effects.
         # Only non-silent output needs the strict no-words ASR check below.
         if peak <= 1e-4:
-            if cleanup_enabled:
+            # An empty H3 track is already a valid no-dialogue result.  Do not
+            # manufacture a replacement foley bed here: the fallback is only
+            # retained for legacy projects that explicitly disabled the
+            # ASR-timed no-dialogue policy.
+            if cleanup_enabled and not unbound_enabled:
                 from .audio_cleanup import clean_non_dialogue
                 cleanup = clean_non_dialogue(source, out, shot, samples, sr)
                 if cleanup.get('status') == 'applied':
@@ -140,7 +149,10 @@ def run(root, take_id):
             # the delivered audio, using deep centre-band attenuation. This
             # does not alter the strict comparison or touch side/low/high
             # effect energy; it only removes residual recognized human speech.
-            if post_text.strip() and post_recognition.get('chunks'):
+            # A no-dialogue shot has no locked mouth window to protect.  A
+            # second aggressive pass was found to colour thunder/water and
+            # room tone, so only dialogue shots may use the deep pass.
+            if expected.strip() and post_text.strip() and post_recognition.get('chunks'):
                 second_cleanup = clean_unbound_speech(
                     source, out, post_recognition, cleaned, clean_sr,
                     expected, shot.get('dialogue'), aggressive=True)
@@ -186,9 +198,20 @@ def run(root, take_id):
             write(out/'speech_check.json', result)
             return result
     if not expected:
-        # Environment-only shots must use the cue-driven effects track. H3 can
-        # emit broadband noise that Whisper does not recognize as words; keeping
-        # that branch would make every unrelated ambience sound the same.
+        # Keep H3's original diegetic mix for no-dialogue shots.  Replacing it
+        # with a procedural foley bed makes every thunder/water/wind take
+        # sound alike.  If ASR produced words that cannot be safely localized,
+        # the strict check still fails and the take remains reviewable, but the
+        # natural effects are never destroyed by a fallback.
+        if unbound_enabled:
+            cleanup_info = result.get('audio_cleanup') or {}
+            result.update(passed=not heard.strip(), audio_peak=peak,
+                          audio_policy=take.get('audio_policy', {}).get('policy'),
+                          video_sha256=file_hash(source), speakers=[], reference_bindings=[],
+                          audio_cleanup={**cleanup_info, 'policy': 'preserve_h3_diegetic_mix'})
+            result = _normalize_mix_if_needed(source, out, result, shot, samples, sr, expected)
+            write(out/'speech_check.json', result)
+            return result
         if cleanup_enabled:
             from .audio_cleanup import clean_non_dialogue
             cleanup = clean_non_dialogue(source, out, shot, samples, sr)

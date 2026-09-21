@@ -618,18 +618,12 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
         centre = mid[first:last] + (cleaned_mid[first:last] - mid[first:last]) * envelope
         cleaned[first:last, 0] = centre + side[first:last]
         cleaned[first:last, 1] = centre - side[first:last]
-    # A no-dialogue take is allowed to keep only the diegetic mix.  The
-    # speech mask can still reduce a centred thunder/water bed even when the
-    # voice itself is removed.  Restore up to 2.5 dB of the source RMS for
-    # this branch, then apply a true-peak ceiling; dialogue takes keep their
-    # original level so actor intelligibility is never changed by cleanup.
+    # Do not compensate gain on no-dialogue cleanup.  The H3 mix already
+    # contains the intended relative balance between effects and ambience;
+    # lifting the post-mask RMS makes residual noise and pumping audible.
+    # Dialogue takes keep their original level as well.
     if not expected.strip() and data.size:
-        source_rms = float(np.sqrt(np.mean(data ** 2)))
-        cleaned_rms = float(np.sqrt(np.mean(cleaned ** 2)))
-        if source_rms > 1e-6 and cleaned_rms > 1e-6 and cleaned_rms < source_rms:
-            gain = min(10.0 ** (2.5 / 20.0), source_rms / cleaned_rms)
-            cleaned *= gain
-            makeup_gain_db = round(20.0 * math.log10(gain), 3)
+        makeup_gain_db = 0.0
     candidate = out / 'audio_clean_candidate.mp4'
     wav = out / 'audio_clean_check.wav'
     cleaned_wav = out / 'unbound_speech_clean.wav'
