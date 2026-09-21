@@ -177,6 +177,11 @@ def save_content(root, plan):
 def approve_content(root, episode_id, reviewer, note):
     plan = read(plan_path(root, episode_id))
     save_content(root, plan)
+    # save_content normalizes the plan (including semantic dialogue splitting)
+    # before writing it.  Read that canonical object back so the approval
+    # fingerprint pins exactly what compile_visual will consume; hashing the
+    # pre-normalized object leaves a false "content not reviewed" gate.
+    plan = read(plan_path(root, episode_id))
     if not reviewer or not note:
         raise ValueError("请记录内容审阅人和审阅结论")
     update_state(root, lambda s: s["approvals"].__setitem__(f"content:{episode_id}",

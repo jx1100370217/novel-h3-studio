@@ -457,6 +457,10 @@ def h3_prompt(shot, style):
             "SINGLE_PASS_DIALOGUE_LOCK: Treat each <d> block as one atomic performance. Read the exact Chinese text left-to-right "
             "once, then stop the human voice. Do not restart, extend, paraphrase or source words from the reference sample.\n"
         )
+        intro += (
+            "CONTINUOUS_SPEECH_MAX_SECONDS=4.5: each <d> block is a short semantic unit. "
+            "Finish at its punctuation boundary before the next block; never merge adjacent blocks or invent a bridge phrase.\n"
+        )
         if shot.get("id") == "C3P01_03":
             intro += ("This is one complete, single-sentence offscreen voiceover. Treat the clause as finished at the end of this shot; "
                       "speak it once, then output silence for the rest of the shot. Do not continue, repeat, paraphrase or add any words.\n")
@@ -468,14 +472,23 @@ def h3_prompt(shot, style):
     if offset:
         intro += (f"The first {offset / FPS:.6f} seconds repeat the pinned tail of the previous shot. "
                   f"Preserve this exact starting state: {shot['handoff_in']}. Continue physical motion; no freeze, no new people, no new speech.\n")
-    for beat in shot["timeline"]:
-        description = beat["description"]
-        if has_dialogue:
-            description = _speech_safe_visual_text(description)
-        if not shot.get("dialogue") and re.search(r"speaks?|listeners?|dialogue|voice", description, re.I):
-            description = "Continue the established visual action and camera move; keep all mouths at rest and preserve AUDIO_MODE=DIEGETIC_EFFECTS_ONLY."
-        intro += (f"From {timestamp(beat['start_frame'] + offset)} to {timestamp(beat['end_frame'] + offset)}: "
-                  f"{description}\n")
+    if has_dialogue:
+        # The full per-second timeline remains in the execution sheet.  Sending
+        # every repeated action beat to H3 made the prompt unnecessarily long
+        # and gave the audio head many opportunities to treat visual metadata
+        # as a continuation of the spoken line.  The shot-level lock preserves
+        # the intended blocking without duplicating language in the model input.
+        intro += (
+            "VISUAL_TIMELINE_LOCK: perform the bound blocking and camera move continuously from start to end. "
+            "Use the declared time windows only for picture timing; visual metadata is non-speech.\n"
+        )
+    else:
+        for beat in shot["timeline"]:
+            description = beat["description"]
+            if re.search(r"speaks?|listeners?|dialogue|voice", description, re.I):
+                description = "Continue the established visual action and camera move; keep all mouths at rest and preserve AUDIO_MODE=DIEGETIC_EFFECTS_ONLY."
+            intro += (f"From {timestamp(beat['start_frame'] + offset)} to {timestamp(beat['end_frame'] + offset)}: "
+                      f"{description}\n")
     speakers = []
     bindings = {b["speaker"]: b for b in shot.get("speech_bindings", [])}
     for line in shot.get("dialogue", []):

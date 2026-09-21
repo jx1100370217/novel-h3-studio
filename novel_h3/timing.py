@@ -6,6 +6,14 @@ import re
 from .director import FPS, CONTEXT, frames_for, delivered_frames
 
 
+# H3's audio head is reliable for short, punctuation-bounded utterances but
+# can drift into invented syllables during a single long autoregressive
+# performance.  This is separate from the shot's 15-second delivery limit:
+# long dialogue remains in the same shot, while its speech is emitted as
+# several explicit, semantically complete events.
+MAX_CONTINUOUS_SPEECH_SECONDS = 4.5
+
+
 def speech_seconds(text):
     # Editorial estimate, not measured speech: 4 Chinese characters/s, 2.5 words/s.
     chinese = len(re.findall(r'[\u4e00-\u9fff]', text))
@@ -85,6 +93,28 @@ def retime_content_plan(plan):
     result = copy.deepcopy(plan)
     changes, blocked = [], []
     for scene in result.get('script', {}).get('scenes', []):
+        # Expand long character performances at authoring time.  The source
+        # words and speaker stay byte-for-byte identical; only the event
+        # boundaries are made explicit so the H3 audio head gets a fresh
+        # short performance at each semantic pause.
+        original_utterances = list(scene.get('utterances', []))
+        original_audit = list(result.get('speaker_audit', {}).get('scenes', {}).get(scene.get('scene_id'), []))
+        expanded_utterances = []
+        expanded_audit = []
+        for index, utterance in enumerate(original_utterances):
+            text = utterance.get('text', '')
+            parts = split_dialogue(text) if utterance.get('kind') == 'dialogue' and text else [text]
+            audit = original_audit[index] if index < len(original_audit) else None
+            for part in parts:
+                expanded_utterances.append({**utterance, 'text': part})
+                if audit is not None:
+                    expanded_audit.append({**audit, 'text': part,
+                                           'reason': str(audit.get('reason', '')).rstrip() +
+                                           ('；按语义停顿拆分连续发声段。' if len(parts) > 1 else '')})
+        if expanded_utterances != original_utterances:
+            scene['utterances'] = expanded_utterances
+            if original_audit:
+                result.setdefault('speaker_audit', {}).setdefault('scenes', {})[scene['scene_id']] = expanded_audit
         lines = [u.get('text', '') for u in scene.get('utterances', [])
                  if u.get('kind') == 'dialogue' and u.get('text')]
         if not lines:
@@ -101,6 +131,47 @@ def retime_content_plan(plan):
                             'new_seconds': new,
                             'dialogue_count': len(lines)})
     return result, changes, blocked
+
+
+def split_dialogue(text, max_seconds=MAX_CONTINUOUS_SPEECH_SECONDS):
+    """Split one character performance at semantic pauses.
+
+    Punctuation is preferred.  A punctuation-free clause is split at a safe
+    character boundary rather than allowing a single H3 audio event to exceed
+    the drift budget.  Joining the returned strings always reproduces the
+    original text exactly.
+    """
+    text = str(text or '')
+    if not text or speech_seconds(text) <= max_seconds:
+        return [text]
+    try:
+        parts = semantic_chunks(text, max_seconds=max_seconds)
+    except ValueError:
+        parts = [text]
+    if all(speech_seconds(part) <= max_seconds for part in parts):
+        return parts
+    result = []
+    for part in parts:
+        if speech_seconds(part) <= max_seconds:
+            result.append(part)
+            continue
+        # Four Chinese characters per second is the same conservative timing
+        # estimate used by speech_seconds(); keep punctuation in the preceding
+        # piece whenever possible, then continue with the remaining text.
+        remaining = part
+        while remaining and speech_seconds(remaining) > max_seconds:
+            limit = max(1, int(max_seconds * 4))
+            cut = min(limit, len(remaining))
+            for index in range(cut, 0, -1):
+                if remaining[index - 1] in '，,；;：:。.!！?？':
+                    cut = index
+                    break
+            result.append(remaining[:cut])
+            remaining = remaining[cut:]
+        if remaining:
+            result.append(remaining)
+    assert ''.join(result) == text
+    return result
 
 
 def semantic_chunks(text, max_seconds=13.5):

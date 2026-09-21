@@ -260,6 +260,8 @@ class WorkflowTests(unittest.TestCase):
         visual['scenes'].reverse()
         compile_visual(self.root,plan['id'],visual)
         ep=read(self.root/'episodes'/f"{plan['id']}.json")
+        self.assertEqual(load_state(self.root)['approvals'][f"content:{plan['id']}"]['sha256'],
+                         digest(read(self.root/'content_plans'/f"{plan['id']}.json")))
         self.assertEqual([s['id'] for s in ep['shots']],['S001','S002'])
         self.assertEqual(ep['shots'][0]['dialogue'][0]['text'],'金光亮起。')
         exported=read(self.root/'arcreel_export'/plan['id']/'script.json')

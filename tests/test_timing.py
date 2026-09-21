@@ -1,6 +1,8 @@
 import copy
 import unittest
-from novel_h3.timing import retime, semantic_chunks, dialogue_duration_seconds, retime_content_plan
+from novel_h3.timing import (retime, semantic_chunks, dialogue_duration_seconds,
+                              retime_content_plan, split_dialogue, speech_seconds,
+                              MAX_CONTINUOUS_SPEECH_SECONDS)
 
 class TimingTests(unittest.TestCase):
     def shot(self,text):
@@ -46,3 +48,25 @@ class TimingTests(unittest.TestCase):
         self.assertEqual(''.join(parts),text)
         self.assertTrue(all(p[-1] in '，。' for p in parts))
         with self.assertRaises(ValueError): semantic_chunks('光'*100)
+
+    def test_long_dialogue_is_split_into_short_semantic_events(self):
+        text = '永无休止的轮回已经证明你已经看清，并且永远的无极了，你彻底的破灭，又成为了混沌初生时的样子，不再受无极的轮回。'
+        parts = split_dialogue(text)
+        self.assertGreater(len(parts), 1)
+        self.assertEqual(''.join(parts), text)
+        self.assertTrue(all(speech_seconds(part) <= MAX_CONTINUOUS_SPEECH_SECONDS for part in parts))
+
+    def test_content_plan_migration_splits_audited_dialogue_together(self):
+        text = '我走了，我将同时幻化成十个状态，同时在六界经正邪的磨灭，让无极从新悟道，从新定神伦，再次创世。'
+        plan = {'script': {'scenes': [{'scene_id': 'D1', 'duration_seconds': 5,
+                                       'utterances': [{'kind': 'dialogue', 'speaker': '盘古', 'text': text}]}]},
+                'speaker_audit': {'scenes': {'D1': [{'kind': 'dialogue', 'speaker': '盘古', 'text': text,
+                                                     'reason': '原文明确说话人'}]}}}
+        result, changes, blocked = retime_content_plan(plan)
+        utterances = result['script']['scenes'][0]['utterances']
+        audits = result['speaker_audit']['scenes']['D1']
+        self.assertEqual(len(utterances), len(audits))
+        self.assertEqual(''.join(row['text'] for row in utterances), text)
+        self.assertEqual([row['text'] for row in utterances], [row['text'] for row in audits])
+        self.assertTrue(all('按语义停顿拆分连续发声段' in row['reason'] for row in audits))
+        self.assertFalse(blocked)
