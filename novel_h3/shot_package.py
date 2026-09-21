@@ -319,7 +319,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
         "dialogue_event_bindings": dialogue_events,
         "audio_policy": "dialogue_and_diegetic_sfx" if shot.get("dialogue") else "diegetic_only",
         "audio_contract": {
-            "schema": "H3_AUDIO_SCHEMA_V3",
+            "schema": "H3_AUDIO_SCHEMA_V4" if shot.get("dialogue") else "H3_AUDIO_SCHEMA_V3",
             "mode": "dialogue_and_diegetic_effects" if shot.get("dialogue") else "diegetic_effects_only",
             "human_voice_allowlist": sorted(speaking_names),
             "dialogue_source": "explicit_d_blocks" if shot.get("dialogue") else [],

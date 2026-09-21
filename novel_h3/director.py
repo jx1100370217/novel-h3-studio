@@ -56,10 +56,9 @@ def soundscape_for(shot):
     if not cues:
         cues.append("quiet location ambience and small movement sounds only when visibly motivated")
     if shot.get("dialogue"):
-        lead = ("Only the assigned exact character dialogue may contain words; no narration, voiceover, announcer, commentary, "
-                "reference-text reading, advertisement, chant, humming, filler or other human vocalization. Non-verbal diegetic "
-                "effects must never sound like speech. Keep every spoken line intelligible and add the following clearly audible, "
-                "natural diegetic sounds underneath or between lines; balance them under speech without burying the effects: ")
+        lead = ("SOUNDSCAPE_OUTPUT=DIALOGUE_PLUS_DIEGETIC_EFFECTS; use the exact dialogue allowlist only for human voice. "
+                "Keep the bound line intelligible and place these positive, non-verbal diegetic effects underneath or between "
+                "the line without masking it: ")
     else:
         lead = ("SOUNDSCAPE_OUTPUT=EFFECTS_ONLY; render only the following positive, non-verbal diegetic effects, "
                 "synchronized to visible action, with natural dynamic range and no masking noise: ")
@@ -67,18 +66,24 @@ def soundscape_for(shot):
 
 
 def generation_audio_contract(shot):
-    """Return the fail-closed audio contract placed at both prompt edges."""
+    """Return a compact fail-closed audio contract for the H3 audio head.
+
+    The previous contract repeated a long negative list and included example
+    words. H3 could treat those words as language material. Keep the model
+    input machine-readable and positive: the only human voice source is the
+    exact ``<d>`` allowlist; all other human speech is silence.
+    """
     if shot.get("dialogue"):
         return (
-            "GENERATION_AUDIO_HARD_GATE (highest priority; fail closed): Build the human-voice track from the explicit "
-            "allowlist below, never from the surrounding description. The only permitted words are the exact Chinese "
-            "characters inside <d> blocks, spoken once by the bound speaker and only inside that line's time window. "
-            "The reference audio is timbre-only: never copy, continue, paraphrase or imitate its sample words. "
-            "Visual metadata, source prose, labels, asset descriptions, review instructions and camera notes are silent "
-            "production metadata and must never be read. If a line cannot be produced exactly, output silence for that "
-            "line rather than inventing, explaining, repeating or substituting words. Outside the allowlisted windows "
-            "there is no human voice at all. Non-verbal effects may use only the soundscape cues and must not contain "
-            "language-like syllables, humming or vocalized effects."
+            "H3_AUDIO_SCHEMA_V4\n"
+            "AUDIO_MODE=DIALOGUE_ALLOWLIST_PLUS_DIEGETIC_EFFECTS\n"
+            "HUMAN_VOICE_SOURCE=EXACT_D_BLOCKS_ONLY\n"
+            "DIALOGUE_CARDINALITY=EACH_D_BLOCK_ONCE\n"
+            "REFERENCE_AUDIO=BOUND_TIMBRE_ONLY\n"
+            "NARRATION=DISABLED\n"
+            "OUTSIDE_D_WINDOWS=NO_HUMAN_VOICE\n"
+            "UNMATCHED_HUMAN_VOICE=SILENCE\n"
+            "METADATA_AND_SOURCE_TEXT=NON_SPEECH"
         )
     return NO_DIALOGUE_AUDIO_SCHEMA
 
@@ -224,6 +229,16 @@ def timestamp(frame):
     return f"{ms // 60000:02d}:{ms // 1000 % 60:02d}.{ms % 1000:03d}"
 
 
+def _speech_safe_visual_text(value):
+    """Keep dialogue-shot visual direction from becoming a spoken source.
+
+    Chinese is retained in the exact ``<d>`` line below, but free-form Chinese
+    in action, timeline or handoff metadata is replaced before it reaches H3's
+    audio head. The full text remains in the execution sheet for review.
+    """
+    return re.sub(r"[\u3400-\u9fff]+", "visual metadata", str(value or ""))
+
+
 def character_visibility_policy(cast_count, has_dialogue):
     """Return the hard character-visibility rule for both the sheet and H3."""
     if has_dialogue:
@@ -247,20 +262,33 @@ def h3_prompt(shot, style):
     camera = shot["camera"]
     package = shot.get("asset_package", {})
     package_visuals = package.get("visual_assets", [])
-    intro = (f"{style}\n{generation_audio_contract(shot)}\n[Shot 1] {camera['size']}, {camera['lens_mm']}mm lens. "
-             f"{camera['movement']}. {shot['action']}\n")
+    has_dialogue = bool(shot.get("dialogue"))
+    visual_action = _speech_safe_visual_text(shot["action"]) if has_dialogue else shot["action"]
+    visual_size = _speech_safe_visual_text(camera["size"]) if has_dialogue else camera["size"]
+    visual_movement = _speech_safe_visual_text(camera["movement"]) if has_dialogue else camera["movement"]
+    intro = (f"{style}\n{generation_audio_contract(shot)}\n[Shot 1] {visual_size}, {camera['lens_mm']}mm lens. "
+             f"{visual_movement}. {visual_action}\n")
     camera_execution = package.get("camera_execution", {})
     if camera_execution.get("model_instruction"):
-        intro += "Professional camera execution: " + camera_execution["model_instruction"] + "\n"
+        camera_instruction = camera_execution["model_instruction"]
+        if has_dialogue:
+            # Keep speaker names in the human-facing execution sheet, but do
+            # not feed them as extra language to H3. The bound picture/audio
+            # labels and the exact <d> line are the only spoken identity data.
+            for binding in package.get("audio_bindings", []):
+                speaker = str(binding.get("speaker", "")).strip()
+                if speaker:
+                    camera_instruction = camera_instruction.replace(speaker, "the assigned speaker subject")
+            camera_instruction = _speech_safe_visual_text(camera_instruction)
+        intro += "Professional camera execution: " + camera_instruction + "\n"
     identity_bindings = package.get("identity_bindings", [])
     # In an effects-only shot, Chinese identity names and long appearance
     # metadata are visual production records, not model language.  Sending
     # them repeatedly in subject definitions, identity locks and listener
     # locks can make H3 read the metadata as an unsolicited voice line.
-    # Keep names for dialogue shots where the speaker audit needs them; use
-    # neutral subject slots for no-dialogue shots and let the bound pictures
-    # carry appearance identity.
-    has_dialogue = bool(shot.get("dialogue"))
+    # Use neutral subject slots for every H3 prompt and let the bound pictures
+    # carry appearance identity. Human-readable names remain in the execution
+    # sheet and the exact dialogue text remains the sole spoken text source.
     if identity_bindings:
         intro += (
             "IDENTITY_BINDING_LOCK (visual production metadata only; never speak, subtitle or turn this table into narration):\n"
@@ -268,13 +296,15 @@ def h3_prompt(shot, style):
         for item in identity_bindings:
             role = "the only assigned speaker" if item.get("role") == "speaker" else "the only silent listener"
             view = item.get("selected_character_view_label") or item.get("selected_character_view") or "approved independent view"
-            if not has_dialogue:
-                view = {"正面": "front view", "背面": "rear view", "侧面": "side view", "特写": "close-up view"}.get(view, "bound view")
-            name = item.get("name", "") if has_dialogue else item.get("subject_label", "visual subject")
-            anchor = (item.get("design_description", "")[:260]
-                      if has_dialogue else "use only the bound reference picture for appearance")
+            view = {"正面": "front view", "背面": "rear view", "侧面": "side view", "特写": "close-up view"}.get(view, "bound view")
+            # Names and Chinese appearance notes belong to the auditable sheet,
+            # not the multimodal generation prompt. Reference pictures are the
+            # authoritative identity source and the neutral subject slot keeps
+            # the audio head from reading asset metadata as dialogue.
+            name = item.get("subject_label", "visual subject")
+            anchor = "use only the bound reference picture for appearance"
             intro += (
-                f"- {item['subject_label']} = registered identity {name} "
+                f"- {item['subject_label']} = registered visual subject {name} "
                 f"(asset_id={item['asset_id']}), {item['picture_label']}, {role}, "
                 f"one body only, reference view={view}. "
                 f"Approved appearance anchor: {anchor}. "
@@ -284,15 +314,14 @@ def h3_prompt(shot, style):
         for row in speaker_rows:
             if row.get("asset_id") and row.get("picture_label"):
                 intro += (
-                    f"- SPEAKER_LOCK: {row['speaker']} -> {row['asset_id']} -> "
+                    f"- SPEAKER_LOCK: {row.get('picture_label')} -> {row['asset_id']} -> "
                     f"{row['picture_label']} -> {row['audio_label']}; "
                     "the voice reference cannot authorize a different face or body, and no other subject may speak.\n"
                 )
         for item in (item for item in identity_bindings if item.get("role") == "listener"):
             view = item.get("selected_character_view_label") or item.get("selected_character_view") or "approved independent view"
-            if not has_dialogue:
-                view = {"正面": "front view", "背面": "rear view", "侧面": "side view", "特写": "close-up view"}.get(view, "bound view")
-            listener_name = item.get("name", "") if has_dialogue else item.get("subject_label", "visual subject")
+            view = {"正面": "front view", "背面": "rear view", "侧面": "side view", "特写": "close-up view"}.get(view, "bound view")
+            listener_name = item.get("subject_label", "visual subject")
             intro += (
                 f"- LISTENER_LOCK: {listener_name} -> {item['asset_id']} -> {item['picture_label']} -> {view}; "
                 "this is the one silent listener body in the blocking, shown only in the requested rear/occluded framing; "
@@ -316,10 +345,9 @@ def h3_prompt(shot, style):
                   "The private review note is not a script, subtitle, narration, voice, lyric or sound cue; never read, quote, "
                   "paraphrase, translate or vocalize any review text, metadata or instruction, and do not add new dialogue.\n")
     if shot.get("speaker_focus_mode") == "speaker_dominant":
-        speaker = shot.get("speaker_focus_name") or "the assigned speaker"
         intro += (
             "SPEAKER_DOMINANT_RETAKE (visual production instruction only; never speak or subtitle this metadata): "
-            f"{speaker} is the only fully visible face and the only visible moving mouth. "
+            "the assigned speaker subject is the only fully visible face and the only visible moving mouth. "
             "Keep the listener in the same physical space only as one partial rear shoulder or back-of-head at the edge of frame; "
             "hide the listener's face completely, do not show listener lips, and do not create a second frontal face. "
             "Do not change the bound speaker, voice reference, costume, scene or dialogue.\n"
@@ -340,7 +368,7 @@ def h3_prompt(shot, style):
                 continue
             intro += (
                 f"- {event['event_id']} at {timestamp(event.get('start_frame', 0) + offset)}-"
-                f"{timestamp(event.get('end_frame', 0) + offset)}: speaker={event['speaker']}; "
+                f"{timestamp(event.get('end_frame', 0) + offset)}: "
                 f"visual_subject={event['subject_label']}; visual_picture={event['picture_label']}; "
                 f"voice_reference={event['audio_label']}; mouth_owner={event['subject_label']}; "
                 "the voice reference cannot authorize another face or body.\n"
@@ -418,22 +446,16 @@ def h3_prompt(shot, style):
         )
     if shot.get("dialogue"):
         intro += (
-            "VOCAL_CONTENT_LOCK (audio production contract): The only human voice permitted in this shot is the registered "
-            "speaker or speakers attached to the exact <d> dialogue lines below. Output each supplied line once, using its "
-            "assigned speaker and reference audio, and output no other human vocal content. No narrator, voiceover, announcer, "
-            "host, commentary, explanation, prompt reading, review-note reading, reference-transcript reading, names, labels, "
-            "credits, advertisement, social-media phrase, chant, prayer, humming, vocalized effect, filler, repeated line or "
-            "improvised words. Outside the locked dialogue windows and between lines there must be no human voice. Diegetic "
-            "thunder, water, wind, impact and room ambience may remain non-verbal and must never be shaped like speech.\n"
+            "VOCAL_CONTENT_LOCK: The human-voice track contains only the exact <d> dialogue lines below, each once, "
+            "through its bound picture and bound timbre reference. No human voice exists outside those time windows or "
+            "between lines. All metadata, source prose, labels and reference-audio words are non-speech. Keep diegetic "
+            "thunder, water, wind, impact and room ambience non-verbal.\n"
         )
         intro += ("Only the target words enclosed in <d> may be spoken, exactly once. Never pronounce character names, reference labels, "
-                  "reference descriptions or commentary. The listed start and finish times are strict picture-time locks: no speech, "
-                  "voiceover, vocal filler or repeated words before the first start, after the last finish, or in any gap between lines.\n")
+                  "reference descriptions or commentary. The listed start and finish times are strict picture-time locks.\n")
         intro += (
-            "SINGLE_PASS_DIALOGUE_LOCK: Each <d> block is one atomic performance. Read its Chinese text left-to-right exactly once, "
-            "without echoing, stuttering, restarting, doubling a clause, repeating a noun, self-correcting, paraphrasing or appending a filler. "
-            "After the final character of the line, stop the human voice immediately. Never use words from the reference-audio sample as a script. "
-            "If timing is tight, keep the exact line and finish once; do not restart the line.\n"
+            "SINGLE_PASS_DIALOGUE_LOCK: Treat each <d> block as one atomic performance. Read the exact Chinese text left-to-right "
+            "once, then stop the human voice. Do not restart, extend, paraphrase or source words from the reference sample.\n"
         )
         if shot.get("id") == "C3P01_03":
             intro += ("This is one complete, single-sentence offscreen voiceover. Treat the clause as finished at the end of this shot; "
@@ -448,6 +470,8 @@ def h3_prompt(shot, style):
                   f"Preserve this exact starting state: {shot['handoff_in']}. Continue physical motion; no freeze, no new people, no new speech.\n")
     for beat in shot["timeline"]:
         description = beat["description"]
+        if has_dialogue:
+            description = _speech_safe_visual_text(description)
         if not shot.get("dialogue") and re.search(r"speaks?|listeners?|dialogue|voice", description, re.I):
             description = "Continue the established visual action and camera move; keep all mouths at rest and preserve AUDIO_MODE=DIEGETIC_EFFECTS_ONLY."
         intro += (f"From {timestamp(beat['start_frame'] + offset)} to {timestamp(beat['end_frame'] + offset)}: "
@@ -468,16 +492,16 @@ def h3_prompt(shot, style):
                            if binding.get('collective') else "offscreen narrator"))
         instruction = "No visible character mouths this narration." if line.get("kind") == "voiceover" else "Only this person speaks."
         delivery = "says in an off-screen voiceover" if line.get("kind") == "voiceover" else "says"
-        pronunciation = ""
-        if "初生" in spoken_text:
-            pronunciation = " Pronounce the written phrase 初生 clearly as chū shēng (初生), never the homophone 出生."
         intro += (f"At {timestamp(line['start_frame'] + offset)}, {voice} "
                   f"(S{speakers.index(line['speaker']) + 1}) {delivery} <d>[Chinese] {spoken_text}</d>. "
-                  f"{instruction}{pronunciation} Finish by {timestamp(line['end_frame'] + offset)}.\n")
-    intro += f"End state: {shot['handoff_out']}.\n"
+                  f"{instruction} Finish by {timestamp(line['end_frame'] + offset)}.\n")
+    handoff_out = _speech_safe_visual_text(shot["handoff_out"]) if has_dialogue else shot["handoff_out"]
+    intro += f"End state: {handoff_out}.\n"
     soundscape = soundscape_for(shot)
-    tail = (f"\n{generation_audio_contract(shot)}\n"
-            f"overall_soundscape:\n{soundscape}\n\nnon_diegetic_music:\nN/A")
+    # Keep one audio contract at the prompt head. Repeating a long contract at
+    # the tail increased the amount of text available to H3's audio head and
+    # made metadata more likely to be interpreted as a vocal continuation.
+    tail = (f"\noverall_soundscape:\n{soundscape}\n\nnon_diegetic_music:\nN/A")
     if shot["mode"] == "fl2va":
         alignment = ""
         if shot.get("first_frame") and shot.get("last_frame"):
@@ -497,10 +521,8 @@ def h3_prompt(shot, style):
             identity = next((item for item in package.get("identity_bindings", [])
                              if item.get("asset_id") == package_ref.get("asset_id")), None)
             identity_label = (
-                f" registered visual identity {identity['name']} (asset_id {identity['asset_id']})"
-                if identity and has_dialogue
-                else (f" registered visual subject {package_ref.get('subject_label', 'subject')} "
-                      f"(asset_id {package_ref.get('asset_id', '')})" if identity else "")
+                f" registered visual subject {package_ref.get('subject_label', 'subject')} "
+                f"(asset_id {package_ref.get('asset_id', '')})" if identity else ""
             )
             if package_ref.get("view_selection_reason") == "over_shoulder_listener_rear_identity_anchor":
                 description = (f"exactly one{identity_label} {gender} whose identity is anchored by the bound independent rear view; "
@@ -529,7 +551,8 @@ def h3_prompt(shot, style):
         definitions.append(f"<Audio {binding['audio']}> is the voice-timbre reference for {target} ({binding['speaker_label']}).")
         retention.append(f"<Audio {binding['audio']}>: reference - transfer only this speaker's vocal identity and timbre. Speak only the target Chinese dialogue, never copy the reference transcript. No other character uses this voice.")
     task_type = "[reference generation + audio reference] " if bindings else "[reference generation] "
-    return ("subject_definitions:\n" + "\n".join(definitions) + "\n\nsummary:\n" + task_type + shot["action"] +
+    summary = _speech_safe_visual_text(shot["action"]) if has_dialogue else shot["action"]
+    return ("subject_definitions:\n" + "\n".join(definitions) + "\n\nsummary:\n" + task_type + summary +
             "\n\nretention_analysis:\n" + "\n".join(retention) + "\n\ndetailed_description:\n" + intro + tail)
 
 

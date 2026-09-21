@@ -50,6 +50,22 @@ class VoiceBindingTests(unittest.TestCase):
         prompt=h3_prompt(dict(self.shot,speech_bindings=b),'cinema')
         self.assertNotIn('无极',prompt)
 
+    def test_dialogue_prompt_excludes_chinese_identity_metadata(self):
+        shot = copy.deepcopy(self.shot)
+        shot['asset_package'] = {
+            'identity_bindings': [
+                {'asset_id': 'wuji', 'name': '无极', 'subject_label': 'Subject 2',
+                 'picture_label': 'Picture 2', 'role': 'listener',
+                 'selected_character_view_label': '背面',
+                 'design_description': '男性角色设计说明'},
+            ],
+            'visual_assets': [],
+        }
+        prompt = h3_prompt(shot, 'cinema')
+        self.assertEqual(prompt.count('无极'), 1)  # exact <d> line only
+        self.assertNotIn('背面', prompt)
+        self.assertNotIn('男性角色设计说明', prompt)
+
     def test_c3p01_03_closes_incomplete_voiceover_clause(self):
         shot = copy.deepcopy(read(REPO/'projects/rendao-wuji/episodes/chapter_s0003.json')['shots'][2])
         shot['id'] = 'C3P01_03'
@@ -59,14 +75,14 @@ class VoiceBindingTests(unittest.TestCase):
         self.assertIn('<d>[Chinese] 是因为天外天处处都是光。</d>', prompt)
         self.assertNotIn('<d>[Chinese] 是因为天外天处处都是光，</d>', prompt)
 
-    def test_homophone_pronunciation_hint_preserves_exact_text(self):
+    def test_homophone_alternatives_are_not_sent_to_h3(self):
         shot = copy.deepcopy(read(REPO/'projects/rendao-wuji/episodes/chapter_s0003.json')['shots'][0])
         shot['id'] = 'C3R018'
         shot['dialogue'] = [dict(text='混沌初生，先生盘古，后生女娲，最后生无极。', speaker='盘古', kind='dialogue',start_frame=6,end_frame=120)]
         shot['speech_bindings'] = [{'speaker':'盘古','picture':1,'audio':1,'speaker_label':'S1'}]
         prompt = h3_prompt(shot, 'cinema')
-        self.assertIn('初生 clearly as chū shēng', prompt)
         self.assertIn('<d>[Chinese] 混沌初生，先生盘古，后生女娲，最后生无极。</d>', prompt)
+        self.assertNotIn('出生', prompt)
 
     def test_asset_bound_multi_character_prompt_keeps_interaction_and_single_instances(self):
         shot=copy.deepcopy(self.shot)
@@ -183,7 +199,7 @@ class VoiceBindingTests(unittest.TestCase):
         prompt = h3_prompt(shot, 'cinema')
         self.assertNotIn(shot['review_note'], prompt)
         self.assertIn('VOCAL_CONTENT_LOCK', prompt)
-        self.assertIn('review-note reading', prompt)
+        self.assertIn('All metadata, source prose, labels and reference-audio words are non-speech', prompt)
         self.assertIn('private review note is not a script', prompt)
 
     def test_speaker_review_note_compiles_to_structural_correction(self):
@@ -217,10 +233,10 @@ class VoiceBindingTests(unittest.TestCase):
 
     def test_generation_audio_hard_gate_is_at_prompt_edges(self):
         prompt = h3_prompt(self.shot, 'cinema')
-        marker = 'GENERATION_AUDIO_HARD_GATE (highest priority; fail closed)'
-        self.assertGreaterEqual(prompt.count(marker), 2)
-        self.assertIn('If a line cannot be produced exactly, output silence', prompt)
-        self.assertIn('reference audio is timbre-only', prompt)
+        self.assertEqual(prompt.count('H3_AUDIO_SCHEMA_V4'), 1)
+        self.assertIn('HUMAN_VOICE_SOURCE=EXACT_D_BLOCKS_ONLY', prompt)
+        self.assertIn('UNMATCHED_HUMAN_VOICE=SILENCE', prompt)
+        self.assertIn('REFERENCE_AUDIO=BOUND_TIMBRE_ONLY', prompt)
 
     def test_missing_picture_is_rejected(self):
         self.shot['references'].pop()
