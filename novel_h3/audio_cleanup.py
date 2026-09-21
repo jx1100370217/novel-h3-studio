@@ -489,6 +489,7 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
     duration = len(samples) / sr
     chunks = recognition.get('chunks', []) or []
     extras = []
+    ignored_invalid_chunks = []
     if expected.strip():
         span = matching_dialogue_span(chunks, expected)
         if span is None:
@@ -511,14 +512,71 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
                       if chunk.get('text', '').strip()]
             unverified_dialogue = False
     else:
-        extras = [chunk for chunk in chunks if chunk.get('text', '').strip()]
+        # Whisper sometimes emits a valid first span followed by zero-length
+        # punctuation/phrase chunks (for example 4.70--4.70s).  Those chunks
+        # are unusable for a time mask, but they must not invalidate the valid
+        # span in a no-dialogue shot.  Keep only finite, positive-duration
+        # spans; the strict transcript failure is still recorded unchanged.
+        for chunk in chunks:
+            if not chunk.get('text', '').strip():
+                continue
+            start, end = chunk.get('timestamp', (None, None))
+            valid = (start is not None and end is not None and
+                     all(math.isfinite(float(value)) for value in (start, end)) and
+                     0 <= float(start) < float(end) <= duration + .1)
+            if valid:
+                extras.append(chunk)
+            else:
+                ignored_invalid_chunks.append({
+                    'text': chunk.get('text', ''),
+                    'timestamp': list(chunk.get('timestamp', (None, None))),
+                    'reason': 'zero_or_invalid_duration_ignored_for_no_dialogue_mask',
+                })
         unverified_dialogue = False
     if not extras:
-        return {'status': 'not_applied', 'reason': '未检测到脚本外说话片段'}
+        return {'status': 'not_applied', 'reason': '未检测到脚本外说话片段',
+                'ignored_invalid_chunks': ignored_invalid_chunks}
     try:
         windows = speech_windows(extras, duration, padding=.08)
     except ValueError as exc:
         return {'status': 'blocked', 'reason': '脚本外语音时间戳不可用：' + str(exc)}
+    # Whisper is prone to repeating promotional phrases on effect-only H3
+    # tracks.  Do not damage a natural mix because ASR hallucinated words:
+    # require a measurable voiced/harmonic frame ratio in the timed window.
+    # This does not alter strict transcription QC; it only gates destructive
+    # audio masking.  Real dialogue shots keep their existing safety path.
+    if not expected.strip() and not aggressive:
+        data_probe = np.asarray(samples, dtype=np.float64)
+        if data_probe.ndim == 2:
+            data_probe = data_probe.mean(axis=1)
+        n_probe = min(1024, len(data_probe))
+        if n_probe < 64:
+            return {'status': 'not_applied',
+                    'reason': '音轨过短，无法确认人声；保留 H3 原始混音',
+                    'voice_activity_ratio': 0.0}
+        _, probe_times, probe_spec = stft(data_probe, sr, nperseg=n_probe,
+                                          noverlap=min(n_probe - 1, int(n_probe * .75)),
+                                          boundary='zeros', padded=True)
+        probe_power = np.abs(probe_spec) ** 2 + 1e-12
+        probe_freqs = np.fft.rfftfreq(n_probe, 1.0 / sr)
+        probe_band = (probe_freqs >= 120.0) & (probe_freqs <= min(4000.0, sr * .45))
+        if not probe_band.any():
+            return {'status': 'not_applied',
+                    'reason': '采样率不足以确认人声；保留 H3 原始混音',
+                    'voice_activity_ratio': 0.0}
+        band_power = probe_power[probe_band]
+        flatness_probe = np.exp(np.mean(np.log(band_power), axis=0)) / np.mean(band_power, axis=0)
+        crest_probe = np.max(band_power, axis=0) / np.mean(band_power, axis=0)
+        active_probe = np.zeros(len(probe_times), dtype=bool)
+        for start, end in windows:
+            active_probe |= (probe_times >= start) & (probe_times <= end)
+        voiced_probe = active_probe & (flatness_probe < .04) & (crest_probe > 30.0)
+        activity_ratio = float(voiced_probe.sum() / max(active_probe.sum(), 1))
+        if activity_ratio < .30:
+            return {'status': 'not_applied',
+                    'reason': 'ASR 文本缺少可验证的人声谐波特征，疑似环境音转写幻觉；保留 H3 原始混音',
+                    'voice_activity_ratio': round(activity_ratio, 4),
+                    'policy': 'preserve_h3_diegetic_mix'}
     # The mouth is already animated for the complete locked dialogue window.
     # Never replace only its audio: doing so creates an observable lip-sync
     # failure.  The caller records this gate and routes the take to retake.
@@ -576,12 +634,19 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
         if aggressive:
             # A residual word after the first pass is treated as a confirmed
             # human-voice hit, but the whole ASR window is not necessarily
-            # speech.  H3 often places thunder, water and wind in the centre
-            # channel too.  Only low-flatness, harmonic frames are driven to
-            # silence; noisy effect frames retain their centre-band energy.
-            # This avoids the previous second-pass behaviour that zeroed the
-            # centre band for an entire shot and made effects sound distant.
-            if flatness[index] < .12:
+            # speech.  No-dialogue shots have no mouth window to protect, so
+            # the escalation removes only the centre vocal band; dialogue
+            # shots retain the stricter harmonic-frame mask below.
+            if not expected.strip():
+                # There is no protected mouth window in a no-dialogue shot.
+                # Once a first pass still leaves recognizable words, remove
+                # the centre vocal band for that confirmed interval. Low/high
+                # effect bands and the stereo side channel remain untouched.
+                # This is deliberately a one-time escalation; shots whose
+                # first pass has no residual transcript stay on the natural
+                # one-pass mix path.
+                frame_gain = 0.0
+            elif flatness[index] < .12:
                 frame_gain = 0.0
             elif flatness[index] < .22:
                 frame_gain = .35
@@ -660,6 +725,8 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
                 'audio_peak': float(np.max(np.abs(checked))) if checked.size else 0.0,
                 'duration_seconds': round(duration, 3),
                 'audio_before_cleanup': before_audio.name}
+        if ignored_invalid_chunks:
+            result['ignored_invalid_chunks'] = ignored_invalid_chunks
         if expected.strip() and span is None:
             result['alignment_cleanup'] = 'character_aligned_unmatched_chunks'
             result['dialogue_near_match'] = near_match

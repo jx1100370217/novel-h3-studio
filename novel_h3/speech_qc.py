@@ -138,6 +138,11 @@ def run(root, take_id):
         from .audio_cleanup import clean_unbound_speech
         cleanup = clean_unbound_speech(source, out, recognition, samples, sr,
                                        expected, shot.get('dialogue'))
+        if cleanup.get('status') in ('not_applied', 'blocked'):
+            # Keep the reason visible in the take report even when the audio
+            # remains untouched (for example ASR hallucination without a
+            # measurable voiced frame signature).
+            result['audio_cleanup'] = cleanup
         if cleanup.get('status') == 'applied':
             clean_path = out / 'speech_check_clean.wav'
             decode_audio(source, clean_path)
@@ -149,10 +154,11 @@ def run(root, take_id):
             # the delivered audio, using deep centre-band attenuation. This
             # does not alter the strict comparison or touch side/low/high
             # effect energy; it only removes residual recognized human speech.
-            # A no-dialogue shot has no locked mouth window to protect.  A
-            # second aggressive pass was found to colour thunder/water and
-            # room tone, so only dialogue shots may use the deep pass.
-            if expected.strip() and post_text.strip() and post_recognition.get('chunks'):
+            # A no-dialogue shot has no locked mouth window to protect.  Only
+            # run the deep pass when the first spectral pass still leaves
+            # recognizable words; clean effects with no residual transcript
+            # keep the original one-pass path used by accepted takes.
+            if post_text.strip() and post_recognition.get('chunks'):
                 second_cleanup = clean_unbound_speech(
                     source, out, post_recognition, cleaned, clean_sr,
                     expected, shot.get('dialogue'), aggressive=True)
