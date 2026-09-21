@@ -27,6 +27,7 @@ NO_DIALOGUE_AUDIO_SCHEMA = (
     "NARRATION=DISABLED\n"
     "REFERENCE_AUDIO_INPUT=NONE\n"
     "MOUTH_AUDIO_LINK=OFF\n"
+    "NON_DIEGETIC_MUSIC=OFF\n"
     "AUDIO_ACTION=RENDER_ONLY_POSITIVE_SOUNDSCAPE; OTHERWISE_SILENCE"
 )
 
@@ -62,7 +63,7 @@ def soundscape_for(shot):
     else:
         lead = ("SOUNDSCAPE_OUTPUT=EFFECTS_ONLY; render only the following positive, non-verbal diegetic effects, "
                 "synchronized to visible action, with natural dynamic range and no masking noise: ")
-    return lead + "; ".join(dict.fromkeys(cues)) + ". No non-diegetic music, score or trailer hit."
+    return lead + "; ".join(dict.fromkeys(cues)) + ". MUSIC_MODE=OFF."
 
 
 def generation_audio_contract(shot):
@@ -373,8 +374,10 @@ def h3_prompt(shot, style):
             if len(cast) > 1:
                 intro += ("Keep every bound character visible in the same continuous physical space as a real interaction shot. "
                           "Use shared blocking, coherent scale, eyelines and screen direction; never replace the interaction with "
-                          "separate solo portraits or a split screen. Only the assigned speaker moves their mouth; every listener "
-                          "reacts naturally with closed lips.\n")
+                          "separate solo portraits or a split screen. "
+                          + ("Only the assigned speaker moves their mouth; every listener reacts naturally with closed lips.\n"
+                             if has_dialogue else
+                             "All bound mouths remain at rest for the entire shot.\n"))
                 if "over-the-shoulder" in str(camera.get("size", "")).lower() or "过肩" in str(camera.get("size", "")):
                     intro += ("Hard over-the-shoulder blocking: exactly two human bodies total in this frame. "
                               "The foreground shoulder/back belongs to the single bound listener only; it is one partial body, "
