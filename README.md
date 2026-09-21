@@ -176,6 +176,7 @@ hf download drbaph/vdn-minimax-h3-int8-convrot-comfyui \
 
 音频审片默认使用：
 
+- [Silero VAD](https://github.com/snakers4/silero-vad)：先判断音轨中是否存在可验证的人声；无对白镜头没有人声时不调用 ASR，避免环境音被幻觉转写。
 - [Whisper large-v3-turbo](https://huggingface.co/openai/whisper-large-v3-turbo)：对白转写。
 - [AST AudioSet](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593)：雷声、水声、脚步等环境声分类。
 - [Qwen2.5-Omni-7B](https://huggingface.co/Qwen/Qwen2.5-Omni-7B)：复杂音频理解和转写冲突辅助判断。
@@ -186,6 +187,8 @@ hf download drbaph/vdn-minimax-h3-int8-convrot-comfyui \
 cd /home/jx/codes/novel-h3-studio
 python3 setup_audio.py
 ```
+
+`setup_audio.py` 会同时安装并预热 Silero VAD。视频复核链路固定为“VAD 人声门禁 → 中文对白转写 → 严格文本核对”；VAD 未检测到人声时保留 H3 的雷声、水声、风声等原始环境音，不显示伪造的“实际转写”，也不触发音频清洗。
 
 如需预热指定版本，可执行：
 

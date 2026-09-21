@@ -15,4 +15,4 @@ own_site = subprocess.check_output([str(target / 'bin/python'), '-c', 'import sy
 Path(own_site, 'comfy_runtime_readonly.pth').write_text(site + '\n')
 subprocess.run([str(target / 'bin/python'), '-m', 'pip', 'install', '-r', str(repo / 'requirements-audio.txt')], check=True)
 subprocess.run([str(target / 'bin/python'), '-c',
-    'import torch,librosa;from transformers import WhisperForConditionalGeneration,ASTForAudioClassification,Qwen2_5OmniThinkerForConditionalGeneration;print("本地音频运行环境已就绪",torch.__version__,librosa.__version__)'], check=True)
+    'import torch,librosa;from silero_vad import load_silero_vad;from transformers import WhisperForConditionalGeneration,ASTForAudioClassification,Qwen2_5OmniThinkerForConditionalGeneration;load_silero_vad();print("本地音频运行环境已就绪",torch.__version__,librosa.__version__,"silero-vad")'], check=True)

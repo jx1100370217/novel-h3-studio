@@ -48,6 +48,21 @@ def configure(root):
         "arcreel_commit": "93f14642506f13a6ee78c4b7c6d54ce3dfa8ad7c",
         "style": "Photorealistic Chinese mythological period cinema. Natural skin and weathered materials, motivated practical lighting, restrained saturation, grounded scale, controlled camera inertia, subtle acting. No game rendering, no anime, no floating camera without motivation, no captions or storyboard graphics.",
         "bgm": {"source_type": "douyin_library", "enabled": False},
+        "speech_policy": {
+            "require_source_attribution": True,
+            "require_audio_transcription": True,
+            "clean_non_dialogue_audio": True,
+            "dialogue_only": True,
+            "clean_unbound_speech_audio": True,
+            "no_dialogue_contract_version": 3,
+            "voice_gate": {
+                "enabled": True,
+                "backend": "silero_vad",
+                "threshold": 0.5,
+                "min_speech_duration_ms": 120,
+                "min_silence_duration_ms": 150,
+            },
+        },
         "reference": {"title": "问苍生", "author": "青瓜蛋", "url": "https://www.douyin.com/video/7674459865061887267",
                       "observed_duration": "26:14", "review_scope": "浏览器核对标题、时长并抽查部分画面；未完成全片逐镜和听音分析"}
     })

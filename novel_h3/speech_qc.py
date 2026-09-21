@@ -64,11 +64,83 @@ def run(root, take_id):
     source = inside(root,take['video'])
     decode_audio(source, out/'speech_check.wav')
     samples,sr=sf.read(out/'speech_check.wav',dtype='float32')
+    peak = float(abs(samples).max()) if samples.size else 0.0
+    expected = ''.join(line['text'] for line in shot.get('dialogue',[]))
     speech_policy = read(root/'config.json').get('speech_policy', {})
     cleanup_enabled = speech_policy.get('clean_non_dialogue_audio', False)
     unbound_enabled = speech_policy.get('clean_unbound_speech_audio', False)
-    peak = float(abs(samples).max()) if samples.size else 0.0
-    expected = ''.join(line['text'] for line in shot.get('dialogue',[]))
+    voice_gate_policy = speech_policy.get('voice_gate', {})
+    voice_gate_enabled = voice_gate_policy.get('enabled', True)
+    if voice_gate_enabled:
+        from .voice_gate import detect_speech
+        voice_gate = detect_speech(
+            samples,
+            sr,
+            threshold=float(voice_gate_policy.get('threshold', 0.5)),
+            min_speech_duration_ms=int(voice_gate_policy.get('min_speech_duration_ms', 120)),
+            min_silence_duration_ms=int(voice_gate_policy.get('min_silence_duration_ms', 150)),
+        )
+    else:
+        voice_gate = {
+            'available': False,
+            'detector': 'disabled',
+            'speech_detected': None,
+            'speech_segments': [],
+            'speech_seconds': 0.0,
+            'speech_ratio': 0.0,
+        }
+    if voice_gate_enabled and not voice_gate.get('available'):
+        # Do not let a missing VAD silently fall back to generative ASR.  That
+        # is exactly how silence becomes a canned promotional transcript.
+        result = compare(expected, '')
+        result.update(
+            passed=False,
+            transcript='',
+            speech_gate=voice_gate,
+            speech_gate_failure='人声检测不可用，未调用转写器',
+            audio_peak=peak,
+            audio_policy=take.get('audio_policy', {}).get('policy'),
+            video_sha256=file_hash(source),
+            speakers=[line['speaker'] for line in shot.get('dialogue', [])],
+            reference_bindings=take.get('speech_bindings', []),
+        )
+        write(out/'speech_check.json', result)
+        return result
+    if voice_gate_enabled and not voice_gate.get('speech_detected'):
+        # An effects-only or silent take must never be sent to Whisper.  The
+        # recognizer is generative and can invent a familiar outro on silence.
+        result = compare(expected, '')
+        if expected.strip():
+            result.update(
+                passed=False,
+                transcript='',
+                speech_gate=voice_gate,
+                speech_gate_failure='锁定对白但未检测到可验证人声',
+                audio_peak=peak,
+                audio_policy=take.get('audio_policy', {}).get('policy'),
+                video_sha256=file_hash(source),
+                speakers=[line['speaker'] for line in shot.get('dialogue', [])],
+                reference_bindings=take.get('speech_bindings', []),
+            )
+        else:
+            result.update(
+                passed=True,
+                transcript='',
+                speech_gate=voice_gate,
+                speech_gate_result='无对白且未检测到人声；保留 H3 环境音，不调用 ASR',
+                audio_peak=peak,
+                audio_policy=take.get('audio_policy', {}).get('policy'),
+                video_sha256=file_hash(source),
+                speakers=[],
+                reference_bindings=[],
+                audio_cleanup={
+                    'status': 'not_applied',
+                    'policy': 'preserve_h3_diegetic_mix',
+                    'reason': 'VAD 未检测到人声，跳过 Whisper，避免 ASR 幻觉',
+                },
+            )
+        write(out/'speech_check.json', result)
+        return result
     if not expected:
         # A silent environment shot remains valid, but it is no longer
         # required to be silent: H3 may provide diegetic ambience and effects.
@@ -122,6 +194,7 @@ def run(root, take_id):
     recognition = transcribe(samples, sr)
     heard = recognition['text']
     result=compare(expected,heard)
+    result['speech_gate'] = voice_gate
     if unbound_enabled:
         # Persist the short ASR spans used by cleanup.  This is diagnostic
         # metadata only: strict text comparison remains exact and these spans
@@ -178,6 +251,7 @@ def run(root, take_id):
                           audio_policy=take.get('audio_policy', {}).get('policy'),
                           video_sha256=file_hash(source), speakers=[line['speaker'] for line in shot.get('dialogue', [])],
                           reference_bindings=take.get('speech_bindings', []),
+                          speech_gate=voice_gate,
                           audio_cleanup=cleanup)
             result = _normalize_mix_if_needed(source, out, result, shot, cleaned, clean_sr, expected)
             policy_path = out / 'audio_policy.json'
@@ -200,6 +274,7 @@ def run(root, take_id):
             result.update(passed=True, audio_peak=peak,
                           audio_policy=take.get('audio_policy', {}).get('policy'),
                           video_sha256=file_hash(source), speakers=[], reference_bindings=[],
+                          speech_gate=voice_gate,
                           audio_cleanup={**cleanup, 'policy': 'preserve_clean_diegetic_mix'})
             write(out/'speech_check.json', result)
             return result
@@ -214,6 +289,7 @@ def run(root, take_id):
             result.update(passed=not heard.strip(), audio_peak=peak,
                           audio_policy=take.get('audio_policy', {}).get('policy'),
                           video_sha256=file_hash(source), speakers=[], reference_bindings=[],
+                          speech_gate=voice_gate,
                           audio_cleanup={**cleanup_info, 'policy': 'preserve_h3_diegetic_mix'})
             result = _normalize_mix_if_needed(source, out, result, shot, samples, sr, expected)
             write(out/'speech_check.json', result)
@@ -233,6 +309,7 @@ def run(root, take_id):
                               audio_peak=float(abs(cleaned).max()) if cleaned.size else 0.0,
                               audio_policy=take.get('audio_policy', {}).get('policy'),
                               video_sha256=file_hash(source), speakers=[], reference_bindings=[],
+                              speech_gate=voice_gate,
                               audio_cleanup=cleanup)
                 result = _normalize_mix_if_needed(source, out, result, shot, cleaned, clean_sr, expected)
                 # The cleanup replaces the delivered media, so keep the
@@ -262,7 +339,7 @@ def run(root, take_id):
             result = dict(cleanup['post_check'], original_check=original_check)
         result['audio_cleanup'] = cleanup
     result.update(video_sha256=file_hash(source), speakers=[line['speaker'] for line in shot['dialogue']],
-                  reference_bindings=take.get('speech_bindings',[]))
+                  reference_bindings=take.get('speech_bindings',[]), speech_gate=voice_gate)
     result = _normalize_mix_if_needed(source, out, result, shot, samples, sr, expected)
     write(out/'speech_check.json',result)
     return result
