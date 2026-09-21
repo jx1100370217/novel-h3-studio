@@ -14,6 +14,22 @@ GENDER_PROMPTS = {
     "未知": "gender unspecified; do not infer, feminize or masculinize beyond the approved reference",
 }
 
+# H3 does not expose a separate "mute human voice" input on its reference-to-
+# video node.  Keep the no-dialogue contract deliberately short and
+# machine-readable: long negative lists have repeatedly been interpreted as
+# language material by the audio head (and then repeated by Whisper).  The
+# positive sound cues remain in ``overall_soundscape`` below.
+NO_DIALOGUE_AUDIO_SCHEMA = (
+    "H3_AUDIO_SCHEMA_V3\n"
+    "AUDIO_MODE=DIEGETIC_EFFECTS_ONLY\n"
+    "HUMAN_VOICE_ALLOWLIST=[]\n"
+    "DIALOGUE_SOURCE=[]\n"
+    "NARRATION=DISABLED\n"
+    "REFERENCE_AUDIO_INPUT=NONE\n"
+    "MOUTH_AUDIO_LINK=OFF\n"
+    "AUDIO_ACTION=RENDER_ONLY_POSITIVE_SOUNDSCAPE; OTHERWISE_SILENCE"
+)
+
 
 def gender_prompt(value):
     """Return a visual-only gender lock for an asset-bound model prompt."""
@@ -44,9 +60,8 @@ def soundscape_for(shot):
                 "effects must never sound like speech. Keep every spoken line intelligible and add the following clearly audible, "
                 "natural diegetic sounds underneath or between lines; balance them under speech without burying the effects: ")
     else:
-        lead = ("Effects-only production track: no human voice, spoken language, narration, voiceover, chant, lyrics, vocal filler, "
-                "announcement or advertisement. Do not output social-media phrases, names, or language-like syllables. "
-                "Generate clearly audible diegetic ambience and sound effects synchronized to the visible action, with natural dynamic range and no masking white-noise bed: ")
+        lead = ("SOUNDSCAPE_OUTPUT=EFFECTS_ONLY; render only the following positive, non-verbal diegetic effects, "
+                "synchronized to visible action, with natural dynamic range and no masking noise: ")
     return lead + "; ".join(dict.fromkeys(cues)) + ". No non-diegetic music, score or trailer hit."
 
 
@@ -64,15 +79,7 @@ def generation_audio_contract(shot):
             "there is no human voice at all. Non-verbal effects may use only the soundscape cues and must not contain "
             "language-like syllables, humming or vocalized effects."
         )
-    return (
-        "GENERATION_AUDIO_HARD_GATE (highest priority; fail closed): This shot has no dialogue. The human-voice "
-        "allowlist is empty: output no narration, voiceover, names, labels, commentary, prompt reading, reference "
-        "transcript, lyrics, chant, humming, filler or language-like syllables. Use only non-verbal diegetic effects "
-        "from the soundscape cues; if uncertain, remain silent rather than inventing a voice. Every bound character "
-        "in this shot is a silent visual body only: keep the mouth closed or neutrally at rest, do not lip-sync, mouth "
-        "words, whisper, react with speech or read any asset metadata. A reference picture or reference audio is not "
-        "permission to speak in a no-dialogue shot."
-    )
+    return NO_DIALOGUE_AUDIO_SCHEMA
 
 
 def frames_for(seconds, continuation=False):
@@ -228,11 +235,10 @@ def character_visibility_policy(cast_count, has_dialogue):
         return ("Dialogue shot character lock: no bound character asset is present, so no person, face, silhouette, reflection, clone, crowd, "
                 "passerby or human-like figure may appear. Do not invent a speaker or listener.")
     if cast_count:
-        return ("Non-dialogue shot character policy: the bound character assets are the only named or foreground identities. "
-                "Unregistered background extras may appear only as silent, distant, non-identifiable atmosphere when motivated by the scene; "
-                "they must never speak, lip-sync, gesture dialogue or become a close-up identity.")
-    return ("Non-dialogue shot character policy: no bound character is required. Unregistered background extras may appear only as silent, "
-            "distant, non-identifiable atmosphere when motivated by the scene; no person may speak, lip-sync, gesture dialogue or become a close-up identity.")
+        return ("Silent visual cast policy: the bound character assets are the only named or foreground identities. "
+                "Keep every registered mouth at rest; unregistered background extras, if visually motivated, stay distant and non-identifiable.")
+    return ("Silent visual cast policy: no bound character is required. Any motivated background atmosphere stays distant and non-identifiable; "
+            "do not create a foreground human identity or a vocal performance.")
 
 
 def h3_prompt(shot, style):
@@ -403,13 +409,9 @@ def h3_prompt(shot, style):
     intro += character_visibility_policy(len(cast), bool(shot.get("dialogue"))) + "\n"
     if not shot.get("dialogue"):
         intro += (
-            "NO_DIALOGUE_BOUNDARY (hard visual and audio lock): This shot contains no spoken words and has an empty "
-            "human-voice allowlist. Every registered character is a silent visual subject, not a speaker: keep every "
-            "bound mouth closed or neutrally at rest for the entire shot, with no lip articulation, whisper, chant, "
-            "reaction speech or off-screen voice. Do not read or paraphrase source prose, identity tables, asset labels, "
-            "review notes or reference-audio content. Use only the diegetic sound brief below; preserve thunder, water, "
-            "wind, footsteps and other non-verbal effects, but never shape them into language-like syllables. If any "
-            "human voice is uncertain, output silence for the human-voice layer.\n"
+            "NO_DIALOGUE_BOUNDARY: H3_AUDIO_SCHEMA_V3 is authoritative for this shot. "
+            "All registered bodies are silent visual subjects; keep every mouth at rest and attach no vocal performance. "
+            "Render only the positive effects listed in SOUNDSCAPE_OUTPUT.\n"
         )
     if shot.get("dialogue"):
         intro += (
@@ -444,7 +446,7 @@ def h3_prompt(shot, style):
     for beat in shot["timeline"]:
         description = beat["description"]
         if not shot.get("dialogue") and re.search(r"speaks?|listeners?|dialogue|voice", description, re.I):
-            description = "Continue the established visual action and camera move. No person speaks and no words are audible."
+            description = "Continue the established visual action and camera move; keep all mouths at rest and preserve AUDIO_MODE=DIEGETIC_EFFECTS_ONLY."
         intro += (f"From {timestamp(beat['start_frame'] + offset)} to {timestamp(beat['end_frame'] + offset)}: "
                   f"{description}\n")
     speakers = []

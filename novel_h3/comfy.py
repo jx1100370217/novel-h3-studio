@@ -326,6 +326,7 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
             "mode": shot["mode"],
             "prompt": model_prompt,
             "prompt_sha256": digest(model_prompt),
+            "audio_contract": asset_package.get("audio_contract", {}),
             "required_sections": (["subject_definitions", "summary", "retention_analysis",
                                    "detailed_description", "overall_soundscape", "non_diegetic_music"]
                                   if shot["mode"] == "ref2va" else
@@ -356,7 +357,12 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
             "silent_bound_characters": not bool(shot.get("dialogue")),
             "no_dialogue_mouth_movement": not bool(shot.get("dialogue")),
             "no_human_voice_when_no_dialogue": not bool(shot.get("dialogue")),
-            "no_dialogue_contract_version": int(cfg.get("speech_policy", {}).get("no_dialogue_contract_version", 1)),
+            # Keep old project configs fail-closed on the current compact
+            # no-dialogue audio schema; a stale value must not resurrect the
+            # long negative prompt that seeded ASR hallucinations.
+            "no_dialogue_contract_version": max(3, int(cfg.get("speech_policy", {}).get("no_dialogue_contract_version", 3))),
+            "no_dialogue_audio_schema": asset_package.get("audio_contract", {}).get("schema"),
+            "no_dialogue_reference_audio_input": asset_package.get("audio_contract", {}).get("reference_audio_input"),
             "professional_camera_execution_present": bool(asset_package.get("camera_execution")),
             "retake_review_note_injected": bool(shot.get("review_note")),
             "speaker_event_binding_version": 1,

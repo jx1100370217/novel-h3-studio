@@ -318,6 +318,16 @@ def compile_package(root, shot, visual_assets, speech_bindings):
                      for line in shot.get("dialogue", [])],
         "dialogue_event_bindings": dialogue_events,
         "audio_policy": "dialogue_and_diegetic_sfx" if shot.get("dialogue") else "diegetic_only",
+        "audio_contract": {
+            "schema": "H3_AUDIO_SCHEMA_V3",
+            "mode": "dialogue_and_diegetic_effects" if shot.get("dialogue") else "diegetic_effects_only",
+            "human_voice_allowlist": sorted(speaking_names),
+            "dialogue_source": "explicit_d_blocks" if shot.get("dialogue") else [],
+            "narration": "explicit_voiceover_only" if shot.get("dialogue") else "disabled",
+            "reference_audio_input": "bound_speaker_only" if shot.get("dialogue") else "none",
+            "mouth_audio_link": "speaker_event_only" if shot.get("dialogue") else "off",
+            "fallback": "silence_human_voice_channel" if not shot.get("dialogue") else "silence_unmatched_line",
+        },
         "visual_narration_policy": {
             "used_for_storyboard_only": bool(shot.get("visual_narration")),
             "included_in_h3_prompt": False,

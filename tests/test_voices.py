@@ -97,9 +97,10 @@ class VoiceBindingTests(unittest.TestCase):
         shot['asset_package'] = {'visual_assets': [
             {'kind': 'scene', 'subject_label': 'Subject 1'}]}
         prompt = h3_prompt(shot, 'cinema')
-        self.assertIn('Non-dialogue shot character policy', prompt)
-        self.assertIn('silent, distant, non-identifiable atmosphere', prompt)
-        self.assertIn('no person may speak, lip-sync', prompt)
+        self.assertIn('Silent visual cast policy', prompt)
+        self.assertIn('H3_AUDIO_SCHEMA_V3', prompt)
+        self.assertIn('AUDIO_MODE=DIEGETIC_EFFECTS_ONLY', prompt)
+        self.assertIn('HUMAN_VOICE_ALLOWLIST=[]', prompt)
 
     def test_character_view_selection_respects_explicit_and_ots_blocking(self):
         shot=copy.deepcopy(self.shot);shot['camera']['size']='over-the-shoulder two-shot'
@@ -155,10 +156,26 @@ class VoiceBindingTests(unittest.TestCase):
         forbidden=shot['visual_narration']
         prompt=h3_prompt(shot,'cinema')
         self.assertNotIn(forbidden,prompt)
-        self.assertIn('diegetic sound',prompt)
-        self.assertIn('Effects-only production track',prompt)
+        self.assertIn('diegetic effects',prompt)
+        self.assertIn('SOUNDSCAPE_OUTPUT=EFFECTS_ONLY',prompt)
+        self.assertIn('AUDIO_ACTION=RENDER_ONLY_POSITIVE_SOUNDSCAPE; OTHERWISE_SILENCE',prompt)
+        self.assertNotIn('请不吝点赞',prompt)
         self.assertNotIn('Absolute digital silence',prompt)
         self.assertNotIn('Only the assigned character speaks',prompt)
+
+    def test_no_dialogue_audio_contract_is_closed_and_compact(self):
+        shot = copy.deepcopy(self.shot)
+        shot['dialogue'] = []
+        prompt = h3_prompt(shot, 'cinema')
+        self.assertGreaterEqual(prompt.count('H3_AUDIO_SCHEMA_V3'), 2)
+        for marker in ('HUMAN_VOICE_ALLOWLIST=[]', 'DIALOGUE_SOURCE=[]',
+                       'NARRATION=DISABLED', 'REFERENCE_AUDIO_INPUT=NONE',
+                       'MOUTH_AUDIO_LINK=OFF'):
+            self.assertIn(marker, prompt)
+        # Do not seed the audio head with the names of common hallucinated
+        # announcements or a negative phrase list.
+        for trigger in ('advertisement', 'social-media', 'prompt reading', 'reference transcript'):
+            self.assertNotIn(trigger, prompt)
 
     def test_retake_note_is_not_a_model_vocal_source(self):
         shot = copy.deepcopy(self.shot)
