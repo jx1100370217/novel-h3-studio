@@ -246,6 +246,14 @@ def h3_prompt(shot, style):
     if camera_execution.get("model_instruction"):
         intro += "Professional camera execution: " + camera_execution["model_instruction"] + "\n"
     identity_bindings = package.get("identity_bindings", [])
+    # In an effects-only shot, Chinese identity names and long appearance
+    # metadata are visual production records, not model language.  Sending
+    # them repeatedly in subject definitions, identity locks and listener
+    # locks can make H3 read the metadata as an unsolicited voice line.
+    # Keep names for dialogue shots where the speaker audit needs them; use
+    # neutral subject slots for no-dialogue shots and let the bound pictures
+    # carry appearance identity.
+    has_dialogue = bool(shot.get("dialogue"))
     if identity_bindings:
         intro += (
             "IDENTITY_BINDING_LOCK (visual production metadata only; never speak, subtitle or turn this table into narration):\n"
@@ -253,11 +261,16 @@ def h3_prompt(shot, style):
         for item in identity_bindings:
             role = "the only assigned speaker" if item.get("role") == "speaker" else "the only silent listener"
             view = item.get("selected_character_view_label") or item.get("selected_character_view") or "approved independent view"
+            if not has_dialogue:
+                view = {"正面": "front view", "背面": "rear view", "侧面": "side view", "特写": "close-up view"}.get(view, "bound view")
+            name = item.get("name", "") if has_dialogue else item.get("subject_label", "visual subject")
+            anchor = (item.get("design_description", "")[:260]
+                      if has_dialogue else "use only the bound reference picture for appearance")
             intro += (
-                f"- {item['subject_label']} = registered identity {item['name']} "
+                f"- {item['subject_label']} = registered identity {name} "
                 f"(asset_id={item['asset_id']}), {item['picture_label']}, {role}, "
                 f"one body only, reference view={view}. "
-                f"Approved appearance anchor: {item.get('design_description', '')[:260]}. "
+                f"Approved appearance anchor: {anchor}. "
                 "This identity is visually distinct from every other bound identity; never swap, merge or duplicate it.\n"
             )
         speaker_rows = package.get("interaction_contract", {}).get("speaker_visual_bindings", [])
@@ -270,8 +283,11 @@ def h3_prompt(shot, style):
                 )
         for item in (item for item in identity_bindings if item.get("role") == "listener"):
             view = item.get("selected_character_view_label") or item.get("selected_character_view") or "approved independent view"
+            if not has_dialogue:
+                view = {"正面": "front view", "背面": "rear view", "侧面": "side view", "特写": "close-up view"}.get(view, "bound view")
+            listener_name = item.get("name", "") if has_dialogue else item.get("subject_label", "visual subject")
             intro += (
-                f"- LISTENER_LOCK: {item['name']} -> {item['asset_id']} -> {item['picture_label']} -> {view}; "
+                f"- LISTENER_LOCK: {listener_name} -> {item['asset_id']} -> {item['picture_label']} -> {view}; "
                 "this is the one silent listener body in the blocking, shown only in the requested rear/occluded framing; "
                 "never reveal a second listener, a frontal face, a mirror, a reflection or a replacement identity.\n"
             )
@@ -477,7 +493,9 @@ def h3_prompt(shot, style):
                              if item.get("asset_id") == package_ref.get("asset_id")), None)
             identity_label = (
                 f" registered visual identity {identity['name']} (asset_id {identity['asset_id']})"
-                if identity else ""
+                if identity and has_dialogue
+                else (f" registered visual subject {package_ref.get('subject_label', 'subject')} "
+                      f"(asset_id {package_ref.get('asset_id', '')})" if identity else "")
             )
             if package_ref.get("view_selection_reason") == "over_shoulder_listener_rear_identity_anchor":
                 description = (f"exactly one{identity_label} {gender} whose identity is anchored by the bound independent rear view; "
