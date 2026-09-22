@@ -430,5 +430,6 @@ def status(root):
             "image_jobs": [read(p) for p in sorted((root / "jobs").glob("image_*.json"))],
             "finals": [str(p.relative_to(root)) for p in (root / "final").glob("*.mp4")],
             "previews": [str(p.relative_to(root)) for p in (root / "previews").glob("*.mp4")],
+            "chapter_receipts": [dict(read(p), video=str(p.with_suffix(".mp4").relative_to(root))) for p in (root / "chapter_videos").glob("*.json") if p.with_suffix(".mp4").exists()],
             "chapter_videos": [str(p.relative_to(root)) for p in (root / "chapter_videos").glob("*.mp4")],
             "latest_full_video": ("final/latest_full_video.mp4" if (root / "final/latest_full_video.mp4").exists() else None)}

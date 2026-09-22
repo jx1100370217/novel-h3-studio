@@ -250,6 +250,10 @@ def compile_package(root, shot, visual_assets, speech_bindings):
         })
     camera_execution = _camera_execution(shot, cast, audio)
     character_policy = character_visibility_policy(len(cast), bool(shot.get("dialogue")))
+    visible_dialogue = any(
+        line.get("kind") != "voiceover" and str(line.get("text", "")).strip()
+        for line in shot.get("dialogue", [])
+    )
     over_shoulder = len(cast) > 1 and ("over-the-shoulder" in str(shot.get("camera", {}).get("size", "")).lower()
                                        or "过肩" in str(shot.get("camera", {}).get("size", "")))
     package = {
@@ -268,6 +272,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "fps": 24,
         },
         "camera_execution": camera_execution,
+        "scene_continuity_contract": shot.get("scene_continuity_contract", {}),
         "scene_anchor": ({
             "asset_id": scenes[0]["asset_id"],
             "name": scenes[0]["name"],
@@ -278,6 +283,8 @@ def compile_package(root, shot, visual_assets, speech_bindings):
                                          if item["asset_id"] == scenes[0]["asset_id"]), ""),
             "role": "exclusive_background_plate",
             "priority": "highest_visual_priority",
+            "background_only": True,
+            "may_fill_frame_during_dialogue": False if visible_dialogue else True,
         } if len(scenes) == 1 else None),
         "visual_assets": visuals,
         "audio_bindings": audio,
@@ -328,6 +335,12 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "silent_bound_characters": not bool(shot.get("dialogue")),
             "no_dialogue_mouth_movement": not bool(shot.get("dialogue")),
             "human_voice_allowlist": sorted(speaking_names),
+            "dialogue_framing": {
+                "enabled": visible_dialogue,
+                "policy": "single_uninterrupted_take" if visible_dialogue else "not_applicable",
+                "speaker_visible_throughout_dialogue_windows": visible_dialogue,
+                "no_environment_only_cutaway_during_dialogue": visible_dialogue,
+            },
         },
         "prop_contract": {
             "count": len(props),
@@ -369,6 +382,12 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             character_policy,
         ],
     }
+    if visible_dialogue:
+        package["constraints"].extend([
+            "Dialogue coverage is a single uninterrupted take with no internal editorial cuts.",
+            "Keep the assigned speaker's bound face and upper torso visibly in frame during every dialogue window and during the pauses between windows.",
+            "The environment reference is a background layer only; never show it alone during dialogue. No empty hall, empty room, throne-only, prop-only, ceiling, floor, corridor, listener-only or wide establishing cutaway.",
+        ])
     # Do not change ordinary-shot fingerprints when the retake-only contract
     # is absent. These fields are emitted only for a structural speaker fix.
     if shot.get("speaker_focus_mode") == "speaker_dominant":

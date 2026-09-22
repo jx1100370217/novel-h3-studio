@@ -33,6 +33,9 @@ def _invalidate_deliverables(root, take_id):
                 continue
             if take_id not in manifest.get("take_ids", []):
                 continue
+            if folder.name == "chapter_videos":
+                section = manifest.get("section", receipt.stem.removeprefix("chapter_"))
+                update_state(root, lambda state: state.setdefault("invalidated_chapters", {}).__setitem__(section, "重拍待验收及重新合成"))
             _remove_file(receipt)
             _remove_file(receipt.with_suffix(".mp4"))
             _remove_file(receipt.with_suffix(".srt"))
@@ -75,6 +78,11 @@ def _retire_source_media(root, take, note, now):
 
 
 def enqueue(root, take, note, reviewer):
+    with locked(root, "delivery"):
+        return _enqueue(root, take, note, reviewer)
+
+
+def _enqueue(root, take, note, reviewer):
     """Add or refresh one retake request, preserving the latest review note."""
     if not str(note).strip():
         raise ValueError("重拍必须包含审核意见")

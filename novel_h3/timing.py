@@ -168,8 +168,18 @@ def split_dialogue(text, max_seconds=MAX_CONTINUOUS_SPEECH_SECONDS):
                     break
             result.append(remaining[:cut])
             remaining = remaining[cut:]
-        if remaining:
-            result.append(remaining)
+    if remaining:
+        result.append(remaining)
+    # The duration-safe fallback can leave a terminal punctuation mark after
+    # the character cut. Keep it attached to the preceding spoken segment so
+    # it cannot become a standalone audio/visual shot.
+    normalized = []
+    for part in result:
+        if not re.search(r'[\u3400-\u9fffA-Za-z0-9]', part) and normalized:
+            normalized[-1] += part
+        else:
+            normalized.append(part)
+    result = normalized
     assert ''.join(result) == text
     return result
 
@@ -179,6 +189,18 @@ def semantic_chunks(text, max_seconds=13.5):
     parts = re.findall(r'[^，,。.!！?？；;：:]+[，,。.!！?？；;：:]*|[，,。.!！?？；;：:]+', text)
     result, current = [], ''
     for part in parts:
+        # A punctuation mark can be emitted as its own regex part when the
+        # preceding semantic clause reaches the duration limit.  Treat it as
+        # the terminator of the preceding clause instead of creating a
+        # punctuation-only shot (which gives H3 an empty visual/audio beat).
+        if not re.search(r'[\u3400-\u9fffA-Za-z0-9]', part):
+            if current:
+                current += part
+            elif result:
+                result[-1] += part
+            else:
+                current = part
+            continue
         if speech_seconds(part) > max_seconds:
             raise ValueError('单个无停顿长句超过镜头时限，需要人工按语义设置停顿：' + part)
         if current and speech_seconds(current + part) > max_seconds:

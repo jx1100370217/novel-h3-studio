@@ -251,6 +251,9 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/regenerate":
                 from .regeneration import enqueue
                 result = enqueue(self.root, data["kind"], data["target"], data.get("episode"))
+                if data["kind"] == "video":
+                    from .video_control import start_retake_if_idle
+                    start_retake_if_idle(self.root)
             elif self.path == "/api/prepare-missing":
                 from .preparation import prepare
                 result = prepare(self.root, data["episode"], data["kind"], data.get("asset"))
@@ -288,8 +291,14 @@ class Handler(BaseHTTPRequestHandler):
                 result = approve_voice(self.root, data["speaker"], "user", data.get("note", ""))
             elif self.path == "/api/review":
                 result = review_take(self.root, data["take"], data["approved"], data["note"], "user", data["checks"])
+                if not data["approved"]:
+                    from .video_control import start_retake_if_idle
+                    start_retake_if_idle(self.root)
             elif self.path == "/api/review-chapter":
                 result = review_chapter(self.root, data["episode"], True, data["note"], "user", data["checks"])
+            elif self.path == "/api/approve-chapter-video":
+                from .delivery_policy import approve_chapter_video
+                result = approve_chapter_video(self.root, data["section"], data["sha256"])
             elif self.path == "/api/assemble": result = assemble_episode(self.root, data["episode"])
             elif self.path == "/api/assemble-book": result = assemble_book(self.root)
             else:

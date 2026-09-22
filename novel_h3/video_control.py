@@ -101,6 +101,12 @@ def require_ready(root, episode_id=None):
     except (FileNotFoundError, KeyError, ValueError, OSError) as exc:
         blockers = [{'reason': 'chapter_material_missing', 'details': str(exc)}]
         required_assets, required_speakers = set(), set()
+    if not blockers:
+        from .project import digest
+        ep = read(root / "episodes" / f"{episode_id}.json")
+        approval = load_state(root).get("approvals", {}).get(episode_id, {})
+        if approval.get("sha256") != digest(ep):
+            blockers.append({"reason": "storyboard_review_pending", "details": "当前版本分镜尚未确认，请核对后通过分镜审核"})
     if blockers:
         _publish_gate(episode_id, blockers, required_assets, required_speakers)
         details = []
@@ -118,21 +124,21 @@ def require_ready(root, episode_id=None):
                                f'当前待生成章节 {episode_id} 资料未齐，视频未启动：{suffix}')
     return episode_id
 
-def control(root,action):
+def control(root,action,episode=None,retake_only=False):
     root=Path(root).resolve()
     if action not in ('start','pause'):raise ValueError('不支持的任务操作')
     with locked(root,'video_control'):
         current=status(root)
         if action=='start':
             if current['worker_alive']:return current
-            episode_id = require_ready(root)
+            episode_id = require_ready(root, episode)
             q=api(config(root)['comfy_url'],'/queue')
             if q['queue_running'] or q['queue_pending']:raise ValueError('视频队列非空，不能重复启动')
             PAUSE.unlink(missing_ok=True)
             logs=root/'analysis/video_runs';logs.mkdir(exist_ok=True)
             with (logs/'worker.log').open('a') as log:
-                child=subprocess.Popen([sys.executable,str(REPO/'video_worker.py'),str(root)],cwd=REPO,stdout=log,stderr=log,start_new_session=True)
-            result=dict(status='starting',worker_pid=child.pid,episode=episode_id,updated_at=time.time(),message=f'{episode_id} 章节资料检查通过，启动视频生成；后续章节按各自资料完成情况继续。')
+                child=subprocess.Popen([sys.executable,str(REPO/'video_worker.py'),str(root)] + ([episode_id] if episode else []) + (['--rework-only'] if retake_only else []),cwd=REPO,stdout=log,stderr=log,start_new_session=True)
+            result=dict(status='starting',worker_pid=child.pid,episode=episode_id,updated_at=time.time(),message=(f'仅生成 {episode_id}；完成后停止，其余章节保持暂停。' if episode else f'{episode_id} 章节资料检查通过，启动视频生成；后续章节按各自资料完成情况继续。'))
         else:
             PAUSE.write_text('用户在工作台暂停视频生成。')
             if current['worker_alive']:
@@ -145,3 +151,13 @@ def control(root,action):
                 update_state(root,retire_interrupted)
             result=dict(status='paused',updated_at=time.time(),message='视频生成已暂停；已完成视频保留。')
         write(root/'analysis/video_activity.json',result);return result
+
+
+def start_retake_if_idle(root):
+    """A user retake after chapter completion starts only the retake queue."""
+    from .rework_queue import snapshot
+    if status(root)['worker_alive']:
+        return
+    items = snapshot(root)['items']
+    if items:
+        return control(root, 'start', episode=items[0]['episode'], retake_only=True)

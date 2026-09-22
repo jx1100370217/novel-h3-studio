@@ -166,6 +166,8 @@ def run(root, episode, rework_only=False):
                     if rework_snapshot(root)['total']:
                         current_rework = None
                         continue
+                    from novel_h3.delivery_policy import maybe_assemble
+                    maybe_assemble(root, work_episode)
                     print('CHAPTER_RENDERED_PENDING_REVIEW', episode, flush=True)
                     return
                 print('SUBMITTED', take['id'], take['shot'],
@@ -263,6 +265,8 @@ def run(root, episode, rework_only=False):
                         time.sleep(0.5)
                         break
                     time.sleep(5)
+                from novel_h3.delivery_policy import finish_shot
+                finish_shot(root, take['id'], retake=bool(current_rework))
         except Exception as exc:
             if current_rework:
                 release_rework(root, current_rework['id'], str(exc))

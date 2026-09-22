@@ -266,6 +266,8 @@ def bound_shot(root, shot):
         refs = declared + [ref for ref in refs if ref not in declared]
     ordered_shot = copy.deepcopy(shot)
     ordered_shot["references"] = refs
+    from .scene_continuity import contract
+    ordered_shot["scene_continuity_contract"] = contract(root, ordered_shot)
     speech_bindings = bindings(root, ordered_shot)
     visual_assets = [generation_reference(root, ref, ordered_shot.get("camera"), ordered_shot, speech_bindings)
                      for ref in refs]
@@ -288,7 +290,8 @@ def fingerprint(root, episode, shot, previous_fingerprint=None, review_note=None
                "shot": shot, "assets": hashes, "settings": cfg["generation"], "models": cfg["models"],
                "style": cfg["style"], "upstream": cfg["upstream_commit"], "previous": previous_fingerprint,
                "vdn": cfg.get("vdn"), "speech_binding_version": 2,
-               "dialogue_audio_prompt_contract_version": 4,
+               "dialogue_audio_prompt_contract_version": 5,
+               "dialogue_visual_framing_contract_version": 1,
                "asset_binding_version": 4, "character_reference_policy_version": 3,
                "asset_package": package,
                "voices": prompt_shot["speech_bindings"],
@@ -353,7 +356,19 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
             "no_flashback_or_apparition": bool(asset_package.get("character_identity_lock", {}).get("no_flashback_or_apparition")),
             "dialogue_only_audio": bool(shot.get("dialogue")),
             "vocal_content_lock": bool(shot.get("dialogue")),
-            "dialogue_audio_prompt_contract_version": 4 if shot.get("dialogue") else 3,
+            "dialogue_audio_prompt_contract_version": 5 if shot.get("dialogue") else 3,
+            "dialogue_visual_framing_contract_version": 1 if any(
+                line.get("kind") != "voiceover" and str(line.get("text", "")).strip()
+                for line in shot.get("dialogue", [])
+            ) else 0,
+            "speaker_visible_throughout_dialogue_windows": bool(
+                asset_package.get("interaction_contract", {}).get("dialogue_framing", {}).get(
+                    "speaker_visible_throughout_dialogue_windows")),
+            "no_environment_only_cutaway_during_dialogue": bool(
+                asset_package.get("interaction_contract", {}).get("dialogue_framing", {}).get(
+                    "no_environment_only_cutaway_during_dialogue")),
+            "dialogue_internal_cut_policy": asset_package.get("interaction_contract", {}).get(
+                "dialogue_framing", {}).get("policy", "not_applicable"),
             "review_note_excluded_from_model_prompt": True,
             "diegetic_only_audio": not bool(shot.get("dialogue")),
             "silent_bound_characters": not bool(shot.get("dialogue")),
@@ -958,6 +973,8 @@ def review_take(root, take_id, approved, note, reviewer, checks):
     from .rework_queue import enqueue as enqueue_rework, resolve_shot
     if approved:
         resolve_shot(root, take["episode"], take["shot"])
+        from .delivery_policy import maybe_assemble
+        maybe_assemble(root, take["episode"])
     else:
         # A user review is the source of truth for a retake. Keep the rejected
         # take and persist the exact note so the serial worker can inject it

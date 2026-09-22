@@ -1,10 +1,61 @@
 from fractions import Fraction
 import json
+import os
 from pathlib import Path
 import subprocess
+import time
 
 from .project import read, write, file_hash, inside, digest
 from .director import coverage, episode_path, delivered_frames
+
+
+def assembly_progress(root):
+    """Return the latest chapter-assembly state for the progress dashboard."""
+    root = Path(root)
+    path = root / "runtime" / "chapter_assembly.json"
+    if path.is_file():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            pass
+    # Keep already-produced chapters visible after upgrading an installation
+    # that did not yet persist live assembly state.
+    receipts = sorted((root / "chapter_videos").glob("chapter_*.json"),
+                      key=lambda item: item.stat().st_mtime)
+    if receipts:
+        receipt = receipts[-1]
+        try:
+            data = json.loads(receipt.read_text(encoding="utf-8"))
+            section = data.get("section") or receipt.stem.removeprefix("chapter_")
+            title = section
+            for chapter in json.loads((root / "book.json").read_text(encoding="utf-8")).get("chapters", []):
+                if chapter.get("id") == section:
+                    title = chapter.get("title", section)
+                    break
+            count = len(data.get("take_ids", []))
+            return {"status": "completed", "episode": "chapter_" + section,
+                    "title": title, "phase": "章节成片已完成，等待人工验收",
+                    "message": "章节视频已生成", "completed_shots": count,
+                    "total_shots": count, "output": str(receipt.with_suffix(".mp4").relative_to(root)),
+                    "started_at": receipt.stat().st_mtime, "updated_at": receipt.stat().st_mtime,
+                    "qc": data.get("qc")}
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
+    return {"status": "idle", "episode": None, "title": None,
+            "phase": "尚未开始章节合成", "message": "等待镜头全部通过后自动合成",
+            "completed_shots": 0, "total_shots": 0, "output": None,
+            "started_at": None, "updated_at": time.time()}
+
+
+def _write_assembly_progress(root, **updates):
+    root = Path(root)
+    path = root / "runtime" / "chapter_assembly.json"
+    current = assembly_progress(root)
+    current.update(updates, updated_at=time.time())
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
 
 
 def probe(path):
@@ -62,7 +113,7 @@ def enforce_silent_audio(path):
             "original_video_sha256": before, "video_sha256": file_hash(path)}
 
 
-def concatenate(paths, output, width, height):
+def concatenate(paths, output, width, height, progress=None):
     """Normalize each clip's own audio rate before concatenation, never assume H3 is 48 kHz."""
     output = Path(output)
     work = output.parent / (output.stem + "_work")
@@ -70,6 +121,8 @@ def concatenate(paths, output, width, height):
     normalized = []
     frames = 0
     for i, path in enumerate(paths):
+        if progress:
+            progress(i, len(paths), "正在规范化镜头音视频")
         meta = probe(path)
         video = next(s for s in meta["streams"] if s["codec_type"] == "video")
         if not any(s["codec_type"] == "audio" for s in meta["streams"]):
@@ -85,9 +138,13 @@ def concatenate(paths, output, width, height):
                 "-c:a", "pcm_s16le", "-ac", "2", "-t", f"{seconds:.9f}", str(dest)]
         subprocess.run(args, check=True, capture_output=True)
         normalized.append(dest.name)
+        if progress:
+            progress(i + 1, len(paths), "正在合并镜头")
     manifest = work / "concat.txt"
     manifest.write_text("".join(f"file '{p}'\n" for p in normalized), encoding="utf-8")
     tmp = output.with_suffix(".pending.mp4")
+    if progress:
+        progress(len(paths), len(paths), "正在封装章节视频")
     subprocess.run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-f", "concat", "-safe", "1", "-i", str(manifest),
                     "-c:v", "copy", "-c:a", "aac", "-b:a", "256k", "-movflags", "+faststart", str(tmp)],
                    check=True, capture_output=True)
@@ -170,10 +227,10 @@ def _chapter_material(root, section_id):
         if episode.get("release_role") == "proof":
             continue
         for shot, _, take in current_takes(root, episode):
-            if not take or not take.get("qc", {}).get("passed"):
+            if not source_ids.intersection(shot.get("source_ids", [])):
                 continue
-            if take["status"] != "approved" and not take.get("visual_review"):
-                continue
+            if not take or not take.get("qc", {}).get("passed") or take["status"] != "approved":
+                raise ValueError(f"章节 {section_id} 尚有镜头未完成或重拍未人工验收")
             if source_ids.intersection(shot.get("source_ids", [])):
                 path = inside(root, take["video"])
                 if file_hash(path) != take["video_sha256"]:
@@ -187,23 +244,43 @@ def assemble_chapter(root, section_id):
     """Write one deterministic per-chapter video, replacing its prior version atomically."""
     from .comfy import config
     root = Path(root)
-    chapter, rows, covered = _chapter_material(root, section_id)
-    if not rows:
-        raise ValueError(f"章节 {section_id} 尚无完成并通过视觉抽查的镜头")
-    missing = sorted(set(chapter["paragraph_ids"]) - covered)
-    if missing:
-        raise ValueError(f"章节 {section_id} 仍有 {len(missing)} 个原文段落未进入镜头，禁止生成章节成片；请先完成全文改编")
-    cfg = config(root)
-    out = root / "chapter_videos" / f"chapter_{section_id}.mp4"
-    qc = concatenate([p for _, _, p in rows], out, cfg["delivery"]["width"], cfg["delivery"]["height"])
-    write_subtitles(root, {"shots": [shot for shot, _, _ in rows]}, out.with_suffix(".srt"))
-    approved = all(t["status"] == "approved" for _, t, _ in rows)
-    write(out.with_suffix(".json"), {"kind": "chapter_video", "section": section_id,
-        "source_number": chapter["source_number"], "title": chapter["title"],
-        "take_ids": [t["id"] for _, t, _ in rows], "release_approved": approved,
-        "audio_listening": "pending", "sha256": file_hash(out), "qc": qc,
-        "note": "章节固定文件名；同章再次生成会原子覆盖旧结果。"})
-    return str(out)
+    _write_assembly_progress(root, status="preparing", episode="chapter_" + section_id,
+                             title=section_id, phase="正在检查章节镜头", message="正在检查镜头和原文覆盖",
+                             completed_shots=0, total_shots=0, output=None, qc=None,
+                             started_at=time.time())
+    try:
+        chapter, rows, covered = _chapter_material(root, section_id)
+        total_shots = len(rows)
+        _write_assembly_progress(root, title=chapter["title"], total_shots=total_shots,
+                                 phase="正在准备合成", message=f"已找到 {total_shots} 个通过镜头")
+        if not rows:
+            raise ValueError(f"章节 {section_id} 尚无完成并通过视觉抽查的镜头")
+        missing = sorted(set(chapter["paragraph_ids"]) - covered)
+        if missing:
+            raise ValueError(f"章节 {section_id} 仍有 {len(missing)} 个原文段落未进入镜头，禁止生成章节成片；请先完成全文改编")
+        cfg = config(root)
+        out = root / "chapter_videos" / f"chapter_{section_id}.mp4"
+        qc = concatenate([p for _, _, p in rows], out, cfg["delivery"]["width"], cfg["delivery"]["height"],
+                          progress=lambda done, total, phase: _write_assembly_progress(
+                              root, status="running", phase=phase, message=f"已处理 {done} / {total} 个镜头",
+                              completed_shots=done, total_shots=total))
+        _write_assembly_progress(root, status="finalizing", phase="正在写入章节字幕和校验", message="视频已封装，正在写入交付记录",
+                                 completed_shots=total_shots, total_shots=total_shots)
+        write_subtitles(root, {"shots": [shot for shot, _, _ in rows]}, out.with_suffix(".srt"))
+        write(out.with_suffix(".json"), {"kind": "chapter_video", "section": section_id,
+            "source_number": chapter["source_number"], "title": chapter["title"],
+            "take_ids": [t["id"] for _, t, _ in rows], "release_approved": False, "chapter_review": {"approved": False},
+            "audio_listening": "pending", "sha256": file_hash(out), "qc": qc,
+            "note": "章节固定文件名；同章再次生成会原子覆盖旧结果。"})
+        from .project import update_state
+        update_state(root, lambda state: state.setdefault("invalidated_chapters", {}).pop(section_id, None))
+        _write_assembly_progress(root, status="completed", phase="章节成片已完成，等待人工验收",
+                                 message="章节视频已生成，等待看片与验收", output=str(out.relative_to(root)),
+                                 completed_shots=total_shots, total_shots=total_shots, qc=qc)
+        return str(out)
+    except Exception as exc:
+        _write_assembly_progress(root, status="failed", phase="章节合成失败", message=str(exc))
+        raise
 
 
 def assemble_latest(root):
@@ -211,6 +288,9 @@ def assemble_latest(root):
     from .comfy import config
     root = Path(root)
     book = read(root / "book.json")
+    from .project import load_state
+    if load_state(root).get("invalidated_chapters"):
+        raise ValueError("有章节等待重拍验收及重新合成，不能生成合集")
     paths, sections = [], []
     for chapter in book["chapters"]:
         path = root / "chapter_videos" / f"chapter_{chapter['id']}.mp4"
@@ -220,6 +300,9 @@ def assemble_latest(root):
         receipt = read(receipt_path)
         if receipt.get("sha256") != file_hash(path):
             raise ValueError(f"章节视频校验失败: {path}")
+        review = receipt.get("chapter_review", {})
+        if not review.get("approved") or review.get("sha256") != receipt.get("sha256"):
+            raise ValueError(f"章节 {chapter['id']} 的当前成片尚未人工验收，不能合成合集")
         paths.append(path)
         sections.append({"id": chapter["id"], "source_number": chapter["source_number"], "title": chapter["title"]})
     if not paths:
@@ -237,6 +320,13 @@ def assemble_latest(root):
 def assemble_book(root):
     from .comfy import current_takes, config
     root = Path(root)
+    story_sections = [c["id"] for c in read(Path(root)/"book.json")["chapters"] if c.get("kind") == "story"]
+    if any(not (Path(root)/"chapter_videos"/f"chapter_{sid}.json").exists() for sid in story_sections):
+        raise ValueError("全书合集需要全部章节成片及人工验收")
+    for receipt_path in (Path(root)/"chapter_videos").glob("*.json"):
+        receipt = read(receipt_path)
+        if not receipt.get("chapter_review", {}).get("approved") or receipt.get("chapter_review", {}).get("sha256") != receipt.get("sha256"):
+            raise ValueError("请先人工验收所有章节视频")
     report = coverage(root)
     if not report["all_supplied_text_accounted_for"]:
         raise ValueError("仍有原文未分析或未改编，禁止将部分视频标为全书")

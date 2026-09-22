@@ -12,6 +12,7 @@ from novel_h3.arcreel import check_speaker_audit
 from novel_h3.speech_qc import compare
 from novel_h3.character_views import select_view
 from novel_h3.shot_package import compile_package
+from novel_h3.timing import semantic_chunks, split_dialogue
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -106,6 +107,28 @@ class VoiceBindingTests(unittest.TestCase):
         self.assertIn('Dialogue shot character lock', prompt)
         self.assertIn('unbound or unregistered person', prompt)
         self.assertIn('Character reference pictures are the sole identity source', prompt)
+
+    def test_dialogue_shot_locks_speaker_visibility_and_blocks_empty_plate_cutaways(self):
+        shot = copy.deepcopy(self.shot)
+        shot['asset_package'] = {'visual_assets': [
+            {'kind': 'character', 'subject_label': 'Subject 1'},
+            {'kind': 'scene', 'subject_label': 'Subject 2'}]}
+        shot['asset_package']['dialogue_event_bindings'] = [
+            {'kind': 'dialogue', 'subject_label': 'Subject 1', 'text': '这是哪里？'}]
+        prompt = h3_prompt(shot, 'cinema')
+        self.assertIn('SPEAKER_VISIBILITY_LOCK', prompt)
+        self.assertIn('single uninterrupted dialogue take', prompt)
+        self.assertIn('empty hall', prompt)
+        self.assertIn('environment picture is a background layer only', prompt)
+
+    def test_semantic_chunks_attaches_terminal_punctuation_to_previous_clause(self):
+        chunks = semantic_chunks('前面是一段足够长的对白内容，后面继续说明事情的变化。')
+        self.assertTrue(chunks)
+        self.assertTrue(all(any('\u3400' <= c <= '\u9fff' for c in part) for part in chunks))
+        self.assertEqual(''.join(chunks), '前面是一段足够长的对白内容，后面继续说明事情的变化。')
+        safe = split_dialogue('刚才我让千里眼和顺风耳探测了一下魔界，这两道金光飞过，魔界也都一片混乱。看来这两道光是来自外玄天或者是天外天。')
+        self.assertTrue(all(any('\u3400' <= c <= '\u9fff' for c in part) for part in safe))
+        self.assertEqual(''.join(safe), '刚才我让千里眼和顺风耳探测了一下魔界，这两道金光飞过，魔界也都一片混乱。看来这两道光是来自外玄天或者是天外天。')
 
     def test_non_dialogue_shot_allows_only_silent_background_extras(self):
         shot = copy.deepcopy(self.shot)

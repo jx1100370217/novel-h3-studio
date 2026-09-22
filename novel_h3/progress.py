@@ -275,8 +275,9 @@ def snapshot(root):
                     if blockers else None)
     from .preparation_progress import summary as preparation_summary
     from .rework_queue import snapshot as rework_snapshot
+    from .media import assembly_progress
     parallel_preparation = _parallel_preparation(root)
-    return {'video_control': video_activity, 'preparation_progress': preparation_summary(root), 'parallel_preparation': parallel_preparation, 'preparation_targets': _preparation_targets(root, parallel_preparation), 'book_progress': book_progress(root, takes), 'video_engine': video_engine, 'resolution_label': resolution_label, 'updated_at': time.time(), 'paused': PAUSE.exists(),
+    return {'video_control': video_activity, 'preparation_progress': preparation_summary(root), 'parallel_preparation': parallel_preparation, 'preparation_targets': _preparation_targets(root, parallel_preparation), 'book_progress': book_progress(root, takes), 'chapter_assembly': assembly_progress(root), 'video_engine': video_engine, 'resolution_label': resolution_label, 'updated_at': time.time(), 'paused': PAUSE.exists(),
             'pause_reason': PAUSE.read_text() if PAUSE.exists() else None,
             'chapter': episode.get('title', '尚无任务'), 'episode': latest['episode'] if latest else None,
             'total': len(episode['shots']), 'completed': len(completed),
@@ -288,7 +289,7 @@ def snapshot(root):
             'progress_source': progress_source, 'resources': resources,
             'asset_gate': gate,
             'rework_queue': rework_snapshot(root),
-            'recent': [{'shot': t['shot'], 'status': t['status'], 'video': t.get('video'),
+            'recent': [{'shot': t['shot'], 'status': t['status'], 'approval_method': t.get('approval_method'), 'video': t.get('video'),
                         'execution_sheet': execution_sheet(root, t),
                         'audio_cleanup': t.get('speech_check', {}).get('audio_cleanup', {}).get('status'),
                         'lip_sync_gate': t.get('speech_check', {}).get('lip_sync_gate'),

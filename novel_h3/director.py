@@ -493,6 +493,20 @@ def h3_prompt(shot, style):
             "VISUAL_TIMELINE_LOCK: perform the bound blocking and camera move continuously from start to end. "
             "Use the declared time windows only for picture timing; visual metadata is non-speech.\n"
         )
+        visible_subjects = sorted({
+            str(event.get("subject_label"))
+            for event in package.get("dialogue_event_bindings", [])
+            if event.get("kind") != "voiceover" and event.get("subject_label")
+        })
+        if visible_subjects:
+            owners = ", ".join(visible_subjects)
+            intro += (
+                "SPEAKER_VISIBILITY_LOCK: this is one single uninterrupted dialogue take, with no internal editorial cuts. "
+                f"The bound speaking subject(s) {owners} must remain visibly present with face and upper torso in frame from the first frame to the last frame, "
+                "including every exact <d> window and the silent pauses between windows. The environment picture is a background layer only and can never replace the speaker. "
+                "Never cut, dissolve, reframe or drift to an empty hall, empty room, throne-only, prop-only, ceiling, floor, corridor, listener-only, wide establishing or off-screen dialogue frame. "
+                "During pauses, hold the same speaker coverage with lips closed; when a line starts, show that bound face and mouth before and throughout the line.\n"
+            )
     else:
         for beat in shot["timeline"]:
             description = beat["description"]
@@ -527,6 +541,8 @@ def h3_prompt(shot, style):
     # Keep one audio contract at the prompt head. Repeating a long contract at
     # the tail increased the amount of text available to H3's audio head and
     # made metadata more likely to be interpreted as a vocal continuation.
+    if shot.get("scene_continuity_contract"):
+        intro += "\nVisual set continuity (not spoken): " + shot["scene_continuity_contract"]["prompt"]
     tail = (f"\noverall_soundscape:\n{soundscape}\n\nnon_diegetic_music:\nN/A")
     if shot["mode"] == "fl2va":
         alignment = ""

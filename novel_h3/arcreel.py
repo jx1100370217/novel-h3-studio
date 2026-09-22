@@ -13,7 +13,7 @@ from .director import frames_for, validate_episode, image_job, h3_prompt
 BUCKETS = {"characters": "character", "scenes": "scene", "props": "prop"}
 CONTENT_FIELDS = {"scene_id", "duration_seconds", "segment_break", "characters_in_scene",
                   "scenes", "props", "scene_description", "utterances", "source_text", "needs_replan",
-                  "voice_groups", "visual_narration"}
+                  "voice_groups", "visual_narration", "editorial_purpose"}
 H3_FIELDS = {"location_id", "mode", "continuity", "seed", "hold_frames", "first_frame", "last_frame",
              "references", "dramatic_function", "action", "camera", "handoff_in", "handoff_out",
              "timeline", "soundscape"}
@@ -122,6 +122,11 @@ def save_content(root, plan):
     if read(Path(root) / "config.json").get("speech_policy", {}).get("dialogue_only"):
         from .dialogue_only import content
         plan = content(plan)
+    # Entrance/reaction inserts have a short editorial target, not a global
+    # minimum or a cap on substantive action scenes. Dialogue remains content timed.
+    for scene in plan["script"]["scenes"]:
+        if not scene.get("utterances") and scene.get("editorial_purpose") in ("entrance", "reaction", "transition"):
+            scene["duration_seconds"] = min(scene["duration_seconds"], 4)
     # Normalize every saved dialogue workorder at authoring time. This keeps
     # future plans on the content-based rule instead of requiring a later
     # migration pass; silent scenes retain their visual action duration.
@@ -236,7 +241,7 @@ def approve_rhythm(root, episode_id, reviewer, note):
 def visual_packet(root, episode_id):
     plan = read(plan_path(root, episode_id))
     return {"kind": "arcreel_visual_authoring_for_h3", "content_sha256": digest(plan),
-            "instruction": "只编写视觉层，禁止重写 title、source_text、utterances 或角色归属。按 scene_id 对齐。speech_timing 仅含 start_frame/end_frame，逐条对应锁定的 utterances。H3 时长为 17k+5 帧，续接扣除 22 帧；时间线是扣除重叠后交付时间，每段不超过 24 帧。每镜资产引用必须覆盖锁定的角色/场景/道具；有首帧时把这些资产作为首帧生图参考。换场剪辑，场内才续接。示例见 examples/arcreel_visual.json。",
+            "instruction": "只编写视觉层，禁止重写 title、source_text、utterances 或角色归属。按 scene_id 对齐。speech_timing 仅含 start_frame/end_frame，逐条对应锁定的 utterances。H3 时长为 17k+5 帧，续接扣除 22 帧；时间线是扣除重叠后交付时间，每段不超过 24 帧。每镜资产引用必须覆盖锁定的角色/场景/道具；有首帧时把这些资产作为首帧生图参考。换场剪辑，场内才续接；连续出场按一个动作组织，避免逐人长时间展示。内容层应将无对白入场/反应/过渡标注 editorial_purpose 为 entrance/reaction/transition，通常2–4秒；视觉层不得擅改内容层，缺失时反馈。实质动作按内容。谈话采用固定场景、座位、视线和重复机位；bible/scene_staging.json记录跨镜空间约束。示例见 examples/arcreel_visual.json。",
             "content": plan, "assets": inventory(root),
             "output_fields": ["content_sha256", "scenes: [{scene_id, image_prompt, h3, speech_timing}]"],
             "h3_fields": sorted(H3_FIELDS)}
