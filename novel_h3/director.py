@@ -257,13 +257,46 @@ def character_visibility_policy(cast_count, has_dialogue):
             "do not create a foreground human identity or a vocal performance.")
 
 
+def bound_character_action_contract(shot, cast_count):
+    """Add deterministic blocking to free-form action text when bodies are bound.
+
+    H3 is good at filling an underspecified timeline, but it may turn verbs such
+    as "emerge" or "follow" into reverse walking, scale drift, or an empty-set
+    cutaway. This short contract keeps the authored action while closing those
+    degrees of freedom for every bound-character shot.
+    """
+    if not cast_count:
+        return ""
+    if shot.get("dialogue"):
+        return (
+            " Bound cast blocking is fixed for the entire take: keep the same registered body or bodies in frame, "
+            "with stable scale and grounded posture; the scene cannot replace them."
+        )
+    text = str(shot.get("action", "")).lower()
+    travel = bool(re.search(r"\b(?:walk|step|enter|emerge|approach|move)\b", text)) or any(
+        word in str(shot.get("action", "")) for word in ("走", "进入", "走入", "走来", "飞", "腾云"))
+    if travel:
+        return (
+            " Bound visual blocking: keep the registered body or bodies visible from first to last frame at stable human scale. "
+            "Travel only forward along the established screen direction once, with grounded feet and constant size, then stop; "
+            "never reverse-walk, float, teleport, shrink, grow, or cut to the empty environment."
+        )
+    return (
+        " Bound visual blocking: keep the registered body or bodies visible from first to last frame at stable human scale and "
+        "grounded posture; no unrequested walking, reverse motion, floating, teleportation, scale change, or environment-only frame."
+    )
+
+
 def h3_prompt(shot, style):
     offset = CONTEXT if shot["continuity"] == "continue" else 0
     camera = shot["camera"]
     package = shot.get("asset_package", {})
     package_visuals = package.get("visual_assets", [])
     has_dialogue = bool(shot.get("dialogue"))
+    bound_cast = [item for item in package_visuals if item.get("kind") == "character"]
     visual_action = _speech_safe_visual_text(shot["action"]) if has_dialogue else shot["action"]
+    if bound_cast:
+        visual_action += bound_character_action_contract(shot, len(bound_cast))
     visual_size = _speech_safe_visual_text(camera["size"]) if has_dialogue else camera["size"]
     visual_movement = _speech_safe_visual_text(camera["movement"]) if has_dialogue else camera["movement"]
     intro = (f"{style}\n{generation_audio_contract(shot)}\n[Shot 1] {visual_size}, {camera['lens_mm']}mm lens. "
@@ -449,6 +482,17 @@ def h3_prompt(shot, style):
         intro += ("Reference pictures provide identity, environment or prop appearance only. Never reproduce a reference-sheet layout, "
                   "split screen, inset portrait, reflection, twin, clone, mirrored duplicate or second copy of a bound subject.\n")
     intro += character_visibility_policy(len(cast), bool(shot.get("dialogue"))) + "\n"
+    if bound_cast:
+        labels = ", ".join(f"<Subject {item.get('subject_label', 'visual subject').split()[-1]}>" for item in bound_cast)
+        intro += (
+            "BOUND_CAST_PRESENCE_LOCK: the declared bound cast is the complete foreground cast for the entire shot "
+            f"({labels}). Keep the same registered body or bodies visibly present in every frame at a stable human scale; "
+            "the environment image is a background layer only and can never replace the cast. No empty hall, empty room, "
+            "throne-only, architecture-only, corridor-only or background-only frame is allowed. Never shrink, grow, float, "
+            "teleport, reverse-walk, reverse the motion, duplicate a body or introduce an unbound human. "
+            + ("All bound mouths stay closed because this shot has no dialogue.\n" if not has_dialogue
+               else "Only the event-bound speaker opens their mouth; listeners remain closed-lipped.\n")
+        )
     if not shot.get("dialogue"):
         intro += (
             "NO_DIALOGUE_BOUNDARY: H3_AUDIO_SCHEMA_V3 is authoritative for this shot. "
@@ -508,6 +552,13 @@ def h3_prompt(shot, style):
                 "During pauses, hold the same speaker coverage with lips closed; when a line starts, show that bound face and mouth before and throughout the line.\n"
             )
     else:
+        if bound_cast:
+            intro += (
+                "SILENT_CAST_TIMELINE_LOCK: each timeline beat changes only the declared gesture or camera move while the "
+                "same bound character bodies remain in frame. If a beat does not explicitly request travel, keep feet planted. "
+                "If travel is requested, move forward in the established screen direction once, then settle; never walk backward "
+                "or let the model cut to the empty environment.\n"
+            )
         for beat in shot["timeline"]:
             description = beat["description"]
             if re.search(r"speaks?|listeners?|dialogue|voice", description, re.I):

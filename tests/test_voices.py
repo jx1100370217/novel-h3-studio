@@ -164,6 +164,29 @@ class VoiceBindingTests(unittest.TestCase):
         self.assertEqual(package['visual_assets'][0]['gender'], '男')
         self.assertIn('male character identity', package['visual_assets'][0]['gender_prompt'])
 
+    def test_bound_character_shot_forbids_empty_set_and_reverse_drift(self):
+        write(self.root/'bible/assets.json', {
+            'characters': {'无极': {'id': 'wuji', 'gender': '男'}},
+            'scenes': {'天外天': {'id': 'outer_heaven'}}, 'props': {},
+        })
+        shot = copy.deepcopy(self.shot)
+        shot['dialogue'] = []
+        visual = [
+            {'asset_id': 'outer_heaven', 'source_sha256': 'a', 'generation_path': 'scene.png',
+             'generation_sha256': 'b', 'variant': 'approved_source'},
+            {'asset_id': 'wuji', 'source_sha256': 'c', 'generation_path': 'wuji-front.png',
+             'generation_sha256': 'd', 'variant': 'front', 'selected_view': 'front',
+             'selected_view_label': '正面', 'selected_view_reason': 'default_identity_view'},
+        ]
+        package = compile_package(self.root, shot, visual, [])
+        self.assertTrue(package['interaction_contract']['bound_character_presence_every_frame'])
+        self.assertFalse(package['scene_anchor']['may_replace_bound_characters'])
+        self.assertFalse(package['interaction_contract']['unregistered_humans_allowed'])
+        self.assertTrue(any('reverse-walk' in row for row in package['constraints']))
+        prompt = h3_prompt(dict(shot, asset_package=package), 'cinema')
+        self.assertIn('BOUND_CAST_PRESENCE_LOCK', prompt)
+        self.assertIn('SILENT_CAST_TIMELINE_LOCK', prompt)
+
     def test_gender_lock_is_explicit_in_h3_prompt(self):
         shot = copy.deepcopy(self.shot)
         shot['asset_package'] = {'visual_assets': [

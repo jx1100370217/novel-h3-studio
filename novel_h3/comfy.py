@@ -291,8 +291,9 @@ def fingerprint(root, episode, shot, previous_fingerprint=None, review_note=None
                "style": cfg["style"], "upstream": cfg["upstream_commit"], "previous": previous_fingerprint,
                "vdn": cfg.get("vdn"), "speech_binding_version": 2,
                "dialogue_audio_prompt_contract_version": 5,
-               "dialogue_visual_framing_contract_version": 1,
-               "asset_binding_version": 4, "character_reference_policy_version": 3,
+               "dialogue_visual_framing_contract_version": 2,
+               "character_presence_contract_version": 1,
+               "asset_binding_version": 5, "character_reference_policy_version": 3,
                "asset_package": package,
                "voices": prompt_shot["speech_bindings"],
                "resolved_prompt": h3_prompt(prompt_shot, cfg["style"])}
@@ -357,7 +358,7 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
             "dialogue_only_audio": bool(shot.get("dialogue")),
             "vocal_content_lock": bool(shot.get("dialogue")),
             "dialogue_audio_prompt_contract_version": 5 if shot.get("dialogue") else 3,
-            "dialogue_visual_framing_contract_version": 1 if any(
+            "dialogue_visual_framing_contract_version": 2 if any(
                 line.get("kind") != "voiceover" and str(line.get("text", "")).strip()
                 for line in shot.get("dialogue", [])
             ) else 0,
@@ -374,6 +375,14 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
             "silent_bound_characters": not bool(shot.get("dialogue")),
             "no_dialogue_mouth_movement": not bool(shot.get("dialogue")),
             "no_human_voice_when_no_dialogue": not bool(shot.get("dialogue")),
+            "bound_character_presence_every_frame": bool(
+                asset_package.get("interaction_contract", {}).get("bound_character_presence_every_frame")),
+            "no_background_takeover": bool(
+                asset_package.get("interaction_contract", {}).get("no_background_takeover")),
+            "no_reverse_or_scale_drift": bool(
+                asset_package.get("interaction_contract", {}).get("no_reverse_or_scale_drift")),
+            "no_environment_only_frame_with_bound_cast": bool(
+                asset_package.get("interaction_contract", {}).get("character_presence_required")),
             # Keep old project configs fail-closed on the current compact
             # no-dialogue audio schema; a stale value must not resurrect the
             # long negative prompt that seeded ASR hallucinations.

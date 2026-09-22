@@ -1,8 +1,9 @@
 """Compile a storyboard shot into an explicit, inspectable H3 asset binding package."""
 from pathlib import Path
+import re
 
 from .project import read
-from .director import character_visibility_policy, gender_prompt
+from .director import character_visibility_policy, gender_prompt, bound_character_action_contract
 
 
 CAMERA_SOURCES = [
@@ -59,6 +60,9 @@ def _camera_execution(shot, cast, audio):
     size = str(camera.get("size", "medium shot"))
     close = "close" in size.lower()
     multi = len(cast) > 1
+    has_dialogue = bool(shot.get("dialogue"))
+    action_text = str(shot.get("action", ""))
+    action_lower = action_text.lower()
     start_composition = (
         "keep every bound character in one shared frame, coherent scale and matching eyelines"
         if multi else
@@ -76,6 +80,48 @@ def _camera_execution(shot, cast, audio):
     end_composition = ("settle on the reaction or revealed information and hold the final composition for the edit"
                        if movement.lower() not in ("locked camera", "static") else
                        "preserve the established composition and allow performance, not reframing, to carry the beat")
+    if cast:
+        # H3 otherwise treats a background plate as permission to cut away from
+        # the bound bodies.  Character presence is a shot-level invariant: the
+        # scene can breathe behind the performers, but it cannot replace them.
+        if multi:
+            start_composition = (
+                "keep every bound character in one shared physical space, at a stable human scale, "
+                "with both bodies visible from the first frame"
+            )
+        elif not has_dialogue:
+            start_composition = (
+                "keep the single bound character visibly present from the first frame, full or three-quarter body, "
+                "feet grounded and at a stable human scale"
+            )
+        end_composition = (
+            "hold the same bound character bodies and the same physical location through the final frame; "
+            "the background may remain visible but may never take over the frame"
+        )
+        # “Emerges/follows” is a common source of reverse walking and scale
+        # drift. Keep the authored movement, but make the physical direction
+        # deterministic and disallow model-invented locomotion.
+        if not has_dialogue:
+            travel = bool(re.search(r"\b(?:walk|step|enter|emerge|approach|move)\b", action_lower)) or any(
+                word in action_text for word in ("走", "进入", "走入", "走来", "飞", "腾云"))
+            if travel:
+                staging_lock = (
+                    "The bound character(s) move only forward along the established screen direction, "
+                    "never backward or in reverse playback; preserve constant body scale, feet-to-floor contact "
+                    "and one continuous path, then stop in the final composition."
+                )
+            else:
+                staging_lock = (
+                    "The bound character(s) remain planted in the declared blocking unless the action explicitly "
+                    "requires a step; no walking, reverse movement, floating, teleportation or scale change."
+                )
+        else:
+            staging_lock = (
+                "The bound speaking/listening character(s) stay in the declared blocking for the entire take; "
+                "do not replace them with a background plate or a new body."
+            )
+    else:
+        staging_lock = "No bound character is present; do not invent a foreground human identity."
     speakers = [item["speaker"] for item in audio]
     focus = (f"focus on the assigned speaker ({', '.join(speakers)}); rack focus only when the speaking turn changes"
              if speakers else "hold focus on the dramatic visual subject; do not hunt or pulse")
@@ -89,6 +135,7 @@ def _camera_execution(shot, cast, audio):
         f"Start: {start_composition}. Execute one {path} on {axis}, extent {extent}; "
         f"{'ease in over 12 frames, maintain an even physical speed, then ease out over the final 12 frames' if moving else 'no translation, rotation, zoom, roll or stabilization drift'}. "
         f"Focus: {focus}. End: {end_composition}. "
+        f"{staging_lock} "
         "No unmotivated zoom, whip pan, orbit, drone rise, floating camera, axis crossing or mid-shot lens change."
     )
     return {
@@ -261,7 +308,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
         "shot_id": shot["id"],
         "source_ids": shot.get("source_ids", []),
         "storyboard": {
-            "dramatic_action": shot.get("action"),
+            "dramatic_action": str(shot.get("action", "")) + bound_character_action_contract(shot, len(cast)),
             "camera": shot.get("camera"),
             "timeline": shot.get("timeline", []),
             "scene_id": shot.get("scene_id"),
@@ -284,7 +331,12 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "role": "exclusive_background_plate",
             "priority": "highest_visual_priority",
             "background_only": True,
-            "may_fill_frame_during_dialogue": False if visible_dialogue else True,
+            "may_fill_frame_during_dialogue": False if cast else True,
+            "may_replace_bound_characters": False if cast else True,
+            "presence_rule": (
+                "At least one bound character must remain visible in every frame; the scene plate is background only."
+                if cast else "Environment-only framing is allowed because no character is bound."
+            ),
         } if len(scenes) == 1 else None),
         "visual_assets": visuals,
         "audio_bindings": audio,
@@ -325,7 +377,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "listener_reacts_with_closed_lips": bool(listeners),
             "allowed_character_asset_ids": [item["asset_id"] for item in cast],
             "max_visible_human_bodies": len(cast),
-            "unregistered_humans_allowed": False if shot.get("dialogue") else True,
+            "unregistered_humans_allowed": False if cast else True,
             "over_shoulder_foreground_listener_only": over_shoulder,
             "blocking_source": shot.get("action"),
             "dialogue_event_bindings": dialogue_events,
@@ -341,6 +393,10 @@ def compile_package(root, shot, visual_assets, speech_bindings):
                 "speaker_visible_throughout_dialogue_windows": visible_dialogue,
                 "no_environment_only_cutaway_during_dialogue": visible_dialogue,
             },
+            "character_presence_required": bool(cast),
+            "bound_character_presence_every_frame": bool(cast),
+            "no_background_takeover": bool(cast),
+            "no_reverse_or_scale_drift": bool(cast),
         },
         "prop_contract": {
             "count": len(props),
@@ -387,6 +443,13 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "Dialogue coverage is a single uninterrupted take with no internal editorial cuts.",
             "Keep the assigned speaker's bound face and upper torso visibly in frame during every dialogue window and during the pauses between windows.",
             "The environment reference is a background layer only; never show it alone during dialogue. No empty hall, empty room, throne-only, prop-only, ceiling, floor, corridor, listener-only or wide establishing cutaway.",
+        ])
+    if cast:
+        package["constraints"].extend([
+            "Bound-character presence is a hard frame-level invariant: at least one bound character remains visible in every frame; the environment plate may never replace the cast.",
+            "Keep every bound body at a stable human scale with grounded feet and continuous physical blocking; never shrink, grow, float, teleport, reverse-walk or play motion backward.",
+            "No environment-only, architecture-only or empty-hall frame is permitted in a shot that binds a character, including silent visual shots.",
+            "No unregistered human, duplicate, replacement identity, reflection or background silhouette may enter a bound-character shot.",
         ])
     # Do not change ordinary-shot fingerprints when the retake-only contract
     # is absent. These fields are emitted only for a structural speaker fix.

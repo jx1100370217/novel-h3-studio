@@ -215,6 +215,28 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, OSError, StopIteration) as exc:
             self.send_json({"error": str(exc)}, 400)
 
+    def do_HEAD(self):
+        """Return media/file metadata without sending the body.
+
+        Browser video elements commonly issue HEAD before their first range
+        request.  Keeping this path aligned with do_GET avoids a false
+        "cannot play" result when the public gateway is used.
+        """
+        if not self.valid_host():
+            self.send_error(403); return
+        try:
+            url = urlsplit(self.path)
+            if url.path == "/":
+                return self.file(Path(__file__).with_name("web.html"), head=True)
+            if url.path == "/media":
+                path = inside(self.root, parse_qs(url.query)["path"][0])
+                if path.suffix.lower() not in (".mp4", ".png", ".jpg", ".jpeg", ".webp", ".srt", ".json", ".jsonl", ".flac", ".wav", ".txt"):
+                    raise ValueError("不支持的文件类型")
+                return self.file(path, head=True)
+            self.send_error(404)
+        except (ValueError, KeyError, OSError, StopIteration) as exc:
+            self.send_json({"error": str(exc)}, 400)
+
     def do_POST(self):
         expected = {f"http://127.0.0.1:{self.server.server_port}", f"http://localhost:{self.server.server_port}"}
         if not self.valid_host() or self.headers.get("Origin") not in expected or self.headers.get("Content-Type", "").split(";")[0] != "application/json":
@@ -310,7 +332,7 @@ class Handler(BaseHTTPRequestHandler):
                 payload['gate'] = exc.gate
             self.send_json(payload, 400)
 
-    def file(self, path):
+    def file(self, path, head=False):
         total = path.stat().st_size
         start, end = 0, total - 1
         value = self.headers.get("Range")
@@ -331,6 +353,8 @@ class Handler(BaseHTTPRequestHandler):
         if value:
             self.send_header("Content-Range", f"bytes {start}-{end}/{total}")
         self.end_headers()
+        if head:
+            return
         with path.open("rb") as f:
             f.seek(start)
             remaining = end - start + 1

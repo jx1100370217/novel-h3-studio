@@ -47,7 +47,8 @@ class Gateway(BaseHTTPRequestHandler):
                 return
             body = self.rfile.read(size) if size else None
             headers = {'Host': '127.0.0.1:8765'}
-            for key in ('Content-Type', 'Range', 'If-Range', 'Accept'):
+            for key in ('Content-Type', 'Range', 'If-Range', 'If-None-Match',
+                        'If-Modified-Since', 'Accept', 'Accept-Encoding', 'User-Agent'):
                 if self.headers.get(key):
                     headers[key] = self.headers[key]
             if self.command == 'POST':
@@ -60,7 +61,7 @@ class Gateway(BaseHTTPRequestHandler):
                                      if key.lower() == 'content-type'), '')
                 content_length = next((value for key, value in response_headers
                                        if key.lower() == 'content-length'), None)
-                compressible = (response.status == 200
+                compressible = (self.command != 'HEAD' and response.status == 200
                                  and (content_type.startswith('text/')
                                       or content_type.startswith('application/json'))
                                  and 'gzip' in self.headers.get('Accept-Encoding', '').lower())
@@ -105,6 +106,7 @@ class Gateway(BaseHTTPRequestHandler):
             self.close_connection = True
 
     do_GET = proxy
+    do_HEAD = proxy
     do_POST = proxy
 
 
