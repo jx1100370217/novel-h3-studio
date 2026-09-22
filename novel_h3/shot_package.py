@@ -151,6 +151,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
     audio = [{
         "speaker": binding["speaker"],
         "asset_id": binding.get("asset_id"),
+        "collective": bool(binding.get("collective")),
         "audio_label": f"Audio {binding['audio']}",
         "speaker_label": binding["speaker_label"],
         "path": binding["path"],
@@ -180,6 +181,25 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             })
             continue
         if not binding or not binding.get("asset_id"):
+            # Collective auditions intentionally have no single character
+            # asset or picture.  They are still a valid, explicitly bound
+            # voice source; represent the event as the already-bound cast so
+            # prompt compilation never indexes a missing subject_label.
+            if binding and binding.get("collective"):
+                dialogue_events.append({
+                    "event_id": f"D{index}", "kind": line.get("kind", "dialogue"),
+                    "speaker": speaker, "collective": True,
+                    "audio_label": binding.get("audio_label"),
+                    "speaker_label": binding.get("speaker_label"),
+                    "subject_label": "bound collective cast",
+                    "picture_label": "bound cast",
+                    "text": line.get("text", ""),
+                    "start_frame": line.get("start_frame"),
+                    "end_frame": line.get("end_frame"),
+                    "mouth_owner": "bound collective cast",
+                    "listener_lips": "closed_and_occluded",
+                })
+                continue
             dialogue_events.append({
                 "event_id": f"D{index}", "kind": line.get("kind", "dialogue"), "speaker": speaker,
                 "text": line.get("text", ""), "start_frame": line.get("start_frame"),

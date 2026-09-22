@@ -366,11 +366,22 @@ def h3_prompt(shot, style):
                     f"{event.get('audio_label') or 'no visual subject'}, mouth_owner=none; no visible character may lip-sync.\n"
                 )
                 continue
+            if event.get("collective"):
+                intro += (
+                    f"- {event.get('event_id', 'D?')} at {timestamp(event.get('start_frame', 0) + offset)}-"
+                    f"{timestamp(event.get('end_frame', 0) + offset)}: bound collective cast, "
+                    f"voice_reference={event.get('audio_label') or 'none'}; "
+                    "the already-bound cast may perform this one collective line together, with no extra body, "
+                    "no solo replacement identity and no other human voice.\n"
+                )
+                continue
             intro += (
-                f"- {event['event_id']} at {timestamp(event.get('start_frame', 0) + offset)}-"
+                f"- {event.get('event_id', 'D?')} at {timestamp(event.get('start_frame', 0) + offset)}-"
                 f"{timestamp(event.get('end_frame', 0) + offset)}: "
-                f"visual_subject={event['subject_label']}; visual_picture={event['picture_label']}; "
-                f"voice_reference={event['audio_label']}; mouth_owner={event['subject_label']}; "
+                f"visual_subject={event.get('subject_label', 'unresolved')}; "
+                f"visual_picture={event.get('picture_label', 'unresolved')}; "
+                f"voice_reference={event.get('audio_label', 'none')}; "
+                f"mouth_owner={event.get('subject_label', 'unresolved')}; "
                 "the voice reference cannot authorize another face or body.\n"
             )
         if len(dialogue_events) and len(package.get("visual_assets", [])) > 1:
@@ -503,7 +514,9 @@ def h3_prompt(shot, style):
             voice = (f"<Subject {binding['picture']}>" if binding["picture"]
                      else (f"the collective voice reference <Audio {binding['audio']}>"
                            if binding.get('collective') else "offscreen narrator"))
-        instruction = "No visible character mouths this narration." if line.get("kind") == "voiceover" else "Only this person speaks."
+        instruction = ("No visible character mouths this narration." if line.get("kind") == "voiceover"
+                       else ("Only the already-bound collective cast speaks this line; no other human voice or body."
+                             if binding and binding.get("collective") else "Only this person speaks."))
         delivery = "says in an off-screen voiceover" if line.get("kind") == "voiceover" else "says"
         intro += (f"At {timestamp(line['start_frame'] + offset)}, {voice} "
                   f"(S{speakers.index(line['speaker']) + 1}) {delivery} <d>[Chinese] {spoken_text}</d>. "
