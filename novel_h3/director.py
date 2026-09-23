@@ -109,6 +109,14 @@ def episode_path(root, episode_id):
 
 def validate_episode(root, episode):
     errors = []
+    if episode.get("storyboard_schema") or any(shot.get("storyboard_schema") for shot in episode.get("shots", [])):
+        from .storyboard_design import validate_shot
+        plan_path = Path(root) / "content_plans" / f"{episode['id']}.json"
+        plan_scenes = {}
+        if plan_path.is_file():
+            plan_scenes = {row["scene_id"]: row for row in read(plan_path).get("script", {}).get("scenes", [])}
+    else:
+        plan_scenes = {}
     ids, previous, chain_size = set(), None, 0
     paragraphs = {p["id"]: p for p in read(Path(root) / "paragraphs.json")}
     safe_id(episode["id"])
@@ -174,6 +182,12 @@ def validate_episode(root, episode):
                 errors.append(f"{sid}: 台词语速超过每秒 6 字，请重排时间")
         if shot["mode"] == "ref2va" and not shot.get("references"):
             errors.append(f"{sid}: Ref2VA 缺少已定义参考")
+        if shot.get("storyboard_schema"):
+            scene = plan_scenes.get(sid, {})
+            if not scene:
+                errors.append(f"{sid}: 新版镜头缺少匹配的锁定剧本节拍")
+            else:
+                errors.extend(validate_shot(scene, shot))
         if len(shot.get("references", [])) > 9:
             errors.append(f"{sid}: 图片参考不得超过 9 张")
         # A Ref2VA shot has no separate background input.  When the project
@@ -301,6 +315,9 @@ def h3_prompt(shot, style):
     visual_movement = _speech_safe_visual_text(camera["movement"]) if has_dialogue else camera["movement"]
     intro = (f"{style}\n{generation_audio_contract(shot)}\n[Shot 1] {visual_size}, {camera['lens_mm']}mm lens. "
              f"{visual_movement}. {visual_action}\n")
+    if shot.get("storyboard_schema"):
+        from .storyboard_design import h3_instruction
+        intro += h3_instruction(shot) + "\n"
     spatial_guide = shot.get("spatial_guide")
     if spatial_guide:
         intro += "SPATIAL_REFERENCE: " + spatial_guide.get(
@@ -567,7 +584,7 @@ def h3_prompt(shot, style):
                 "If travel is requested, move forward in the established screen direction once, then settle; never walk backward "
                 "or let the model cut to the empty environment.\n"
             )
-        for beat in shot["timeline"]:
+        for beat in ([] if shot.get("storyboard_schema") else shot["timeline"]):
             description = beat["description"]
             if re.search(r"speaks?|listeners?|dialogue|voice", description, re.I):
                 description = "Continue the established visual action and camera move; keep all mouths at rest and preserve AUDIO_MODE=DIEGETIC_EFFECTS_ONLY."

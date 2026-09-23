@@ -7,6 +7,7 @@ import sys
 
 import bpy
 from mathutils import Vector
+from bpy_extras.object_utils import world_to_camera_view
 
 
 def arguments():
@@ -106,7 +107,10 @@ def create_celestial_exterior(floor, architectural, accent):
     for side in (-1, 1):
         for y in (1, 7, 12):
             cylinder("outer palace pillar", (side * 8, y, 4.5), 0.35, 9, accent, 12)
-            sphere("cloud landing marker", (side * 4.3, -3 + y * 0.15, 1.25), (2.0, 1.0, 0.38), architectural)
+            # Keep decorative cloud masses beside the marked travel lane. The
+            # former center-lane clouds occluded actors and read as oversized
+            # foreground blobs in the spatial guide.
+            sphere("side cloud bank marker", (side * 11.0, -3 + y * 0.15, 1.0), (1.3, 0.7, 0.25), architectural)
     for y in (-8, -3, 2, 7):
         cube("cloud path guide", (0, y, 0.42), (5.0, 0.3, 0.08), accent)
 
@@ -134,23 +138,31 @@ def create_interior(floor, architectural):
         cube("side wall", (side * 11.8, 0, 4), (0.4, 28, 8), architectural)
 
 
-def character_proxy(prefix, actor, floor_mat, accent_mat):
+def character_proxy(prefix, actor, floor_mat, accent_mat, end_frame):
     x, y = actor["x"], actor["y"]
+    z = float(actor.get("z", 0.0))
     seated = actor.get("pose") == "seated"
+    created = set(bpy.data.objects)
     if seated:
-        pelvis_z, shoulder_z, head_z = 1.13, 1.72, 2.28
+        pelvis_z, shoulder_z, head_z = z + 1.13, z + 1.72, z + 2.28
         sphere(prefix + " torso proxy", (x, y, shoulder_z), (0.48, 0.31, 0.68), floor_mat)
-        sphere(prefix + " head proxy", (x, y - 0.03, head_z), (0.27, 0.27, 0.34), accent_mat)
-        beam(prefix + " left arm proxy", (x - 0.35, y - 0.04, 2.05), (x - 0.5, y - 0.48, 1.42), 0.14, floor_mat)
-        beam(prefix + " right arm proxy", (x + 0.35, y - 0.04, 2.05), (x + 0.5, y - 0.48, 1.42), 0.14, floor_mat)
-        beam(prefix + " bent leg proxy", (x - 0.2, y - 0.1, pelvis_z), (x - 0.2, y - 0.65, 0.55), 0.16, floor_mat)
-        beam(prefix + " bent leg proxy", (x + 0.2, y - 0.1, pelvis_z), (x + 0.2, y - 0.65, 0.55), 0.16, floor_mat)
+        # Keep the human silhouette brighter than the throne/backdrop so a
+        # seated speaker cannot visually disappear into the set blockout.
+        sphere(prefix + " head proxy", (x, y - 0.03, head_z), (0.27, 0.27, 0.34), floor_mat)
+        beam(prefix + " left arm proxy", (x - 0.35, y - 0.04, z + 2.05), (x - 0.5, y - 0.48, z + 1.42), 0.14, floor_mat)
+        beam(prefix + " right arm proxy", (x + 0.35, y - 0.04, z + 2.05), (x + 0.5, y - 0.48, z + 1.42), 0.14, floor_mat)
+        beam(prefix + " bent leg proxy", (x - 0.2, y - 0.1, pelvis_z), (x - 0.2, y - 0.65, z + 0.55), 0.16, floor_mat)
+        beam(prefix + " bent leg proxy", (x + 0.2, y - 0.1, pelvis_z), (x + 0.2, y - 0.65, z + 0.55), 0.16, floor_mat)
     else:
-        sphere(prefix + " torso proxy", (x, y, 1.28), (0.5, 0.32, 0.78), floor_mat)
-        sphere(prefix + " head proxy", (x, y, 2.2), (0.29, 0.29, 0.36), accent_mat)
+        sphere(prefix + " torso proxy", (x, y, z + 1.28), (0.5, 0.32, 0.78), floor_mat)
+        sphere(prefix + " head proxy", (x, y, z + 2.2), (0.29, 0.29, 0.36), floor_mat)
         for side in (-1, 1):
-            beam(prefix + " arm proxy", (x + side * 0.34, y, 1.75), (x + side * 0.42, y - 0.03, 0.9), 0.14, floor_mat)
-            beam(prefix + " leg proxy", (x + side * 0.2, y, 0.85), (x + side * 0.23, y - 0.03, 0.12), 0.17, floor_mat)
+            beam(prefix + " arm proxy", (x + side * 0.34, y, z + 1.75), (x + side * 0.42, y - 0.03, z + 0.9), 0.14, floor_mat)
+            beam(prefix + " leg proxy", (x + side * 0.2, y, z + 0.85), (x + side * 0.23, y - 0.03, z + 0.12), 0.17, floor_mat)
+    if actor.get("pose") == "flying" or actor.get("path"):
+        for idx, (dx, dy, sx) in enumerate(((-0.62, 0.18, 0.68), (0, 0.36, 0.88), (0.62, 0.18, 0.68))):
+            sphere(prefix + f" cloud proxy {idx + 1}", (x + dx, y + dy, z + 0.22),
+                   (sx, 0.42, 0.2), accent_mat)
     obj = bpy.data.objects.get(prefix + " torso proxy")
     if obj:
         # The proxy faces the center aisle in the council hall; elsewhere it faces the camera.
@@ -158,7 +170,37 @@ def character_proxy(prefix, actor, floor_mat, accent_mat):
             obj.rotation_euler[2] = math.pi / 2
         elif x > 1:
             obj.rotation_euler[2] = -math.pi / 2
-    return (x, y, 1.55)
+    created = [obj for obj in bpy.data.objects if obj not in created]
+    root = bpy.data.objects.new(prefix + " blocking root", None)
+    bpy.context.collection.objects.link(root)
+    for obj in created:
+        obj.parent = root
+        obj.matrix_parent_inverse = root.matrix_world.inverted()
+    start = Vector((x, y, z))
+    root.location = (0, 0, 0)
+    root.keyframe_insert(data_path="location", frame=1)
+    for point in actor.get("path", []):
+        destination = Vector((point["x"], point["y"], point["z"]))
+        root.location = destination - start
+        root.keyframe_insert(data_path="location", frame=max(1, int(point["frame"])))
+    if actor.get("path"):
+        root.location = Vector((actor["path"][-1]["x"], actor["path"][-1]["y"], actor["path"][-1]["z"])) - start
+        root.keyframe_insert(data_path="location", frame=end_frame)
+    instances = max(1, int(actor.get("instances", 1)))
+    if instances > 1:
+        # The group remains one bound asset; its silhouettes are a compact proxy cluster.
+        for idx, offset in enumerate(range(1, instances)):
+            group = bpy.data.objects.new(prefix + f" group member {idx + 2}", None)
+            bpy.context.collection.objects.link(group)
+            group.location = (0, 0, 0)
+            group.parent = root
+            group.location = ((idx - (instances - 2) / 2) * 0.9, 0.25, 0)
+            # Keep a readable group outline with lightweight torso/head stand-ins.
+            sphere(prefix + f" group torso {idx + 2}", (x + (idx - (instances - 2) / 2) * 0.9, y + 0.25, z + 1.25),
+                   (0.36, 0.27, 0.64), floor_mat).parent = root
+            sphere(prefix + f" group head {idx + 2}", (x + (idx - (instances - 2) / 2) * 0.9, y + 0.25, z + 2.15),
+                   (0.23, 0.23, 0.3), floor_mat).parent = root
+    return (x, y, z + 1.55), root
 
 
 def camera_path(scene, camera, spec, actor_centers):
@@ -168,7 +210,15 @@ def camera_path(scene, camera, spec, actor_centers):
     cast = spec.get("cast", [])
     by_id = {actor["id"]: actor_centers[i] for i, actor in enumerate(cast)}
     dialogue = sorted(spec.get("dialogue_events", []), key=lambda x: x.get("start_frame", 0))
-    focus_events = [(int(item.get("start_frame", 0)) + 1, by_id[item["asset_id"]])
+    dialogue_actor_by_frame = {int(item.get("start_frame", 0)) + 1: next(
+        (actor for actor in cast if actor["id"] == item["asset_id"]), None
+    ) for item in dialogue}
+    # Aim dialogue coverage at a face/eye-height target, not the torso proxy
+    # center.  At a seated throne this distinction is enough to crop the
+    # speaker's head with a 65 mm lens while the old center-only gate passed.
+    focus_events = [(int(item.get("start_frame", 0)) + 1,
+                     (by_id[item["asset_id"]][0], by_id[item["asset_id"]][1],
+                      by_id[item["asset_id"]][2] + 0.65))
                     for item in dialogue if item.get("asset_id") in by_id]
     if focus_events:
         targets = focus_events
@@ -177,26 +227,135 @@ def camera_path(scene, camera, spec, actor_centers):
     elif cast and spec.get("scene_kind") == "hall":
         targets = [(1, (0, 4, 3.2))]
     elif cast:
-        x = sum(p[0] for p in actor_centers) / len(actor_centers)
-        y = sum(p[1] for p in actor_centers) / len(actor_centers)
-        targets = [(1, (x, y, 2.0))]
+        moving_cast = [actor for actor in cast if actor.get("path")]
+        if moving_cast:
+            route_frames = sorted({1, int(spec["frames"]), *[
+                max(1, min(int(spec["frames"]), int(point["frame"])))
+                for actor in moving_cast for point in actor["path"]
+            ]})
+
+            def actor_position(point):
+                position = point.get("position", point)
+                return (position["x"], position["y"], position.get("z", 0.0))
+
+            def position_at(actor, frame):
+                start = {"frame": 1, "x": actor["x"], "y": actor["y"], "z": actor.get("z", 0.0)}
+                points = [start, *actor.get("path", [])]
+                if points[-1]["frame"] < int(spec["frames"]):
+                    points.append({"frame": int(spec["frames"]), **dict(zip(("x", "y", "z"), actor_position(points[-1])))})
+                for left, right in zip(points, points[1:]):
+                    left_frame = int(left["frame"])
+                    right_frame = int(right["frame"])
+                    if frame <= right_frame:
+                        left_pos = actor_position(left)
+                        right_pos = actor_position(right)
+                        ratio = (frame - left_frame) / max(1, right_frame - left_frame)
+                        return tuple(a + (b - a) * ratio for a, b in zip(left_pos, right_pos))
+                final = points[-1]
+                return actor_position(final)
+
+            targets = []
+            for route_frame in route_frames:
+                positions = [position_at(actor, route_frame) for actor in cast]
+                targets.append((route_frame, tuple(sum(p[axis] for p in positions) / len(positions)
+                                                   + (1.55 if axis == 2 else 0.0)
+                                                   for axis in range(3))))
+        else:
+            x = sum(p[0] for p in actor_centers) / len(actor_centers)
+            y = sum(p[1] for p in actor_centers) / len(actor_centers)
+            targets = [(1, (x, y, 2.0))]
     else:
         targets = [(1, (0, 0, 2.0))]
     start_frame, end_frame = 1, int(spec["frames"])
     move = str(shot_camera.get("movement", "")).lower()
     size = str(shot_camera.get("size", "")).lower()
-    if "medium" in size or "中景" in size:
+    if (spec["scene_kind"] == "hall" and len(cast) == 1 and not dialogue
+            and ("wide" in size or "全景" in size)):
+        # A hall-establishing shot should show the room plan and the throne,
+        # not crop to a tiny fragment of the rear wall behind the emperor.
+        targets = [(1, (0, 4, 3.2))]
+    if not focus_events and len(targets) == 1:
+        targets.append((end_frame, targets[0][1]))
+    if (spec["scene_kind"] == "hall" and len(cast) > 1
+            and ("wide" in size or "全景" in size)):
+        # A multi-row council master must start outside the near seating row.
+        # The ordinary 17 m wide-shot default crops the nearest row even with
+        # a wide lens, which either hides actors or encourages empty-room cuts.
+        distance = 29.0
+    elif "medium" in size or "中景" in size:
         distance = 6.8 if "close" in size else 9.0
     elif "close" in size or "特写" in size:
-        distance = 3.8
+        # A portrait close-up must retain the head and enough shoulder line to
+        # read the performance. A fixed 3.8 m default with an 85 mm lens made
+        # seated speakers too tight and forced a low-angle crop.
+        distance = max(3.8, lens * 0.08)
     elif "wide" in size or "全景" in size:
         distance = 17.0
     else:
         distance = 10.0
+    if cast and not focus_events and len(cast) > 1:
+        # Ensemble masters must be framed from the authored group bounds, not
+        # from the generic single-subject shot-size default.  Otherwise a
+        # medium-wide tracking shot can crop the outer speakers/visitors even
+        # though the camera follows the group's centroid.
+        route_frames = {1, end_frame, *[
+            max(1, min(end_frame, int(point["frame"])))
+            for actor in cast for point in actor.get("path", [])
+        ]}
+
+        def actor_x_at(actor, frame):
+            points = [{"frame": 1, "x": actor["x"]}, *actor.get("path", [])]
+            points.sort(key=lambda point: int(point["frame"]))
+            for left, right in zip(points, points[1:]):
+                lf, rf = int(left["frame"]), int(right["frame"])
+                if frame <= rf:
+                    ratio = (frame - lf) / max(1, rf - lf)
+                    return float(left["x"]) + (float(right["x"]) - float(left["x"])) * ratio
+            return float(points[-1]["x"])
+
+        half_span = 0.0
+        for route_frame in route_frames:
+            xs = [actor_x_at(actor, route_frame) for actor in cast]
+            centroid = sum(xs) / len(xs)
+            half_span = max(half_span, *(abs(x - centroid) for x in xs))
+        # Blender's default horizontal sensor is 36 mm. Keep the full group
+        # inside roughly 72% of frame width, with extra room for bodies and
+        # the small lateral tracking arc. This remains a conservative lower
+        # bound; the per-frame projection gate below is still authoritative.
+        half_fov = math.atan(36.0 / (2.0 * lens))
+        lateral_arc = 0.8 if any(x in move for x in ("track", "跟拍", "tracking")) else 0.0
+        distance = max(distance, (half_span + 0.65 + lateral_arc) / (math.tan(half_fov) * 0.72))
     for index, (frame, target_value) in enumerate(targets):
         target = Vector(target_value)
         phase = index / max(1, len(targets) - 1)
-        if spec["scene_kind"] == "hall" and len(cast) == 1:
+        focus_actor = dialogue_actor_by_frame.get(int(frame))
+        if focus_actor and spec["scene_kind"] == "hall":
+            actor = focus_actor
+            sign = 1 if actor["x"] < -0.1 else -1
+            d = distance
+            if "push" in move or "dolly in" in move or "推进" in move:
+                d = distance + 1.8 - phase * 1.8
+            elif "pull" in move or "dolly out" in move or "拉远" in move:
+                d = distance - 1.0 + phase * 2.2
+            lateral = (phase - 0.5) * 0.4 if any(x in move for x in ("track", "跟拍", "tracking")) else 0.0
+            if "close" in size and abs(actor["x"]) < 0.1 and not lateral:
+                lateral = 0.9  # a subtle three-quarter view separates the speaker from the throne back
+            target = Vector(target_value)
+            eye_height = float(actor.get("z", 0.0)) + 2.05
+            if abs(actor["x"]) < 0.1:
+                location = Vector((actor["x"] + lateral, actor["y"] - d, eye_height))
+            else:
+                location = Vector((actor["x"] + sign * d, actor["y"] - 1.6 + lateral, eye_height))
+        elif (spec["scene_kind"] == "hall" and len(cast) == 1 and not dialogue
+                and ("wide" in size or "全景" in size)):
+            target = Vector(target_value)
+            d = 29.0
+            if "push" in move or "dolly in" in move or "推进" in move:
+                d = 31.0 - phase * 2.0
+            elif "pull" in move or "dolly out" in move or "拉远" in move:
+                d = 27.0 + phase * 2.0
+            location = target + Vector((0, -d, max(8.0, d * 0.32)))
+        elif spec["scene_kind"] == "hall" and len(cast) == 1:
             actor = cast[0]
             # Hold the camera on the aisle side at seated eye level. The old
             # 3.7 m offset with a 65 mm lens cropped the proxy head and most of
@@ -208,8 +367,17 @@ def camera_path(scene, camera, spec, actor_centers):
             elif "pull" in move or "dolly out" in move or "拉远" in move:
                 d = distance - 1.0 + phase * 2.2
             lateral = (phase - 0.5) * 0.55 if any(x in move for x in ("track", "跟拍", "tracking")) else 0.0
+            if "close" in size and abs(actor["x"]) < 0.1 and not lateral:
+                lateral = 0.9  # preserve a readable face silhouette against the central throne
             target = Vector((actor["x"], actor["y"], 1.72 if actor.get("pose") == "seated" else 1.55))
-            location = Vector((actor["x"] + sign * d, actor["y"] - 1.6 + lateral, 1.48))
+            eye_height = float(actor.get("z", 0.0)) + 2.05
+            if abs(actor["x"]) < 0.1:
+                # A centered throne subject must be filmed from the central
+                # aisle. A lateral offset crosses the opaque side wall and
+                # leaves an apparently empty room despite correct actor refs.
+                location = Vector((actor["x"] + lateral, actor["y"] - d, eye_height))
+            else:
+                location = Vector((actor["x"] + sign * d, actor["y"] - 1.6 + lateral, eye_height))
         elif "push" in move or "dolly in" in move or "推进" in move:
             start_distance = distance + 2.0
             d = start_distance if index == 0 else max(3.5, distance - 0.7)
@@ -229,8 +397,6 @@ def camera_path(scene, camera, spec, actor_centers):
             d = distance
             location = target + Vector((0, -d, max(2.2, d * 0.3)))
         frame = min(end_frame, max(start_frame, frame))
-        if not focus_events:
-            frame = start_frame if index == 0 else end_frame
         camera.location = location
         camera.rotation_euler = (target - location).to_track_quat("-Z", "Y").to_euler()
         camera.keyframe_insert(data_path="location", frame=frame)
@@ -261,6 +427,50 @@ def setup_lights():
         light.data.shape = "DISK"
         light.data.size = size
         light.rotation_euler = (Vector((0, 0, 3)) - light.location).to_track_quat("-Z", "Y").to_euler()
+
+
+def validate_cast_projection(scene, camera, actor_roots, centers, frames):
+    if not actor_roots:
+        return
+    for frame in range(1, int(frames) + 1):
+        scene.frame_set(frame)
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        evaluated_camera = camera.evaluated_get(depsgraph)
+        camera_origin = evaluated_camera.matrix_world.translation
+        for index, root in enumerate(actor_roots):
+            evaluated = root.evaluated_get(depsgraph)
+            delta = evaluated.matrix_world.translation
+            center = Vector(centers[index]) + delta
+            head_world = center + Vector((0, 0, 0.7))
+            projected = world_to_camera_view(scene, camera, center)
+            head = world_to_camera_view(scene, camera, head_world)
+            if (projected.z <= 0 or head.z <= 0
+                    or not (0.015 <= projected.x <= 0.985 and 0.015 <= projected.y <= 0.985)
+                    or not (0.015 <= head.x <= 0.985 and 0.015 <= head.y <= 0.985)):
+                raise RuntimeError(
+                    f"Registered actor proxy {index + 1} or its head leaves the camera frame at frame {frame} "
+                    f"(body=({projected.x:.3f},{projected.y:.3f},{projected.z:.2f}), "
+                    f"head=({head.x:.3f},{head.y:.3f},{head.z:.2f}), "
+                    f"camera={tuple(round(float(v), 2) for v in camera_origin)}); "
+                    "revise blocking or framing before sending this guide to H3."
+                )
+            if abs(head.y - projected.y) < 0.012:
+                raise RuntimeError(
+                    f"Registered actor proxy {index + 1} is too small to read at frame {frame}; "
+                    "revise camera distance or blocking."
+                )
+            ray = head_world - camera_origin
+            distance = ray.length
+            hit, _location, _normal, _face, hit_object, _matrix = scene.ray_cast(
+                depsgraph, camera_origin, ray.normalized(), distance=distance + 0.05
+            )
+            actor_prefix = root.name.removesuffix(" blocking root")
+            if not hit or not hit_object.name.startswith(actor_prefix):
+                obstacle = hit_object.name if hit else "no visible registered body"
+                raise RuntimeError(
+                    f"Registered actor proxy {index + 1} is occluded by {obstacle} at frame {frame}; "
+                    "the scene geometry or blocking hides a required person."
+                )
 
 
 def main():
@@ -294,9 +504,11 @@ def main():
             sphere("distant neutral mass", (x, y, h / 2), (5, 4, h), architecture)
 
     cast = spec.get("cast", [])
-    centers = []
+    centers, actor_roots = [], []
     for i, actor in enumerate(cast, 1):
-        centers.append(character_proxy(f"registered proxy {i}", actor, proxy, accent))
+        center, root = character_proxy(f"registered proxy {i}", actor, proxy, accent, spec["frames"])
+        centers.append(center)
+        actor_roots.append(root)
     for i, _prop in enumerate(spec.get("props", []), 1):
         actor = cast[0] if cast else {"x": 0, "y": 0}
         cube(f"registered prop blockout {i}", (actor["x"] + 0.55, actor["y"] - 0.4, 1.18),
@@ -307,6 +519,7 @@ def main():
     camera.name = "single authored shot camera"
     bpy.context.scene.camera = camera
     camera_path(bpy.context.scene, camera, spec, centers)
+    validate_cast_projection(bpy.context.scene, camera, actor_roots, centers, spec["frames"])
     setup_lights()
 
     scene = bpy.context.scene

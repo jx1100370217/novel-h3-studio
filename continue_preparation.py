@@ -12,6 +12,7 @@ from pathlib import Path
 
 from novel_h3.project import read, write, file_hash
 from novel_h3.timing import semantic_chunks, speech_seconds
+from novel_h3.storyboard_design import AUTHORING_RULES, VERSION
 
 
 ROOT = Path(__file__).resolve().parent / "projects/rendao-wuji"
@@ -198,7 +199,19 @@ def _write_candidate(chapter: dict, paragraphs: list[dict], assets: dict, voices
         "speaker_unresolved_quotes": unresolved,
         "all_source_paragraphs_included": True,
         "status": "candidate_pending_source_speaker_visual_review",
-        "policy": "保留原文逐字证据；未核对的对白不进入正式生成队列。镜头按内容估时，单镜头上限362帧（约15秒）。",
+        "storyboard_design_version": VERSION,
+        "authoring_rules": AUTHORING_RULES,
+        "adaptation_gate": {
+            "source_reconstruction_required": True,
+            "dramatic_question_required": True,
+            "causal_scene_beats_required": True,
+            "each_shot_claims_source_facts": True,
+            "no_paragraph_equals_shot_assumption": True,
+            "no_visual_event_without_source_or_explicit_adaptation_note": True,
+            "exact_dialogue_and_speaker_review_required": True,
+            "status": "candidate_pending_editorial_authoring",
+        },
+        "policy": "保留原文逐字证据；未核对的对白不进入正式生成队列。先完成因果场景节拍，再按可演动作/对白时长拆镜；不再默认一段原文等于一个镜头。单镜头不超过362帧（约15秒）。",
         "voice_bindings": voice_rows,
         "scenes": scenes,
     }

@@ -168,6 +168,10 @@ def compile_package(root, shot, visual_assets, speech_bindings):
     inventory = _inventory(root)
     speakers = {binding["asset_id"]: binding["speaker"] for binding in speech_bindings
                 if binding.get("asset_id")}
+    blocking_instances = {
+        actor.get("asset_id"): int(actor.get("instances", 1))
+        for actor in shot.get("blocking_plan", {}).get("actors", [])
+    }
     visuals = []
     for index, resolved in enumerate(visual_assets, 1):
         meta = inventory.get(resolved["asset_id"], {"kind": "visual", "name": resolved["asset_id"]})
@@ -185,7 +189,8 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "role": role,
             "picture_label": f"Picture {index}",
             "subject_label": f"Subject {index}",
-            "expected_instances": 1 if meta["kind"] in ("character", "prop") else None,
+            "expected_instances": (blocking_instances.get(resolved["asset_id"], 1)
+                                   if meta["kind"] == "character" else 1 if meta["kind"] == "prop" else None),
             "source_sha256": resolved["source_sha256"],
             "generation_reference": resolved["generation_path"],
             "generation_sha256": resolved["generation_sha256"],
@@ -207,6 +212,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
                              if line["speaker"] == binding["speaker"]],
     } for binding in speech_bindings]
     cast = [item for item in visuals if item["kind"] == "character"]
+    visible_body_count = sum(int(item.get("expected_instances") or 1) for item in cast)
     scenes = [item for item in visuals if item["kind"] == "scene"]
     speaking_names = {binding["speaker"] for binding in audio}
     listeners = [item["name"] for item in cast if item["name"] not in speaking_names]
@@ -311,6 +317,13 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "dramatic_action": str(shot.get("action", "")) + bound_character_action_contract(shot, len(cast)),
             "camera": shot.get("camera"),
             "timeline": shot.get("timeline", []),
+            "screenplay_beat": {
+                key: shot.get(key) for key in (
+                    "storyboard_schema", "sequence_id", "beat_function", "state_in", "state_out",
+                    "screen_direction", "axis_id", "transition", "blocking_plan", "composition",
+                    "action_beats",
+                ) if shot.get(key) is not None
+            },
             "scene_id": shot.get("scene_id"),
             "continuity": shot.get("continuity"),
             "handoff_in": shot.get("handoff_in"),
@@ -353,6 +366,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             ),
         },
         "visible_character_count": len(cast),
+        "visible_body_count": visible_body_count,
         "visible_characters": [item["name"] for item in cast],
         "character_visibility_policy": character_policy,
         "character_gender_contract": [
@@ -376,7 +390,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "speaker_only_moves_mouth_during_dialogue": True,
             "listener_reacts_with_closed_lips": bool(listeners),
             "allowed_character_asset_ids": [item["asset_id"] for item in cast],
-            "max_visible_human_bodies": len(cast),
+            "max_visible_human_bodies": visible_body_count,
             "unregistered_humans_allowed": False if cast else True,
             "over_shoulder_foreground_listener_only": over_shoulder,
             "blocking_source": shot.get("action"),
@@ -438,6 +452,28 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             character_policy,
         ],
     }
+    if shot.get("storyboard_schema"):
+        package["storyboard"]["design_version"] = shot["storyboard_schema"]
+        package["quality_standard"] = {
+            "source_grounding": "exact source paragraph and verbatim dialogue only",
+            "blocking": shot.get("blocking_plan", {}),
+            "continuity": {
+                "sequence_id": shot.get("sequence_id"),
+                "axis_id": shot.get("axis_id"),
+                "screen_direction": shot.get("screen_direction"),
+                "transition": shot.get("transition"),
+                "state_in": shot.get("state_in"),
+                "state_out": shot.get("state_out"),
+            },
+            "camera_composition": shot.get("composition", {}),
+            "visual_review_required": [
+                "actor count and identity throughout the full shot",
+                "speaker mouth/voice ownership",
+                "environment anchor and empty-frame check",
+                "screen direction, eyeline and action handoff",
+                "prop state, size continuity and motivated camera movement",
+            ],
+        }
     if visible_dialogue:
         package["constraints"].extend([
             "Dialogue coverage is a single uninterrupted take with no internal editorial cuts.",

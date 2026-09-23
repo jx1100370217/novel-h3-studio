@@ -14,7 +14,7 @@ from novel_h3.director import validate_episode, h3_prompt, coverage, frames_for,
 from novel_h3.comfy import graph, current_takes, review_take, review_chapter, review_visual, cancel, asset_for, bound_shot
 from novel_h3.media import concatenate, enforce_silent_audio, technical_qc, probe, assemble_book, assemble_episode
 from novel_h3.arcreel import save_content, approve_content, compile_visual, content_current
-from novel_h3.blender_previs import _scene_kind
+from novel_h3.blender_previs import _blocking, _scene_kind
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -155,7 +155,19 @@ class WorkflowTests(unittest.TestCase):
     def test_blender_scene_classifier_trusts_canonical_asset_name(self):
         scene={'name':'太微殿','design_description':'太微宫议事大殿内景；建筑风格与太微宫外景统一。'}
         self.assertEqual(_scene_kind('scene_a1c8c45145a6',scene),'hall')
+        self.assertEqual(_scene_kind('scene_f85db3db040c',{'name':'紫微宫','design_description':'待补充；与太微宫外景统一。'}),'celestial_exterior')
         self.assertEqual(_scene_kind('scene_taiwei_exterior',{'name':'太微宫外云路','design_description':'云海与宫殿相连'}),'celestial_exterior')
+
+    def test_jade_emperor_stays_at_authored_exterior_threshold(self):
+        emperor = {"id": "jade_emperor", "name": "玉皇大帝"}
+        shot = {"blocking_plan": {"actors": [{
+            "asset_id": "jade_emperor", "mark": "Taiwei Palace entrance threshold",
+            "pose": "standing", "start_position": {"x": 0, "y": 4, "z": 0},
+        }]}}
+        actor = _blocking({}, [emperor], "celestial_exterior", shot)[0]
+        self.assertEqual((actor["x"], actor["y"], actor["z"], actor["pose"]), (0.0, 4.0, 0.0, "standing"))
+        hall_actor = _blocking({}, [emperor], "hall", {"blocking_plan": {"actors": []}})[0]
+        self.assertEqual((hall_actor["x"], hall_actor["y"], hall_actor["pose"]), (0.0, 13.8, "seated"))
 
     def test_scene_plate_is_primary_reference_and_mismatch_fails_closed(self):
         write(self.root/'bible/assets.json', {
@@ -263,15 +275,18 @@ class WorkflowTests(unittest.TestCase):
 
     def content_fixture(self):
         plan={k:self.ep[k] for k in ('id','dramatic_question','turning_point')}
+        plan['release_role']='proof'
         plan['script']={'title':'内容锁定测试','scenes':[]};plan['source_map']={}
         visual={'scenes':[]}
         for shot in self.ep['shots']:
             sid=shot['id'];plan['source_map'][sid]=shot['source_ids']
             plan['script']['scenes'].append({'scene_id':sid,'duration_seconds':5,'characters_in_scene':[],
                 'scenes':[],'props':[],'scene_description':shot['action'],'source_text':'通天峰亮起金光',
+                'source_ids':shot['source_ids'],'dramatic_function':'Test the locked source-to-visual boundary.',
                 'utterances':[{'kind':'voiceover','speaker':None,'text':'金光亮起。'}] if sid=='S001' else []})
             h3={k:copy.deepcopy(v) for k,v in shot.items() if k not in ('id','scene_id','source_ids','dialogue','frames')}
             h3['location_id']=shot['scene_id']
+            h3['action_beats']=[{'start_frame':0,'end_frame':124,'action':'Hold the authored test composition.'}]
             visual['scenes'].append({'scene_id':sid,'image_prompt':'A flooded mountain at night.', 'h3':h3,
                 'speech_timing':[{'start_frame':0,'end_frame':24}] if sid=='S001' else []})
         save_content(self.root,plan)

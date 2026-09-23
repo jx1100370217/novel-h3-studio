@@ -369,7 +369,8 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
             "independent_character_view_per_subject": True,
             "turnaround_master_never_sent_to_model": True,
             "single_instance_per_bound_character": True,
-            "exact_visible_human_body_count": len(asset_package.get("visible_characters", [])),
+            "exact_visible_human_body_count": asset_package.get(
+                "visible_body_count", len(asset_package.get("visible_characters", []))),
             "over_shoulder_listener_is_partial_bound_body_only": bool(
                 asset_package.get("interaction_contract", {}).get("over_shoulder_foreground_listener_only")),
             "unregistered_humans_forbidden_in_dialogue": bool(shot.get("dialogue")),

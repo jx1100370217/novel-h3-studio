@@ -9,14 +9,17 @@ import time
 
 from .project import read, write, digest, safe_id, load_state, update_state
 from .director import frames_for, validate_episode, image_job, h3_prompt
+from .storyboard_design import AUTHORING_RULES, SHOT_FIELDS, fit_action_beats, validate_scene_content, validate_shot, VERSION
 
 BUCKETS = {"characters": "character", "scenes": "scene", "props": "prop"}
 CONTENT_FIELDS = {"scene_id", "duration_seconds", "segment_break", "characters_in_scene",
                   "scenes", "props", "scene_description", "utterances", "source_text", "needs_replan",
-                  "voice_groups", "visual_narration", "editorial_purpose"}
+                  "voice_groups", "visual_narration", "editorial_purpose", "dramatic_function",
+                  "scene_goal", "turning_point", "story_beat_id", "source_fact_ids",
+                  "source_ids", "cinematic_storyboard_version"}
 H3_FIELDS = {"location_id", "mode", "continuity", "seed", "hold_frames", "first_frame", "last_frame",
              "references", "dramatic_function", "action", "camera", "handoff_in", "handoff_out",
-             "timeline", "soundscape"}
+             "timeline", "soundscape", *SHOT_FIELDS}
 
 
 def inventory(root):
@@ -157,6 +160,12 @@ def save_content(root, plan):
             raise ValueError("H3 内容单元采用 1–15 秒的编辑目标；较长 ArcReel 单元需先拆分")
         if not scene.get("scene_description") or scene.get("needs_replan"):
             raise ValueError("画面描述缺失或该分镜仍需重新规划")
+        if (plan.get("release_role", "episode") == "episode"
+                and scene.get("cinematic_storyboard_version") != VERSION):
+            raise ValueError(f"{sid}: 正式剧本必须使用 {VERSION} 并补齐叙事节拍与连续性字段")
+        content_errors = validate_scene_content(scene, paras, assets)
+        if content_errors:
+            raise ValueError("\n".join(content_errors))
         if strict_assets and not any(scene.get(field) for field in ("characters_in_scene", "scenes", "props")):
             raise ValueError("资产门禁开启：正式分集每个镜头至少绑定一个已登记人物、场景或道具")
         evidence_check(paras, plan["source_map"].get(sid, []), scene.get("source_text"))
@@ -241,9 +250,11 @@ def approve_rhythm(root, episode_id, reviewer, note):
 def visual_packet(root, episode_id):
     plan = read(plan_path(root, episode_id))
     return {"kind": "arcreel_visual_authoring_for_h3", "content_sha256": digest(plan),
-            "instruction": "只编写视觉层，禁止重写 title、source_text、utterances 或角色归属。按 scene_id 对齐。speech_timing 仅含 start_frame/end_frame，逐条对应锁定的 utterances。H3 时长为 17k+5 帧，续接扣除 22 帧；时间线是扣除重叠后交付时间，每段不超过 24 帧。每镜资产引用必须覆盖锁定的角色/场景/道具；有首帧时把这些资产作为首帧生图参考。换场剪辑，场内才续接；连续出场按一个动作组织，避免逐人长时间展示。内容层应将无对白入场/反应/过渡标注 editorial_purpose 为 entrance/reaction/transition，通常2–4秒；视觉层不得擅改内容层，缺失时反馈。实质动作按内容。谈话采用固定场景、座位、视线和重复机位；bible/scene_staging.json记录跨镜空间约束。示例见 examples/arcreel_visual.json。",
+            "instruction": AUTHORING_RULES + "\n仅编写视觉层，禁止重写 title、source_text、utterances、角色归属或源文事实。必须按 scene_id 一一覆盖。speech_timing 每条严格对应锁定对白。为每个镜头输出 sequence_id、beat_function、state_in/state_out、screen_direction、axis_id、transition、blocking_plan、composition、action_beats；blocking_plan.actors 与绑定角色资产一一对应，声明首尾走位点/姿态/可见性；action_beats 要覆盖交付帧且每段不超过24帧。H3时长按对白/动作决定，17k+5 帧，续接扣除22帧，绝不为凑时长重复动作。场景和道具资产必须逐镜绑定。换场才切，场内续接需首尾状态一致。生成前使用 storyboard_design.validate_shot 和完整资产/对白门禁。",
             "content": plan, "assets": inventory(root),
-            "output_fields": ["content_sha256", "scenes: [{scene_id, image_prompt, h3, speech_timing}]"],
+            "design_version": VERSION,
+            "output_fields": ["content_sha256", "scenes: [{scene_id, image_prompt, h3, speech_timing}]",
+                              "h3 必须含 " + ", ".join(sorted(SHOT_FIELDS))],
             "h3_fields": sorted(H3_FIELDS)}
 
 
@@ -287,6 +298,7 @@ def compile_visual(root, episode_id, visual):
     plan = read(plan_path(root, episode_id))
     content_current(root, {"id": episode_id, "content_sha256": visual["content_sha256"]})
     rows = visual["scenes"]
+    formal_release = plan.get("release_role", "episode") != "proof"
     allowed = {"scene_id", "image_prompt", "h3", "speech_timing"}
     if any(set(row) != allowed for row in rows):
         raise ValueError("视觉输出只能包含 scene_id、image_prompt、h3、speech_timing，不能改写台词或原文")
@@ -317,17 +329,20 @@ def compile_visual(root, episode_id, visual):
         if read(Path(root) / "config.json").get("timing_policy", {}).get("content_based"):
             from .timing import retime
             h3 = retime(h3)
-        if not h3["dialogue"] and h3["timeline"][-1]["end_frame"] != h3["frames"]:
+        if not h3["dialogue"]:
             total = h3["frames"] - (22 if h3["continuity"] == "continue" else 0)
             old_total = h3["timeline"][-1]["end_frame"]
             timeline, cursor = [], 0
-            for beat in h3["timeline"]:
-                end = round(beat["end_frame"] * total / old_total)
+            for index, beat in enumerate(h3["timeline"]):
+                end = total if index == len(h3["timeline"]) - 1 else round(beat["end_frame"] * total / old_total)
+                end = max(cursor + 1, min(total, end))
                 while cursor < end:
                     stop = min(cursor + 24, end)
                     timeline.append(dict(beat, start_frame=cursor, end_frame=stop))
                     cursor = stop
             h3["timeline"] = timeline
+        delivered = h3["frames"] - (22 if h3["continuity"] == "continue" else 0)
+        h3["action_beats"] = fit_action_beats(h3["action_beats"], delivered)
         required = [resolve_reference(assets, bucket, name)
                     for bucket, field in (("characters", "characters_in_scene"), ("scenes", "scenes"), ("props", "props"))
                     for name in scene.get(field, [])]
@@ -349,6 +364,11 @@ def compile_visual(root, episode_id, visual):
         if scene.get("visual_narration"):
             h3["visual_narration"] = scene["visual_narration"]
         h3["required_assets"] = required
+        if formal_release:
+            h3["storyboard_schema"] = VERSION
+            shot_errors = validate_shot(scene, h3)
+            if shot_errors:
+                raise ValueError("\n".join(shot_errors))
         ep["shots"].append(h3)
         # ArcReel's interchange schema represents narration with speaker=null.
         # The studio content plan and H3 sidecar retain the explicit voice owner.
@@ -363,6 +383,8 @@ def compile_visual(root, episode_id, visual):
     # Carry the reviewed content timing contract into the compiled episode so
     # the submission-time gate can verify that semantic reblocking was kept.
     ep["rhythm_review"] = copy.deepcopy(plan.get("rhythm_review", {}))
+    if formal_release:
+        ep["storyboard_schema"] = VERSION
     if len({aid for aid, _, _ in pending_jobs}) != len(pending_jobs):
         raise ValueError("每个首帧工作单必须使用独立 ID")
     for aid, prompt, refs in pending_jobs:

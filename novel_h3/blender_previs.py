@@ -11,7 +11,7 @@ import subprocess
 from .project import digest, file_hash, read, write
 
 
-VERSION = "blender_spatial_guide_v1"
+VERSION = "blender_spatial_guide_v2"
 REPO = Path(__file__).resolve().parents[1]
 RENDER_SCRIPT = REPO / "scripts" / "render_blender_previs.py"
 GUIDE_POLICY = (
@@ -52,10 +52,17 @@ def _index(root):
 
 
 def _scene_kind(scene_id, scene):
-    # Prefer the canonical scene asset name. Description paragraphs can cite
-    # other locations for style continuity; matching those incidental mentions
-    # first misclassified the 太微殿 interior as a cloud exterior.
-    name = " ".join((scene.get("name", ""), scene_id)).lower()
+    # The asset's own name is authoritative. A hall description can mention
+    # the palace exterior as a style reference; that incidental phrase must
+    # never turn the council room into an exterior blockout.
+    canonical_name = str(scene.get("name", "")).strip()
+    if canonical_name == "太微殿" or scene_id == "scene_a1c8c45145a6":
+        return "hall"
+    if canonical_name in {"太微宫", "紫微宫", "太微宫外云路"} or scene_id in {
+        "scene_fe9e4aaa2c30", "scene_f85db3db040c", "scene_taiwei_exterior"
+    }:
+        return "celestial_exterior"
+    name = " ".join((canonical_name, scene_id)).lower()
     if any(x in name for x in ("东海", "河谷", "河岸", "洪水", "海水", "海岸", "sea", "river", "flood", "ocean")):
         return "water"
     if any(x in name for x in ("灾变", "山崩", "地裂", "废墟", "damaged", "disaster", "ruins")):
@@ -67,6 +74,10 @@ def _scene_kind(scene_id, scene):
 
     description = " ".join((scene.get("design_description", ""), scene.get("source_facts", ""),
                              scene.get("evidence", ""))).lower()
+    first_clause = re.split(r"[；;。\n]", str(scene.get("design_description", "")), maxsplit=1)[0].lower()
+    if any(x in first_clause for x in ("外景", "宫阙外", "palace exterior", "exterior of the palace")):
+        return "celestial_exterior"
+
     if any(x in description for x in ("议事大殿", "大殿内", "内景", "hall interior", "interior of the palace")):
         return "hall"
     if any(x in description for x in ("东海", "河谷", "河岸", "洪水", "海水", "海岸", "sea", "river", "flood", "ocean")):
@@ -82,8 +93,10 @@ def _scene_kind(scene_id, scene):
     return "landscape"
 
 
-def _blocking(location, cast, scene_kind):
+def _blocking(location, cast, scene_kind, shot=None):
     marks = location.get("characters", {})
+    authored = {actor.get("asset_id"): actor for actor in
+                (shot or {}).get("blocking_plan", {}).get("actors", [])}
     result = []
     fallback_positions = {
         "hall": [(-5.2, -7.0), (-5.2, -2.5), (-5.2, 2.0), (-5.2, 6.5),
@@ -95,7 +108,11 @@ def _blocking(location, cast, scene_kind):
         seat = re.search(r"seat\s*(\d+)", mark, re.I)
         side = "left" if re.search(r"left row|左排|左侧", mark, re.I) else (
             "right" if re.search(r"right row|右排|右侧", mark, re.I) else "")
-        if "throne" in mark.lower() or "神座" in mark or "玉皇" in item["name"]:
+        # Only a hall assignment implies the Jade Emperor's throne.  The name
+        # alone must not teleport him into the rear palace block on exterior
+        # threshold shots; an authored doorway mark stays on the approach side.
+        at_throne = "throne" in mark.lower() or "神座" in mark
+        if at_throne or (scene_kind == "hall" and "玉皇" in item["name"]):
             x, y = 0.0, 13.8
             pose = "seated"
         elif seat and side:
@@ -105,8 +122,21 @@ def _blocking(location, cast, scene_kind):
         else:
             x, y = fallback_positions[i % len(fallback_positions)]
             pose = "standing"
-        result.append({"id": item["id"], "name": item["name"], "x": x, "y": y,
-                       "pose": pose, "blocking_source": mark or "shot-level neutral blocking"})
+        plan = authored.get(item["id"], {})
+        start = plan.get("start_position", {})
+        x, y = float(start.get("x", x)), float(start.get("y", y))
+        z = float(start.get("z", 0.0))
+        pose = plan.get("pose", "flying" if scene_kind == "celestial_exterior" and plan.get("path") else pose)
+        path = []
+        for point in plan.get("path", []):
+            position = point.get("position", {})
+            path.append({"frame": int(point.get("frame", 1)),
+                         "x": float(position.get("x", x)), "y": float(position.get("y", y)),
+                         "z": float(position.get("z", z))})
+        result.append({"id": item["id"], "name": item["name"], "x": x, "y": y, "z": z,
+                       "pose": pose, "path": path, "instances": int(plan.get("instances", 1)),
+                       "visible_throughout": bool(plan.get("visible_throughout", True)),
+                       "blocking_source": plan.get("mark", mark or "shot-level neutral blocking")})
     return result
 
 
@@ -147,10 +177,18 @@ def render_spec(root, episode, shot, cfg):
         "scene_design": scene.get("design_description", ""),
         "scene_facts": scene.get("source_facts", ""),
         "layout": location.get("layout", ""),
-        "cast": _blocking(location, cast, _scene_kind(shot["scene_id"], scene)),
+        "cast": _blocking(location, cast, _scene_kind(shot["scene_id"], scene), shot),
         "props": [{"id": p["id"], "name": p["name"]} for p in props],
         "dialogue_events": dialogue,
         "action": shot.get("action", ""),
+        "blocking_plan": shot.get("blocking_plan", {}),
+        "composition": shot.get("composition", {}),
+        "action_beats": shot.get("action_beats", []),
+        "state_in": shot.get("state_in", ""),
+        "state_out": shot.get("state_out", ""),
+        "sequence_id": shot.get("sequence_id", ""),
+        "axis_id": shot.get("axis_id", ""),
+        "screen_direction": shot.get("screen_direction", ""),
         "camera": shot.get("camera", {}),
         "continuity": shot.get("continuity", "cut"),
         "handoff_in": shot.get("handoff_in", ""),

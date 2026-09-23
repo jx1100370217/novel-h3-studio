@@ -7,7 +7,7 @@ name = "novel-h3-studio"
 version = "0.1.0"
 description = "可溯源的小说改编、Codex 图片交接、H3 连续镜头与成片工作台"
 requires-python = ">=3.11"
-dependencies = ["websocket-client>=1.8,<2"]
+dependencies = ["websocket-client>=1.8,<2", "numpy>=1.24,<3"]
 license = {file = "LICENSE"}
 
 [project.scripts]

@@ -60,6 +60,10 @@ def _review_payload(root, episode):
             'source_text': scene.get('source_text', ''),
             'scene_description': scene.get('scene_description', ''),
             'visual_narration': scene.get('visual_narration', ''),
+            'story_beat_id': scene.get('story_beat_id'),
+            'dramatic_function': scene.get('dramatic_function'),
+            'scene_goal': scene.get('scene_goal'),
+            'turning_point': scene.get('turning_point'),
             'characters': scene.get('characters_in_scene', []),
             'scenes': scene.get('scenes', []),
             'props': scene.get('props', []),
@@ -80,6 +84,7 @@ def _review_payload(root, episode):
         'max_planned_seconds': max(durations, default=0),
         'audio_policy': '仅生成人物对白；旁白和 visual_narration 只作画面参考，不生成声音。',
         'rhythm_review': plan.get('rhythm_review', {}),
+        'storyboard_design_version': plan.get('storyboard_design_version'),
         'speaker_audit': plan.get('speaker_audit', {}),
         'rows': rows,
     }
