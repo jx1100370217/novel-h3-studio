@@ -1,7 +1,7 @@
 """Source-grounded screenplay and shot-continuity contracts for H3 chapters."""
 from __future__ import annotations
 
-VERSION = "cinematic_storyboard_v1"
+VERSION = "cinematic_storyboard_v2"
 MAX_H3_FRAMES = 362  # H3 accepts the 17k+5 grid; its top grid point is 15.08 s at 24 fps.
 CONTENT_SHOT_FIELDS = {
     "cinematic_storyboard_version", "editorial_purpose", "dramatic_function",
@@ -16,7 +16,7 @@ SHOT_FIELDS = {
 AUTHORING_RULES = """\
 分层创作：原文事实与人物对白 → 有因果的场景节拍 → 可拍摄的镜头执行单 → 资产绑定和模型提示词。
 正式剧本的每个镜头须写 cinematic_storyboard_version=cinematic_storyboard_v1、story_beat_id、source_fact_ids、editorial_purpose、dramatic_function、scene_goal 和 turning_point。剧本层须有场景目标、阻力/新信息、转折或后果；每一镜认领具体原文段落和一个连续可演的动作节拍。不得把原文事实改写成未发生的视觉事件；对白逐字保留，旁白只作画面依据。
-镜头层必须声明场景/地点、在场角色及精确数量、道具状态、画面开始/结束状态、演员走位与朝向、屏幕运动方向、剪辑/续接理由、景别/焦距/机位/单一有动机的运镜。对白镜头保持说话者可见、听者闭口、同一说话者跨镜保持同一场景/轴线/视线方向；长对白按语义分段，不能为填时长重复动作或对白。
+镜头层必须声明场景/地点、在场角色及精确数量、道具状态、画面开始/结束状态、演员走位与朝向、屏幕运动方向、剪辑/续接理由、景别/焦距/机位/单一有动机的运镜。对白镜头保持说话者可见、听者闭口、同一说话者跨镜保持同一场景/轴线/视线方向；长对白按语义分段，不能为填时长重复动作或对白。动作时间段按可见状态转变划分，不按固定帧数机械切段；连续动作只写一次并覆盖其真实持续时间，静止等待可用较长的单一时段。
 入场、到达、落座、起身、交接等必须使用明确的起点→路径→终点；不得用“到达/走入/登场”代替路径。群戏按同一空间调度，进入/离开画面必须可追踪。静默转场按信息量定时，通常 2–4 秒；动作剧情按动作完成时间；任何镜头不超过 15 秒。
 H3 提示词仅使用执行单绑定的图片/音频/白模标签；说话人、角色图片、参考声音一一绑定。源文、美术注释和执行单元数据不能作为语音输入。Blender 白模须展示精确角色数、标记点、路线、屏幕方向、镜头路径和首尾状态。
 """
@@ -34,19 +34,51 @@ QUALITY_STANDARD = {
 def fit_action_beats(beats: list[dict], total_frames: int) -> list[dict]:
     if not beats or total_frames <= 0:
         return []
-    weights = [max(1, int(row.get("end_frame", 0)) - int(row.get("start_frame", 0))) for row in beats]
+    # Collapse adjacent duplicate instructions before retiming. Splitting one
+    # continuous action into short intervals with the same imperative made H3
+    # restart or replay the action at each boundary.
+    authored = []
+    for row in beats:
+        action = str(row.get("action") or row.get("description") or "").strip()
+        weight = max(1, int(row.get("end_frame", 0)) - int(row.get("start_frame", 0)))
+        if authored and action == authored[-1]["action"]:
+            authored[-1]["weight"] += weight
+        else:
+            authored.append({"row": row, "action": action, "weight": weight})
+    weights = [item["weight"] for item in authored]
     total_weight = sum(weights)
     result, cursor = [], 0
-    for index, (beat, weight) in enumerate(zip(beats, weights)):
-        end = total_frames if index == len(beats) - 1 else round(sum(weights[:index + 1]) * total_frames / total_weight)
+    for index, item in enumerate(authored):
+        beat, weight = item["row"], item["weight"]
+        end = total_frames if index == len(authored) - 1 else round(sum(weights[:index + 1]) * total_frames / total_weight)
         end = max(cursor + 1, min(total_frames, end))
-        action = beat.get("action") or beat.get("description") or "Continue the authored physical action."
-        while cursor < end:
-            stop = min(cursor + 24, end)
-            result.append({"start_frame": cursor, "end_frame": stop, "action": action})
-            cursor = stop
-    if result:
-        result[-1]["end_frame"] = total_frames
+        action = item["action"] or "Continue the authored physical action."
+        result.append({**beat, "start_frame": cursor, "end_frame": end, "action": action})
+        cursor = end
+    return result
+
+
+def fit_timeline_beats(beats: list[dict], total_frames: int) -> list[dict]:
+    """Retime meaningful visual stages without repeating an instruction."""
+    if not beats or total_frames <= 0:
+        return []
+    authored = []
+    for row in beats:
+        description = str(row.get("description", "")).strip()
+        weight = max(1, int(row.get("end_frame", 0)) - int(row.get("start_frame", 0)))
+        if authored and description == authored[-1]["description"]:
+            authored[-1]["weight"] += weight
+        else:
+            authored.append({"row": row, "description": description, "weight": weight})
+    weights = [item["weight"] for item in authored]
+    total_weight = sum(weights)
+    result, cursor = [], 0
+    for index, item in enumerate(authored):
+        end = total_frames if index == len(authored) - 1 else round(sum(weights[:index + 1]) * total_frames / total_weight)
+        end = max(cursor + 1, min(total_frames, end))
+        result.append({**item["row"], "start_frame": cursor, "end_frame": end,
+                       "description": item["description"] or "Continue the authored visual action without restarting."})
+        cursor = end
     return result
 
 
@@ -143,10 +175,16 @@ def validate_shot(scene: dict, shot: dict) -> list[str]:
         errors.append(f"{sid}: 缺少按时间展开的动作节拍")
     else:
         cursor = 0
+        previous_action = None
         for beat in shot["action_beats"]:
             if beat.get("start_frame") != cursor or beat.get("end_frame", 0) <= cursor or not beat.get("action"):
                 errors.append(f"{sid}: 动作节拍有空缺、重叠或空动作")
                 break
+            action = str(beat.get("action", "")).strip()
+            if action == previous_action:
+                errors.append(f"{sid}: 相邻动作节拍重复；同一连续动作只能描述一次，不能在时间边界重新下达")
+                break
+            previous_action = action
             cursor = beat["end_frame"]
         expected_frames = shot.get("frames", 0) - (22 if shot.get("continuity") == "continue" else 0)
         if cursor != expected_frames:

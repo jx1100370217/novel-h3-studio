@@ -9,7 +9,9 @@ import time
 
 from .project import read, write, digest, safe_id, load_state, update_state
 from .director import frames_for, validate_episode, image_job, h3_prompt
-from .storyboard_design import AUTHORING_RULES, SHOT_FIELDS, fit_action_beats, validate_scene_content, validate_shot, VERSION
+from .storyboard_design import (AUTHORING_RULES, SHOT_FIELDS, fit_action_beats,
+                                fit_timeline_beats, validate_scene_content,
+                                validate_shot, VERSION)
 
 BUCKETS = {"characters": "character", "scenes": "scene", "props": "prop"}
 CONTENT_FIELDS = {"scene_id", "duration_seconds", "segment_break", "characters_in_scene",
@@ -250,7 +252,7 @@ def approve_rhythm(root, episode_id, reviewer, note):
 def visual_packet(root, episode_id):
     plan = read(plan_path(root, episode_id))
     return {"kind": "arcreel_visual_authoring_for_h3", "content_sha256": digest(plan),
-            "instruction": AUTHORING_RULES + "\n仅编写视觉层，禁止重写 title、source_text、utterances、角色归属或源文事实。必须按 scene_id 一一覆盖。speech_timing 每条严格对应锁定对白。为每个镜头输出 sequence_id、beat_function、state_in/state_out、screen_direction、axis_id、transition、blocking_plan、composition、action_beats；blocking_plan.actors 与绑定角色资产一一对应，声明首尾走位点/姿态/可见性；action_beats 要覆盖交付帧且每段不超过24帧。H3时长按对白/动作决定，17k+5 帧，续接扣除22帧，绝不为凑时长重复动作。场景和道具资产必须逐镜绑定。换场才切，场内续接需首尾状态一致。生成前使用 storyboard_design.validate_shot 和完整资产/对白门禁。",
+            "instruction": AUTHORING_RULES + "\n仅编写视觉层，禁止重写 title、source_text、utterances、角色归属或源文事实。必须按 scene_id 一一覆盖。speech_timing 每条严格对应锁定对白。为每个镜头输出 sequence_id、beat_function、state_in/state_out、screen_direction、axis_id、transition、blocking_plan、composition、action_beats；blocking_plan.actors 与绑定角色资产一一对应，声明首尾走位点/姿态/可见性。action_beats 按可见状态变化分段，一段只写一个不同的动作阶段；相邻段不得复述同一动作，不按固定24帧切分。短镜头可用1-2段，复杂动作按真实阶段增加；精确覆盖交付帧。H3时长按对白/动作决定，17k+5 帧，续接扣除22帧，绝不为凑时长重复动作。场景和道具资产必须逐镜绑定。换场才切，场内续接需首尾状态一致。生成前使用 storyboard_design.validate_shot 和完整资产/对白门禁。",
             "content": plan, "assets": inventory(root),
             "design_version": VERSION,
             "output_fields": ["content_sha256", "scenes: [{scene_id, image_prompt, h3, speech_timing}]",
@@ -329,19 +331,8 @@ def compile_visual(root, episode_id, visual):
         if read(Path(root) / "config.json").get("timing_policy", {}).get("content_based"):
             from .timing import retime
             h3 = retime(h3)
-        if not h3["dialogue"]:
-            total = h3["frames"] - (22 if h3["continuity"] == "continue" else 0)
-            old_total = h3["timeline"][-1]["end_frame"]
-            timeline, cursor = [], 0
-            for index, beat in enumerate(h3["timeline"]):
-                end = total if index == len(h3["timeline"]) - 1 else round(beat["end_frame"] * total / old_total)
-                end = max(cursor + 1, min(total, end))
-                while cursor < end:
-                    stop = min(cursor + 24, end)
-                    timeline.append(dict(beat, start_frame=cursor, end_frame=stop))
-                    cursor = stop
-            h3["timeline"] = timeline
         delivered = h3["frames"] - (22 if h3["continuity"] == "continue" else 0)
+        h3["timeline"] = fit_timeline_beats(h3["timeline"], delivered)
         h3["action_beats"] = fit_action_beats(h3["action_beats"], delivered)
         required = [resolve_reference(assets, bucket, name)
                     for bucket, field in (("characters", "characters_in_scene"), ("scenes", "scenes"), ("props", "props"))

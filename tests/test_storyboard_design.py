@@ -1,6 +1,8 @@
 import unittest
 
-from novel_h3.storyboard_design import fit_action_beats, h3_instruction, validate_scene_content, validate_shot
+from novel_h3.storyboard_design import (fit_action_beats, fit_timeline_beats,
+                                        h3_instruction, validate_scene_content,
+                                        validate_shot)
 
 
 class CinematicStoryboardTests(unittest.TestCase):
@@ -71,12 +73,29 @@ class CinematicStoryboardTests(unittest.TestCase):
     def test_action_beats_are_rescaled_and_cover_delivery(self):
         beats = fit_action_beats([
             {"start_frame": 0, "end_frame": 48, "action": "Arrival."},
-            {"start_frame": 48, "end_frame": 96, "action": "Stop."},
+            {"start_frame": 48, "end_frame": 72, "action": "Arrival."},
+            {"start_frame": 72, "end_frame": 120, "action": "Stop."},
         ], 73)
         self.assertEqual(beats[0]["start_frame"], 0)
         self.assertEqual(beats[-1]["end_frame"], 73)
-        self.assertTrue(all(row["end_frame"] - row["start_frame"] <= 24 for row in beats))
-        self.assertEqual("".join(row["action"] for row in beats).count("Arrival."), 2)
+        self.assertEqual([row["action"] for row in beats], ["Arrival.", "Stop."])
+        self.assertEqual(h3_instruction({**self.shot, "action_beats": beats}).count("Arrival."), 1)
+
+    def test_timeline_coalesces_repeated_description_and_retimes(self):
+        beats = fit_timeline_beats([
+            {"start_frame": 0, "end_frame": 24, "description": "A cloud glides forward."},
+            {"start_frame": 24, "end_frame": 48, "description": "A cloud glides forward."},
+            {"start_frame": 48, "end_frame": 72, "description": "The cloud settles."},
+        ], 82)
+        self.assertEqual([row["description"] for row in beats], ["A cloud glides forward.", "The cloud settles."])
+        self.assertEqual(beats[-1]["end_frame"], 82)
+
+    def test_repeated_adjacent_action_is_rejected(self):
+        self.shot["action_beats"] = [
+            {"start_frame": 0, "end_frame": 24, "action": "Enter."},
+            {"start_frame": 24, "end_frame": 73, "action": "Enter."},
+        ]
+        self.assertTrue(any("相邻动作节拍重复" in error for error in validate_shot(self.scene, self.shot)))
 
     def test_group_instance_count_is_explicit_and_checked(self):
         actor = {"asset_id": "character_guards", "instances": 4, "visible_throughout": True}
@@ -100,7 +119,7 @@ class CinematicStoryboardTests(unittest.TestCase):
         self.assertIn("exact visible registered body count=5", text)
 
     def test_scene_fact_ids_must_belong_to_bound_source_paragraphs(self):
-        scene = dict(self.scene, cinematic_storyboard_version="cinematic_storyboard_v1",
+        scene = dict(self.scene, cinematic_storyboard_version="cinematic_storyboard_v2",
                      editorial_purpose="inciting_event", scene_goal="呈现异象",
                      turning_point="金光落地", story_beat_id="beat-1",
                      source_fact_ids=["p2"])

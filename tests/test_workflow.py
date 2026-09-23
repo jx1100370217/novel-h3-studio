@@ -82,6 +82,18 @@ class WorkflowTests(unittest.TestCase):
         ep=copy.deepcopy(self.ep);ep['shots'][1]['dialogue']=[{'speaker':'A','text':'你好','start_frame':0,'end_frame':24}]
         self.assertTrue(any('抢入' in e for e in validate_episode(self.root,ep)))
 
+    def test_cinematic_timeline_uses_semantic_stages_not_repeated_seconds(self):
+        ep=copy.deepcopy(self.ep)
+        shot=ep['shots'][1]
+        shot['storyboard_schema']='cinematic_storyboard_v2'
+        shot['timeline']=[
+            {'start_frame':0,'end_frame':60,'description':'A cloud glides forward.'},
+            {'start_frame':60,'end_frame':136,'description':'A cloud glides forward.'},
+        ]
+        errors=validate_episode(self.root,ep)
+        self.assertTrue(any('相邻时间线阶段重复' in error for error in errors))
+        self.assertFalse(any('每段不超过 24 帧' in error for error in errors))
+
     def test_graph_chains_sampler_latent_and_trims_both_streams(self):
         nodes,prefix=graph(self.root,self.ep,self.ep['shots'][1],'t_test','/tmp/old.safetensors')
         self.assertEqual(nodes['7']['inputs']['clip_index'],1)

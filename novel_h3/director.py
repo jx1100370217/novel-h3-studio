@@ -161,11 +161,15 @@ def validate_episode(root, episode):
             chain_size = 1
         timeline = shot.get("timeline", [])
         cursor = 0
+        previous_description = None
         for beat in timeline:
             if beat["start_frame"] != cursor or beat["end_frame"] <= cursor or not beat.get("description"):
                 errors.append(f"{sid}: 动作时间线有空缺、重叠或无动作说明")
-            if beat["end_frame"] - beat["start_frame"] > FPS:
+            if shot.get("storyboard_schema") and beat.get("description") == previous_description:
+                errors.append(f"{sid}: 相邻时间线阶段重复；连续动作不能在分段边界重新下达")
+            if not shot.get("storyboard_schema") and beat["end_frame"] - beat["start_frame"] > FPS:
                 errors.append(f"{sid}: 动作指令应逐秒填写，每段不超过 24 帧")
+            previous_description = beat.get("description")
             cursor = beat["end_frame"]
         if cursor != delivered_frames(shot):
             errors.append(f"{sid}: 时间线应完整覆盖交付的 {delivered_frames(shot)} 帧")
@@ -553,11 +557,8 @@ def h3_prompt(shot, style):
         intro += (f"The first {offset / FPS:.6f} seconds repeat the pinned tail of the previous shot. "
                   f"Preserve this exact starting state: {shot['handoff_in']}. Continue physical motion; no freeze, no new people, no new speech.\n")
     if has_dialogue:
-        # The full per-second timeline remains in the execution sheet.  Sending
-        # every repeated action beat to H3 made the prompt unnecessarily long
-        # and gave the audio head many opportunities to treat visual metadata
-        # as a continuation of the spoken line.  The shot-level lock preserves
-        # the intended blocking without duplicating language in the model input.
+        # Keep dialogue prompts concise; exact speaking windows and the
+        # shot-level visibility contract govern dialogue framing.
         intro += (
             "VISUAL_TIMELINE_LOCK: perform the bound blocking and camera move continuously from start to end. "
             "Use the declared time windows only for picture timing; visual metadata is non-speech.\n"
