@@ -301,6 +301,14 @@ def h3_prompt(shot, style):
     visual_movement = _speech_safe_visual_text(camera["movement"]) if has_dialogue else camera["movement"]
     intro = (f"{style}\n{generation_audio_contract(shot)}\n[Shot 1] {visual_size}, {camera['lens_mm']}mm lens. "
              f"{visual_movement}. {visual_action}\n")
+    spatial_guide = shot.get("spatial_guide")
+    if spatial_guide:
+        intro += "SPATIAL_REFERENCE: " + spatial_guide.get(
+            "guide_policy",
+            "The silent grayscale Blender reference <Video 1> is a spatial and camera guide only. "
+            "Match scene geometry, registered-actor count and blocking, screen direction, camera path, and timing. "
+            "Do not copy proxy appearance, gray materials, lighting, or sound. Use approved <Picture> references "
+            "for character identity and photorealistic appearance. <Video 1> has no audio.") + "\n"
     camera_execution = package.get("camera_execution", {})
     if camera_execution.get("model_instruction"):
         camera_instruction = camera_execution["model_instruction"]

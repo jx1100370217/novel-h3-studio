@@ -211,7 +211,22 @@ hf download Qwen/Qwen2.5-Omni-7B \
 
 首次分析约需要 18 GiB 可用显存。视频推理正在占用本项目显卡时，工作台会阻止并行音频分析，避免把显存打满。完整说明见 [`docs/本地音频理解.md`](docs/本地音频理解.md)。
 
-### 5. FastVideo FastH3-8-Step-V2（可选 ComfyUI 速度基准）
+### 5. Blender 白模空间与运镜预演（自动接入 H3）
+
+工作台会读取镜头绑定的场景、角色站位、对白说话人和运镜，使用 Blender 构建低多边形白模并渲染为无声 24 fps 引导片，再把引导片帧序列作为 H3 Ref2VA 的 `<Video 1>` 输入。H3 同时保留经审核的场景/人物图片和说话人参考音频：白模负责空间布局、人物数量与站位、屏幕方向和摄像机运动；成片写实外观仍由批准的图片资产决定。白模不会生成音轨，H3 接收的是渲染画面，不是 `.blend` 工程文件。
+
+推荐安装 Blender 5.2.2 LTS 的便携版，不改系统 Python 或 ComfyUI 环境：
+
+```bash
+cd /home/jx/codes/novel-h3-studio
+bash scripts/install_blender.sh
+```
+
+新项目默认启用白模预演。默认分辨率为 512×288，最多双线程，单个引导片不超过 15 秒；画面需要更多细节时可在项目 `config.json` 的 `blender_previs` 中调整。每个实际提交镜头会在 `previews/blender_previs/<章节>/<镜号>/` 留下可编辑 `.blend`、白模 MP4、首帧和哈希清单；实际送入 H3 的路径、时长、分辨率和参考槽记录在镜头执行单中。若 Blender 或 ComfyUI 核心 `LoadVideo` / `GetVideoComponents` 节点缺失，环境自检会明确报错，不会悄悄退回没有白模引导的生成。
+
+白模是可见像素条件，不是精确几何锁；H3 仍可能改写建筑细节或运镜，所以交付前仍须检查空场、角色数量、机位轴线和相邻镜头的动作接点。已经完成的普通镜头成片保留；后续新生成和人工重拍镜头会使用白模引导。
+
+### 6. FastVideo FastH3-8-Step-V2（可选 ComfyUI 速度基准）
 
 工作台保留的是 **FastH3-8-Step-V2 的 ComfyUI 兼容路径**，不包含官方 VSA-H3 runner。兼容权重由官方模型页转换为 ComfyUI 单文件格式，来源仍是 [FastVideo/FastVideo-FastH3-8-Step-V2](https://huggingface.co/FastVideo/FastVideo-FastH3-8-Step-V2)，可从 [FastVideo/FastVideo-FastH3-Comfy](https://huggingface.co/FastVideo/FastVideo-FastH3-Comfy) 获取。
 

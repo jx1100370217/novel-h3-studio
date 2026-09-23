@@ -14,6 +14,7 @@ from novel_h3.director import validate_episode, h3_prompt, coverage, frames_for,
 from novel_h3.comfy import graph, current_takes, review_take, review_chapter, review_visual, cancel, asset_for, bound_shot
 from novel_h3.media import concatenate, enforce_silent_audio, technical_qc, probe, assemble_book, assemble_episode
 from novel_h3.arcreel import save_content, approve_content, compile_visual, content_current
+from novel_h3.blender_previs import _scene_kind
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -131,6 +132,30 @@ class WorkflowTests(unittest.TestCase):
         prompt=h3_prompt(shot,'realistic')
         self.assertTrue(prompt.startswith('subject_definitions:'))
         self.assertIn('<Picture 2>',prompt)
+
+    def test_blender_guide_is_bound_to_h3_video_reference_without_audio(self):
+        shot=copy.deepcopy(self.ep['shots'][0]);shot['mode']='ref2va';shot['references']=[{'asset_id':'person','description':'a young man','lock':'his face'},{'asset_id':'place','description':'a mountain','lock':'its shape'}]
+        frame=self.root/'frame.png';frame.write_bytes(b'fixture')
+        guide=self.root/'guide.mp4';guide.write_bytes(b'silent blender guide')
+        spatial_guide={'status':'rendered','path':'guide.mp4','sha256':file_hash(guide),
+                       'guide_policy':'Use <Video 1> for spatial blocking and camera timing only.'}
+        with patch('novel_h3.comfy.asset_for',return_value=(frame,'a'*64)):
+            nodes,_=graph(self.root,self.ep,shot,'t_blender',stage_assets=True,spatial_guide=spatial_guide)
+        video_ref=nodes['6']['inputs']['ref_videos.ref_video_0']
+        components=nodes[video_ref[0]]
+        video_loader=nodes[components['inputs']['video'][0]]
+        self.assertEqual(components['class_type'],'GetVideoComponents')
+        self.assertEqual(video_loader['class_type'],'LoadVideo')
+        self.assertEqual(video_loader['inputs']['file'],'novel_h3/previs/'+file_hash(guide)[:16]+'.mp4')
+        self.assertNotIn('ref_video_audio_0',nodes['6']['inputs'])
+        self.assertIn('Use <Video 1> for spatial blocking and camera timing only.',nodes['6']['inputs']['prompt'])
+        input_dir=Path(read(self.root/'config.json')['input_dir'])
+        self.assertEqual(file_hash(input_dir/video_loader['inputs']['file']),file_hash(guide))
+
+    def test_blender_scene_classifier_trusts_canonical_asset_name(self):
+        scene={'name':'太微殿','design_description':'太微宫议事大殿内景；建筑风格与太微宫外景统一。'}
+        self.assertEqual(_scene_kind('scene_a1c8c45145a6',scene),'hall')
+        self.assertEqual(_scene_kind('scene_taiwei_exterior',{'name':'太微宫外云路','design_description':'云海与宫殿相连'}),'celestial_exterior')
 
     def test_scene_plate_is_primary_reference_and_mismatch_fails_closed(self):
         write(self.root/'bible/assets.json', {

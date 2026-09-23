@@ -1,0 +1,354 @@
+import argparse
+import json
+import math
+import os
+from pathlib import Path
+import sys
+
+import bpy
+from mathutils import Vector
+
+
+def arguments():
+    argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--spec", required=True)
+    return parser.parse_args(argv)
+
+
+def material(name, color, roughness=0.85):
+    mat = bpy.data.materials.new(name)
+    mat.diffuse_color = (*color, 1.0)
+    mat.use_nodes = True
+    bsdf = mat.node_tree.nodes.get("Principled BSDF")
+    bsdf.inputs["Base Color"].default_value = (*color, 1.0)
+    bsdf.inputs["Roughness"].default_value = roughness
+    return mat
+
+
+def cube(name, location, scale, mat, bevel=0.0):
+    bpy.ops.mesh.primitive_cube_add(size=1, location=location)
+    obj = bpy.context.object
+    obj.name = name
+    obj.dimensions = scale
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    obj.data.materials.append(mat)
+    if bevel:
+        mod = obj.modifiers.new("soft blockout edges", "BEVEL")
+        mod.width = bevel
+        mod.segments = 2
+    return obj
+
+
+def cylinder(name, location, radius, depth, mat, vertices=12):
+    bpy.ops.mesh.primitive_cylinder_add(vertices=vertices, radius=radius, depth=depth, location=location)
+    obj = bpy.context.object
+    obj.name = name
+    obj.data.materials.append(mat)
+    return obj
+
+
+def sphere(name, location, scale, mat, segments=12, rings=8):
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=segments, ring_count=rings, radius=1, location=location)
+    obj = bpy.context.object
+    obj.name = name
+    obj.scale = scale
+    obj.data.materials.append(mat)
+    return obj
+
+
+def beam(name, start, end, radius, mat):
+    a, b = Vector(start), Vector(end)
+    delta = b - a
+    obj = cylinder(name, (a + b) * 0.5, radius, delta.length, mat)
+    obj.rotation_euler = delta.to_track_quat("Z", "Y").to_euler()
+    return obj
+
+
+def chair(prefix, x, y, z, mat):
+    cube(prefix + " seat", (x, y, z + 0.82), (1.35, 1.15, 0.28), mat, 0.08)
+    cube(prefix + " back", (x, y + 0.42, z + 1.48), (1.35, 0.25, 1.15), mat, 0.08)
+    for dx in (-0.55, 0.55):
+        for dy in (-0.42, 0.38):
+            cube(prefix + " leg", (x + dx, y + dy, z + 0.4), (0.16, 0.16, 0.8), mat, 0.025)
+    for dx in (-0.72, 0.72):
+        cube(prefix + " arm", (x + dx, y, z + 1.08), (0.18, 0.9, 0.18), mat, 0.04)
+
+
+def create_hall(floor, architectural, accent):
+    cube("single uninterrupted hall floor", (0, 0, -0.2), (26, 42, 0.4), floor)
+    cube("rear hall wall", (0, 18.5, 7), (26, 0.6, 14), architectural)
+    for side in (-1, 1):
+        cube("side wall", (side * 13, 0, 6), (0.5, 37, 12), architectural)
+        for y in range(-15, 19, 4):
+            cylinder("vermilion-column proxy", (side * 9.5, y, 6), 0.42, 12, accent, 16)
+            cube("column capital proxy", (side * 9.5, y, 12.1), (1.6, 1.6, 0.45), architectural, 0.06)
+            cube("side bay lintel", (side * 11.2, y, 8), (3, 0.25, 0.35), accent, 0.04)
+    for y, width, height in ((13, 18, 0.55), (14.1, 13, 0.48), (15.0, 8, 0.38)):
+        cube("central raised dais", (0, y, height * 0.5), (width, 3, height), accent, 0.08)
+    chair("one elevated jade throne", 0, 14.2, 1.4, accent)
+    for side in (-1, 1):
+        for index, y in enumerate((-8, -3.5, 1, 5.5), 1):
+            chair(f"registered council seat {side} {index}", side * 5.2, y, 0, architectural)
+    # Circular relief and roof ribs establish the same rear-wall and ceiling anchors in every view.
+    bpy.ops.mesh.primitive_torus_add(major_radius=3.0, minor_radius=0.12, major_segments=32,
+                                     minor_segments=8, location=(0, 18.05, 9.2), rotation=(math.pi / 2, 0, 0))
+    bpy.context.object.name = "single circular rear relief proxy"
+    bpy.context.object.data.materials.append(accent)
+    for x in (-8, -4, 0, 4, 8):
+        beam("roof rib", (x, -17, 12.4), (x, 17, 12.4), 0.14, accent)
+
+
+def create_celestial_exterior(floor, architectural, accent):
+    cube("continuous cloud-road platform", (0, 0, 0), (28, 30, 0.7), floor, 0.18)
+    cube("palace silhouette rear mass", (0, 13, 5.5), (18, 4, 11), architectural, 0.12)
+    cube("palace front terrace", (0, 6, 1), (22, 5, 1.2), accent, 0.12)
+    for side in (-1, 1):
+        for y in (1, 7, 12):
+            cylinder("outer palace pillar", (side * 8, y, 4.5), 0.35, 9, accent, 12)
+            sphere("cloud landing marker", (side * 4.3, -3 + y * 0.15, 1.25), (2.0, 1.0, 0.38), architectural)
+    for y in (-8, -3, 2, 7):
+        cube("cloud path guide", (0, y, 0.42), (5.0, 0.3, 0.08), accent)
+
+
+def create_water_landscape(floor, architectural, accent, disaster=False):
+    cube("ground plane", (0, 0, -0.5), (60, 60, 1), floor)
+    if disaster:
+        cube("damaged settlement mass", (-7, 7, 2), (8, 9, 4), architectural, 0.2)
+        cube("broken roof plane", (-7, 7, 4.4), (9, 9, 0.35), accent, 0.1)
+        for x, y, h in ((2, 5, 5), (8, 11, 3), (-1, 14, 7)):
+            cube("fractured cliff mass", (x, y, h * 0.5), (5, 7, h), architectural, 0.3)
+        for x in (-20, -12, -4, 4, 12, 20):
+            cube("floodwater band", (x, -6, 0.08), (6, 18, 0.15), accent)
+    else:
+        for x in range(-24, 25, 4):
+            cube("parallel water plane band", (x, 2, 0.02), (3.6, 34, 0.08), accent)
+        for x, y, h in ((-16, 13, 11), (-8, 17, 8), (8, 16, 10), (17, 12, 7)):
+            sphere("distant coast or mountain mass", (x, y, h * 0.45), (5, 4, h), architectural)
+
+
+def create_interior(floor, architectural):
+    cube("single room floor", (0, 0, -0.2), (24, 28, 0.4), floor)
+    cube("back wall", (0, 13.8, 5), (24, 0.4, 10), architectural)
+    for side in (-1, 1):
+        cube("side wall", (side * 11.8, 0, 4), (0.4, 28, 8), architectural)
+
+
+def character_proxy(prefix, actor, floor_mat, accent_mat):
+    x, y = actor["x"], actor["y"]
+    seated = actor.get("pose") == "seated"
+    if seated:
+        pelvis_z, shoulder_z, head_z = 1.13, 1.72, 2.28
+        sphere(prefix + " torso proxy", (x, y, shoulder_z), (0.48, 0.31, 0.68), floor_mat)
+        sphere(prefix + " head proxy", (x, y - 0.03, head_z), (0.27, 0.27, 0.34), accent_mat)
+        beam(prefix + " left arm proxy", (x - 0.35, y - 0.04, 2.05), (x - 0.5, y - 0.48, 1.42), 0.14, floor_mat)
+        beam(prefix + " right arm proxy", (x + 0.35, y - 0.04, 2.05), (x + 0.5, y - 0.48, 1.42), 0.14, floor_mat)
+        beam(prefix + " bent leg proxy", (x - 0.2, y - 0.1, pelvis_z), (x - 0.2, y - 0.65, 0.55), 0.16, floor_mat)
+        beam(prefix + " bent leg proxy", (x + 0.2, y - 0.1, pelvis_z), (x + 0.2, y - 0.65, 0.55), 0.16, floor_mat)
+    else:
+        sphere(prefix + " torso proxy", (x, y, 1.28), (0.5, 0.32, 0.78), floor_mat)
+        sphere(prefix + " head proxy", (x, y, 2.2), (0.29, 0.29, 0.36), accent_mat)
+        for side in (-1, 1):
+            beam(prefix + " arm proxy", (x + side * 0.34, y, 1.75), (x + side * 0.42, y - 0.03, 0.9), 0.14, floor_mat)
+            beam(prefix + " leg proxy", (x + side * 0.2, y, 0.85), (x + side * 0.23, y - 0.03, 0.12), 0.17, floor_mat)
+    obj = bpy.data.objects.get(prefix + " torso proxy")
+    if obj:
+        # The proxy faces the center aisle in the council hall; elsewhere it faces the camera.
+        if x < -1:
+            obj.rotation_euler[2] = math.pi / 2
+        elif x > 1:
+            obj.rotation_euler[2] = -math.pi / 2
+    return (x, y, 1.55)
+
+
+def camera_path(scene, camera, spec, actor_centers):
+    shot_camera = spec.get("camera", {})
+    lens = max(24.0, min(100.0, float(shot_camera.get("lens_mm", 50))))
+    camera.data.lens = lens
+    cast = spec.get("cast", [])
+    by_id = {actor["id"]: actor_centers[i] for i, actor in enumerate(cast)}
+    dialogue = sorted(spec.get("dialogue_events", []), key=lambda x: x.get("start_frame", 0))
+    focus_events = [(int(item.get("start_frame", 0)) + 1, by_id[item["asset_id"]])
+                    for item in dialogue if item.get("asset_id") in by_id]
+    if focus_events:
+        targets = focus_events
+    elif len(cast) == 1:
+        targets = [(1, actor_centers[0])]
+    elif cast and spec.get("scene_kind") == "hall":
+        targets = [(1, (0, 4, 3.2))]
+    elif cast:
+        x = sum(p[0] for p in actor_centers) / len(actor_centers)
+        y = sum(p[1] for p in actor_centers) / len(actor_centers)
+        targets = [(1, (x, y, 2.0))]
+    else:
+        targets = [(1, (0, 0, 2.0))]
+    start_frame, end_frame = 1, int(spec["frames"])
+    move = str(shot_camera.get("movement", "")).lower()
+    size = str(shot_camera.get("size", "")).lower()
+    if "medium" in size or "中景" in size:
+        distance = 6.8 if "close" in size else 9.0
+    elif "close" in size or "特写" in size:
+        distance = 3.8
+    elif "wide" in size or "全景" in size:
+        distance = 17.0
+    else:
+        distance = 10.0
+    for index, (frame, target_value) in enumerate(targets):
+        target = Vector(target_value)
+        phase = index / max(1, len(targets) - 1)
+        if spec["scene_kind"] == "hall" and len(cast) == 1:
+            actor = cast[0]
+            # Hold the camera on the aisle side at seated eye level. The old
+            # 3.7 m offset with a 65 mm lens cropped the proxy head and most of
+            # the room, accidentally reproducing an empty-looking close crop.
+            sign = 1 if actor["x"] < 0 else -1
+            d = distance
+            if "push" in move or "dolly in" in move or "推进" in move:
+                d = distance + 1.8 - phase * 1.8
+            elif "pull" in move or "dolly out" in move or "拉远" in move:
+                d = distance - 1.0 + phase * 2.2
+            lateral = (phase - 0.5) * 0.55 if any(x in move for x in ("track", "跟拍", "tracking")) else 0.0
+            target = Vector((actor["x"], actor["y"], 1.72 if actor.get("pose") == "seated" else 1.55))
+            location = Vector((actor["x"] + sign * d, actor["y"] - 1.6 + lateral, 1.48))
+        elif "push" in move or "dolly in" in move or "推进" in move:
+            start_distance = distance + 2.0
+            d = start_distance if index == 0 else max(3.5, distance - 0.7)
+            location = target + Vector((0, -d, max(2.2, d * 0.34)))
+        elif "pull" in move or "dolly out" in move or "拉远" in move:
+            d = distance if index == 0 else distance + 2.5
+            location = target + Vector((0, -d, max(2.2, d * 0.34)))
+        elif "track" in move or "follow" in move or "跟拍" in move or "tracking" in move:
+            d = distance
+            side = (phase - 0.5) * 1.3
+            location = target + Vector((side, -d, max(2.5, d * 0.25)))
+        elif "pan" in move or "摇" in move:
+            d = distance
+            side = (phase - 0.5) * 2.2
+            location = target + Vector((side, -d, max(2.3, d * 0.28)))
+        else:
+            d = distance
+            location = target + Vector((0, -d, max(2.2, d * 0.3)))
+        frame = min(end_frame, max(start_frame, frame))
+        if not focus_events:
+            frame = start_frame if index == 0 else end_frame
+        camera.location = location
+        camera.rotation_euler = (target - location).to_track_quat("-Z", "Y").to_euler()
+        camera.keyframe_insert(data_path="location", frame=frame)
+        camera.keyframe_insert(data_path="rotation_euler", frame=frame)
+    if focus_events:
+        if targets[0][0] > start_frame:
+            camera.keyframe_insert(data_path="location", frame=start_frame)
+            camera.keyframe_insert(data_path="rotation_euler", frame=start_frame)
+        camera.keyframe_insert(data_path="location", frame=end_frame)
+        camera.keyframe_insert(data_path="rotation_euler", frame=end_frame)
+    # Blender 5.2 stores keyframes in layered action channel bags instead of
+    # exposing Action.fcurves. Default keyframe handles already use smooth
+    # Bezier interpolation, so avoid depending on the removed legacy API.
+
+
+def setup_lights():
+    world = bpy.data.worlds.new("neutral gray previs world")
+    world.use_nodes = True
+    world.node_tree.nodes["Background"].inputs["Color"].default_value = (0.24, 0.24, 0.24, 1)
+    world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.55
+    bpy.context.scene.world = world
+    for name, position, energy, size in (("broad key", (1, -7, 13), 700, 10),
+                                         ("soft fill", (-9, 3, 10), 300, 8)):
+        bpy.ops.object.light_add(type="AREA", location=position)
+        light = bpy.context.object
+        light.name = name
+        light.data.energy = energy
+        light.data.shape = "DISK"
+        light.data.size = size
+        light.rotation_euler = (Vector((0, 0, 3)) - light.location).to_track_quat("-Z", "Y").to_euler()
+
+
+def main():
+    args = arguments()
+    spec = json.loads(Path(args.spec).read_text(encoding="utf-8"))
+    out = Path(args.spec).resolve().parent
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete(use_global=False)
+    for datablocks in (bpy.data.meshes, bpy.data.curves, bpy.data.cameras, bpy.data.lights, bpy.data.materials):
+        for block in list(datablocks):
+            if block.users == 0:
+                datablocks.remove(block)
+
+    floor = material("matte gray structure", (0.35, 0.35, 0.35))
+    architecture = material("mid gray architectural mass", (0.22, 0.22, 0.22))
+    accent = material("light gray staging anchors", (0.5, 0.5, 0.5))
+    proxy = material("neutral gray character proxies", (0.9, 0.9, 0.9))
+    if spec["scene_kind"] == "hall":
+        create_hall(floor, architecture, accent)
+    elif spec["scene_kind"] == "celestial_exterior":
+        create_celestial_exterior(floor, architecture, accent)
+    elif spec["scene_kind"] == "water":
+        create_water_landscape(floor, architecture, accent)
+    elif spec["scene_kind"] == "disaster":
+        create_water_landscape(floor, architecture, accent, disaster=True)
+    elif spec["scene_kind"] == "interior":
+        create_interior(floor, architecture)
+    else:
+        cube("neutral landscape ground", (0, 0, -0.5), (40, 40, 1), floor)
+        for x, y, h in ((-11, 9, 5), (-4, 14, 8), (6, 12, 7), (13, 8, 4)):
+            sphere("distant neutral mass", (x, y, h / 2), (5, 4, h), architecture)
+
+    cast = spec.get("cast", [])
+    centers = []
+    for i, actor in enumerate(cast, 1):
+        centers.append(character_proxy(f"registered proxy {i}", actor, proxy, accent))
+    for i, _prop in enumerate(spec.get("props", []), 1):
+        actor = cast[0] if cast else {"x": 0, "y": 0}
+        cube(f"registered prop blockout {i}", (actor["x"] + 0.55, actor["y"] - 0.4, 1.18),
+             (0.25, 0.12, 0.62), accent, 0.025)
+
+    bpy.ops.object.camera_add(location=(0, -20, 8))
+    camera = bpy.context.object
+    camera.name = "single authored shot camera"
+    bpy.context.scene.camera = camera
+    camera_path(bpy.context.scene, camera, spec, centers)
+    setup_lights()
+
+    scene = bpy.context.scene
+    engine_items = scene.render.bl_rna.properties["engine"].enum_items.keys()
+    scene.render.engine = "BLENDER_EEVEE" if "BLENDER_EEVEE" in engine_items else "BLENDER_EEVEE_NEXT"
+    scene.render.resolution_x = spec["width"]
+    scene.render.resolution_y = spec["height"]
+    scene.render.resolution_percentage = 100
+    scene.render.fps = spec["fps"]
+    scene.frame_start = 1
+    scene.frame_end = spec["frames"]
+    scene.render.image_settings.media_type = "VIDEO"
+    scene.render.image_settings.file_format = "FFMPEG"
+    scene.render.ffmpeg.format = "MPEG4"
+    scene.render.ffmpeg.codec = "H264"
+    scene.render.ffmpeg.constant_rate_factor = "MEDIUM"
+    scene.render.ffmpeg.ffmpeg_preset = "REALTIME"
+    scene.render.filepath = str(out / "guide")
+    scene.render.image_settings.color_mode = "RGB"
+    scene.render.film_transparent = False
+    scene.view_settings.view_transform = "Standard"
+    scene.render.image_settings.color_depth = "8"
+    scene.render.threads_mode = "FIXED"
+    scene.render.threads = spec["threads"]
+    scene.render.use_file_extension = True
+    scene.camera.data.dof.use_dof = False
+    scene.render.resolution_percentage = 100
+    bpy.ops.wm.save_as_mainfile(filepath=str(out / "scene.blend"))
+    bpy.ops.render.render(animation=True)
+    # Save a full-resolution contact frame for quick workbench inspection.
+    scene.frame_set(1)
+    scene.render.image_settings.media_type = "IMAGE"
+    scene.render.image_settings.file_format = "PNG"
+    scene.render.filepath = str(out / "frame_0001.png")
+    bpy.ops.render.render(write_still=True)
+    rendered = sorted(out.glob("guide*.mp4"))
+    if len(rendered) == 1 and rendered[0] != out / "guide.mp4":
+        os.replace(rendered[0], out / "guide.mp4")
+    if not (out / "guide.mp4").is_file():
+        raise RuntimeError("Blender did not produce the expected single guide MP4")
+    print("BLENDER_PREVIS_RENDERED", out / "guide.mp4")
+
+
+if __name__ == "__main__":
+    main()

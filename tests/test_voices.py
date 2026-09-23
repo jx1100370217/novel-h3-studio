@@ -310,6 +310,7 @@ class VoiceBindingTests(unittest.TestCase):
 
     def test_graph_really_connects_audio_and_pins_voice_fingerprint(self):
         cfg=read(REPO/'projects/rendao-wuji/config.json')
+        cfg.setdefault('blender_previs',{})['enabled']=False
         cfg['input_dir']=str(self.root/'input')
         write(self.root/'config.json',cfg)
         write(self.root/'book.json',{'source_sha256':'fixture'})

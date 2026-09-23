@@ -108,6 +108,18 @@ def _retake_shot_contract(shot, rework_item):
 def doctor(root):
     cfg = config(root)
     result = {"url": cfg["comfy_url"], "reachable": False, "missing_nodes": [], "missing_models": []}
+    previs_enabled = cfg.get("blender_previs", {}).get("enabled") is True
+    if previs_enabled:
+        from .blender_previs import binary_path, blender_version
+        try:
+            blender = binary_path(cfg)
+            result["blender_previs"] = {"enabled": True, "available": True,
+                                         "binary": blender, "version": blender_version(blender),
+                                         "reference_mode": "silent Blender guide video -> H3 Ref2VA"}
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            result["blender_previs"] = {"enabled": True, "available": False, "error": str(exc)}
+    else:
+        result["blender_previs"] = {"enabled": False, "available": True}
     try:
         info = api(cfg["comfy_url"], "/object_info")
         stats = api(cfg["comfy_url"], "/system_stats")
@@ -122,6 +134,8 @@ def doctor(root):
                 if not (stage / name).is_file():
                     result["missing_models"].append(str(stage / name))
             result["video_engine"] = {"name": "VDN-H3 Turbo", "steps": cfg["generation"]["steps"], **cfg["vdn"]}
+        if previs_enabled:
+            required.extend(["LoadVideo", "GetVideoComponents"])
         fast = cfg.get("fastvideo")
         if fast:
             fast_path = Path(cfg["comfy_root"]) / "models" / "diffusion_models" / fast.get("model_filename", "")
@@ -144,7 +158,8 @@ def doctor(root):
         result["queue"] = api(cfg["comfy_url"], "/queue")
     except (OSError, ValueError) as exc:
         result["error"] = str(exc)
-    result["h3_ready"] = result["reachable"] and not result["missing_nodes"] and not result["missing_models"]
+    result["h3_ready"] = (result["reachable"] and not result["missing_nodes"] and not result["missing_models"]
+                          and result.get("blender_previs", {}).get("available", True))
     result["image_provider"] = "Codex 当前对话 image_gen；本地服务只能交接任务，不能自行调用订阅工具"
     result["super_resolution"] = "VOSR2 one-step 1.4B，仅验收后的可选后期；本工程不冒充已安装超分模型"
     return result
@@ -307,10 +322,20 @@ def fingerprint(root, episode, shot, previous_fingerprint=None, review_note=None
     return digest(payload)
 
 
-def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=True):
+def spatial_fingerprint(base_fingerprint, guide_signature):
+    return digest({"base_fingerprint": base_fingerprint, "spatial_guide_signature": guide_signature})
+
+
+def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=True, spatial_guide=None):
     """Build the exact reviewable asset-bound contract later sent to H3."""
     cfg = config(root)
+    if spatial_guide is None and cfg.get("blender_previs", {}).get("enabled") is True:
+        from .blender_previs import planned_guide
+        spatial_guide = planned_guide(root, episode, shot, cfg)
     prompt_shot, visual_assets, asset_package = bound_shot(root, shot)
+    if spatial_guide:
+        prompt_shot["spatial_guide"] = spatial_guide
+        asset_package["spatial_guide"] = spatial_guide
     if observed_handoff:
         prompt_shot["handoff_in"] = observed_handoff
     model_prompt = h3_prompt(prompt_shot, cfg["style"])
@@ -326,6 +351,7 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
         **asset_package,
         "schema": "h3_asset_bound_execution_v5",
         "episode_id": episode["id"],
+        "spatial_guide": spatial_guide,
         "model_input": {
             "engine": "VDN-H3 Turbo" if cfg.get("vdn", {}).get("enabled") else "MiniMax H3",
             "mode": shot["mode"],
@@ -407,7 +433,7 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
 
 
 def graph(root, episode, shot, take_id, previous=None, stage_assets=False, observed_handoff=None,
-          return_package=False, benchmark_engine=None, generation_override=None):
+          return_package=False, benchmark_engine=None, generation_override=None, spatial_guide=None):
     """Build a Comfy graph.
 
     ``benchmark_engine`` is deliberately an explicit, isolated override.  It
@@ -430,6 +456,8 @@ def graph(root, episode, shot, take_id, previous=None, stage_assets=False, obser
         engine = {}
         model_mode = shot["mode"]
         benchmark_shot = shot
+    if spatial_guide and model_mode != "ref2va":
+        raise ValueError("Blender 时空视频引导当前要求 H3 Ref2VA；FL2VA 镜头不能静默跳过白模")
     generation = dict(cfg["generation"])
     if generation_override:
         generation.update(generation_override)
@@ -480,7 +508,8 @@ def graph(root, episode, shot, take_id, previous=None, stage_assets=False, obser
         }
     else:
         prompt_shot, visual_assets, execution_sheet, model_prompt = compile_execution_sheet(
-            root, episode, shot, observed_handoff=observed_handoff, persist=True)
+            root, episode, shot, observed_handoff=observed_handoff, persist=True,
+            spatial_guide=spatial_guide)
     speech_bindings = prompt_shot["speech_bindings"]
     inputs = {"clip": clip, "vae": vae, "prompt": model_prompt,
               "width": width, "height": height, "length": shot["frames"]}
@@ -511,6 +540,19 @@ def graph(root, episode, shot, take_id, previous=None, stage_assets=False, obser
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, dest)
             inputs[f"ref_audios.ref_audio_{i}"] = add(100 + len(nodes), "LoadAudio", audio=name)
+        if spatial_guide:
+            guide_path = inside(root, spatial_guide["path"])
+            if file_hash(guide_path) != spatial_guide["sha256"]:
+                raise ValueError("Blender 白模引导视频哈希不匹配，拒绝送入 H3")
+            guide_name = f"novel_h3/previs/{spatial_guide['sha256'][:16]}.mp4"
+            if stage_assets:
+                staged = Path(cfg["input_dir"]) / guide_name
+                staged.parent.mkdir(parents=True, exist_ok=True)
+                if not staged.is_file() or file_hash(staged) != spatial_guide["sha256"]:
+                    shutil.copy2(guide_path, staged)
+            loaded_video = add(100 + len(nodes), "LoadVideo", file=guide_name)
+            frame_sequence = add(100 + len(nodes), "GetVideoComponents", video=loaded_video)
+            inputs["ref_videos.ref_video_0"] = frame_sequence
         cond = add(6, "MiniMaxH3ReferenceToVideo", **inputs)
     else:
         for k in ("first_frame", "last_frame"):
@@ -626,8 +668,26 @@ def current_takes(root, episode):
 
     for shot in episode["shots"]:
         prev_hash = digest({"take": previous["id"], "video": previous.get("video_sha256"), "observed_handoff": previous.get("observed_handoff_out")}) if shot["continuity"] == "continue" and previous else None
-        fp = fingerprint(root, episode, shot, prev_hash)
-        candidates = [t for t in state["takes"].values() if not t.get("retired") and t["episode"] == episode["id"] and t["shot"] == shot["id"] and t["fingerprint"] == fp]
+        base_fp = fingerprint(root, episode, shot, prev_hash)
+        fp = base_fp
+        accepted_fingerprints = {base_fp}
+        config_path = Path(root) / "config.json"
+        cfg = config(root) if config_path.is_file() else {}
+        if cfg.get("blender_previs", {}).get("enabled") is True:
+            from .blender_previs import planned_guide
+            try:
+                signature = planned_guide(root, episode, shot, cfg)["signature"]
+            except ValueError:
+                # Progress and delivery readers must remain available while a
+                # later chapter is still missing its scene card. Submission
+                # itself remains fail-closed at the chapter readiness gate.
+                signature = None
+            if signature:
+                fp = spatial_fingerprint(base_fp, signature)
+                # Completed pre-integration takes remain usable. A missing/new
+                # or explicitly requested retake shot gets the new guide.
+                accepted_fingerprints.add(fp)
+        candidates = [t for t in state["takes"].values() if not t.get("retired") and t["episode"] == episode["id"] and t["shot"] == shot["id"] and t["fingerprint"] in accepted_fingerprints]
         # A user-requested retake has a distinct fingerprint because its
         # review note is part of the prompt. Once rendered, it is nevertheless
         # the current production take and must not be submitted again by the
@@ -755,6 +815,9 @@ def submit_next(root, episode_id, preview=False, independent_cuts=False, check_p
                                  (digest({"take": previous["id"], "video": previous.get("video_sha256"),
                                          "observed_handoff": previous.get("observed_handoff_out")}) if previous else None),
                                  review_note=rework_item.get("note"))
+                if cfg.get("blender_previs", {}).get("enabled") is True:
+                    from .blender_previs import planned_guide
+                    fp = spatial_fingerprint(fp, planned_guide(root, episode, retake_shot, cfg)["signature"])
                 # A retake deliberately bypasses the old rejected/rendered
                 # take, while preserving it for audit and review history.
                 take = None
@@ -797,9 +860,17 @@ def submit_next(root, episode_id, preview=False, independent_cuts=False, check_p
                 generation_shot.update(review_note=rework_item.get("note"),
                                        rework_source_take_id=rework_item.get("source_take_id"),
                                        rework_request_id=rework_item.get("id"))
+            spatial_guide = None
+            if cfg.get("blender_previs", {}).get("enabled") is True:
+                from .blender_previs import build_guide, planned_guide
+                spatial_guide = build_guide(root, episode, generation_shot, cfg)
+                expected_signature = planned_guide(root, episode, generation_shot, cfg)["signature"]
+                if spatial_guide.get("signature") != expected_signature:
+                    raise ValueError("Blender 白模预演在渲染期间发生变化，请重新检查镜头资料")
             nodes, prefix, execution_sheet = graph(
                 root, episode, generation_shot, take_id, old, stage_assets=True,
-                observed_handoff=observed, return_package=True, generation_override=native_profile)
+                observed_handoff=observed, return_package=True, generation_override=native_profile,
+                spatial_guide=spatial_guide)
             info = api(cfg["comfy_url"], "/object_info")
             errors = schema_check(nodes, info)
             if errors:
@@ -817,6 +888,8 @@ def submit_next(root, episode_id, preview=False, independent_cuts=False, check_p
                             review_reviewer=rework_item.get("reviewer"))
             take["generation_profile"] = {"base": cfg["models"][shot["mode"]], "generation": native_profile,
                                            "requested_generation": cfg["generation"], "vdn": cfg.get("vdn")}
+            if spatial_guide:
+                take["spatial_guide"] = spatial_guide
             if memory_fallback:
                 take["memory_fallback"] = {**memory_fallback, "scaled_to": {
                     "width": cfg["generation"]["width"], "height": cfg["generation"]["height"]}}
