@@ -11,16 +11,63 @@ import subprocess
 from .project import digest, file_hash, read, write
 
 
-VERSION = "blender_spatial_guide_v2"
+VERSION = "blender_spatial_guide_v3"
 REPO = Path(__file__).resolve().parents[1]
 RENDER_SCRIPT = REPO / "scripts" / "render_blender_previs.py"
 GUIDE_POLICY = (
-    "The silent grayscale Blender reference <Video 1> is a spatial and camera guide only. "
-    "Match its scene geometry, registered-actor count and blocking, screen direction, camera path, "
-    "and timing. Do not copy proxy appearance, gray materials, lighting, or sound. "
+    "The silent grayscale Blender reference <Video 1> is the authority for scene geography, "
+    "registered-actor count and blocking, screen direction, camera path, and the visible "
+    "start-to-end timing and trajectory of every modeled environment action. Match those "
+    "actions once, in the same direction and order; do not omit, replay, or invent an event. "
+    "Do not copy proxy appearance, gray materials, lighting, or sound. "
     "Use approved <Picture> references for final character identity and photorealistic set appearance. "
     "No audio is attached to <Video 1>; only explicit dialogue events and their bound audio references may speak."
 )
+
+
+def environment_motion_cues(scene_kind, shot):
+    """Compile authored action beats into deterministic, visible previs cues."""
+    cues = []
+    full_action = str(shot.get("action", "")).lower()
+    for beat in shot.get("action_beats", []):
+        text = str(beat.get("action", "")).lower()
+        start = int(beat.get("start_frame", 0))
+        end = int(beat.get("end_frame", start + 1))
+        if end <= start:
+            continue
+        candidates = []
+        if re.search(r"闪电|雷光|lightning", text):
+            candidates.append(("lightning_flash", "Lightning flash: one brief light pulse."))
+        if (scene_kind == "disaster" and re.search(r"屋顶|瓦片|roof|tile", text)
+                and re.search(r"落|坠|摇|震|fall|shake|rattl", text)):
+            candidates.append(("roof_tile_fall", "Roof tiles detach once, fall, and settle."))
+        if scene_kind == "disaster" and re.search(r"尘|dust", text):
+            candidates.append(("dust_plume", "Dust expands after impact, then settles."))
+        if (scene_kind == "water" and re.search(r"海|浪|水墙|水线|洪水|wave|water", text)
+                and re.search(r"推进|逼近|冲|涌|advance|surge|reach", text)):
+            candidates.append(("water_surge", "One continuous wave front advances toward shore."))
+        if (scene_kind == "disaster" and re.search(r"山|坡|mountain|slope", text)
+                and re.search(r"裂|断|fractur|fissure|crack", text)):
+            candidates.append(("mountain_fracture", "One visible fissure opens across the slope."))
+        if (scene_kind == "disaster" and re.search(r"岩|石块|slab|rock", text)
+                and re.search(r"滑|落|坠|slide|fall", text)):
+            candidates.append(("rock_slab_slide", "One rock slab slides once into the fissure."))
+        if (scene_kind == "disaster" and re.search(r"光轨|金光|光柱|gold trail|light trail", full_action)
+                and re.search(r"降|落|坠|descend|fall", text)):
+            candidates.append(("descending_light_trails", "Two separate light trails descend toward the horizon."))
+        if re.search(r"震|shudder|tremor", text):
+            candidates.append(("ground_tremor", "The ground gives one brief, restrained tremor."))
+        for kind, label in candidates:
+            cues.append({"kind": kind, "label": label, "start_frame": start, "end_frame": end})
+    # Repeated mentions are one authored event, not repeated animation commands.
+    result = []
+    for cue in cues:
+        previous = next((row for row in reversed(result) if row["kind"] == cue["kind"]), None)
+        if previous and cue["start_frame"] <= previous["end_frame"]:
+            previous["end_frame"] = max(previous["end_frame"], cue["end_frame"])
+        else:
+            result.append(cue)
+    return result
 
 
 def binary_path(cfg):
@@ -184,6 +231,7 @@ def render_spec(root, episode, shot, cfg):
         "blocking_plan": shot.get("blocking_plan", {}),
         "composition": shot.get("composition", {}),
         "action_beats": shot.get("action_beats", []),
+        "environment_motion": environment_motion_cues(_scene_kind(shot["scene_id"], scene), shot),
         "state_in": shot.get("state_in", ""),
         "state_out": shot.get("state_out", ""),
         "sequence_id": shot.get("sequence_id", ""),
@@ -215,6 +263,7 @@ def planned_guide(root, episode, shot, cfg):
             "scene_id": shot["scene_id"], "actor_count": len(spec["cast"]),
             "frames": spec["frames"], "fps": spec["fps"],
             "width": spec["width"], "height": spec["height"], "audio_attached": False,
+            "motion_cues": spec["environment_motion"],
             "guide_policy": GUIDE_POLICY}
 
 
@@ -264,6 +313,7 @@ def build_guide(root, episode, shot, cfg):
                 "cast": [x["id"] for x in spec["cast"]], "actor_count": len(spec["cast"]),
                 "camera": spec["camera"], "frames": spec["frames"], "fps": spec["fps"],
                 "duration_seconds": duration, "width": spec["width"], "height": spec["height"],
-                "audio_attached": False, "guide_policy": GUIDE_POLICY}
+                "audio_attached": False, "motion_cues": spec["environment_motion"],
+                "guide_policy": GUIDE_POLICY}
     write(manifest_path, manifest)
     return manifest

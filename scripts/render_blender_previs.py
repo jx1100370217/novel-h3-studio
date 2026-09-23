@@ -131,6 +131,113 @@ def create_water_landscape(floor, architectural, accent, disaster=False):
             sphere("distant coast or mountain mass", (x, y, h * 0.45), (5, 4, h), architectural)
 
 
+def animate_environment_motion(spec, architecture, accent, scene, camera):
+    """Make authored non-human action beats visible in the silent previs."""
+    frame_limit = int(spec["frames"])
+
+    def span(cue):
+        start = max(1, min(frame_limit, int(cue["start_frame"]) + 1))
+        end = max(start + 1, min(frame_limit, int(cue["end_frame"]) + 1))
+        return start, end
+
+    def key_location(obj, frame, location):
+        obj.location = location
+        obj.keyframe_insert(data_path="location", frame=frame)
+
+    fissure = None
+    for cue in spec.get("environment_motion", []):
+        kind = cue["kind"]
+        start, end = span(cue)
+        duration = max(2, end - start)
+        if kind == "lightning_flash":
+            bpy.ops.object.light_add(type="AREA", location=(0, 0, 18))
+            flash = bpy.context.object
+            flash.name = "one authored lightning flash"
+            flash.data.shape = "DISK"
+            flash.data.size = 18
+            flash.data.energy = 0
+            flash.data.keyframe_insert(data_path="energy", frame=max(1, start - 1))
+            flash.data.energy = 2600
+            flash.data.keyframe_insert(data_path="energy", frame=start)
+            flash.data.energy = 0
+            flash.data.keyframe_insert(data_path="energy", frame=min(end, start + 4))
+        elif kind == "ground_tremor":
+            pulse_end = min(end, start + 4)
+            frames = list(range(start, pulse_end + 1))
+            if pulse_end < frame_limit:
+                frames.append(pulse_end + 1)
+            base_locations = {}
+            for frame in frames:
+                scene.frame_set(frame)
+                base_locations[frame] = camera.location.copy()
+            for index, frame in enumerate(frames):
+                camera.location = base_locations[frame]
+                if frame <= pulse_end:
+                    camera.location.x += (0.08, -0.08, 0.05, -0.04, 0.0)[index]
+                camera.keyframe_insert(data_path="location", frame=frame)
+        elif kind == "roof_tile_fall":
+            for index, (x, y) in enumerate(((-9.0, 4.4), (-7.0, 4.1), (-5.2, 5.2))):
+                tile = cube(f"falling roof tile proxy {index + 1}", (x, y, 4.66),
+                            (0.95, 1.05, 0.16), accent, 0.025)
+                tile.rotation_euler[1] = (index - 1) * 0.04
+                tile.keyframe_insert(data_path="location", frame=start)
+                tile.keyframe_insert(data_path="rotation_euler", frame=start)
+                fall = min(end, start + max(2, round(duration * (0.35 + index * 0.08))))
+                tile.location = (x + 0.15 * (index - 1), y - 0.5, 3.9)
+                tile.rotation_euler[1] += 0.6
+                tile.keyframe_insert(data_path="location", frame=fall)
+                tile.keyframe_insert(data_path="rotation_euler", frame=fall)
+                tile.location = (x + 0.25 * (index - 1), y - 1.4, 0.28)
+                tile.rotation_euler[1] += 0.8
+                tile.keyframe_insert(data_path="location", frame=end)
+                tile.keyframe_insert(data_path="rotation_euler", frame=end)
+        elif kind == "dust_plume":
+            for index, (dx, dy, height) in enumerate(((-0.6, 0, 0.55), (0, 0.3, 0.8), (0.7, 0, 0.62))):
+                plume = sphere(f"settling dust proxy {index + 1}", (-7 + dx, 2 + dy, height),
+                               (0.08, 0.08, 0.08), accent)
+                plume.keyframe_insert(data_path="scale", frame=start)
+                plume.scale = (0.8 + 0.15 * index, 0.55, 0.4 + 0.1 * index)
+                plume.location.z += height
+                plume.keyframe_insert(data_path="scale", frame=min(end, start + max(2, duration // 2)))
+                plume.keyframe_insert(data_path="location", frame=min(end, start + max(2, duration // 2)))
+                plume.scale = (0.34, 0.25, 0.18)
+                plume.keyframe_insert(data_path="scale", frame=end)
+        elif kind == "water_surge":
+            # A broad, low-poly wave front travels toward the shore in one direction.
+            for index, (y, height) in enumerate(((15.0, 5.0), (18.5, 3.4))):
+                wave = cube(f"advancing water front proxy {index + 1}", (0, y, height / 2),
+                            (34, 0.75, height), architecture, 0.18)
+                key_location(wave, start, (0, y, height / 2))
+                key_location(wave, end, (0, -3.5 + index * 2.0, height / 2))
+        elif kind == "mountain_fracture":
+            fissure = cube("single visible mountain fissure proxy", (3.8, 7.2, 5.5),
+                           (0.16, 8.0, 0.12), accent)
+            fissure.rotation_euler[1] = -0.35
+            fissure.scale.z = 0.05
+            fissure.keyframe_insert(data_path="scale", frame=start)
+            fissure.scale.z = 1.0
+            fissure.keyframe_insert(data_path="scale", frame=end)
+        elif kind == "rock_slab_slide":
+            if fissure is None:
+                fissure = cube("single visible mountain fissure proxy", (3.8, 7.2, 5.5),
+                               (0.16, 8.0, 0.12), accent)
+            slab = cube("one sliding rock slab proxy", (4.0, 7.2, 5.5),
+                        (4.0, 5.0, 0.55), architecture, 0.12)
+            slab.rotation_euler[1] = -0.15
+            slab.keyframe_insert(data_path="location", frame=start)
+            slab.keyframe_insert(data_path="rotation_euler", frame=start)
+            slab.location = (6.2, 6.0, 2.6)
+            slab.rotation_euler[1] = 0.32
+            slab.keyframe_insert(data_path="location", frame=end)
+            slab.keyframe_insert(data_path="rotation_euler", frame=end)
+        elif kind == "descending_light_trails":
+            for index, x in enumerate((-8.0, 8.0)):
+                trail = cylinder(f"descending light trail proxy {index + 1}",
+                                 (x, 12, 0), 0.22, 8.0, accent, 10)
+                key_location(trail, start, (x, 12, 18))
+                key_location(trail, end, (x * 0.7, 12, 4.5))
+
+
 def create_interior(floor, architectural):
     cube("single room floor", (0, 0, -0.2), (24, 28, 0.4), floor)
     cube("back wall", (0, 13.8, 5), (24, 0.4, 10), architectural)
@@ -265,10 +372,23 @@ def camera_path(scene, camera, spec, actor_centers):
             y = sum(p[1] for p in actor_centers) / len(actor_centers)
             targets = [(1, (x, y, 2.0))]
     else:
-        targets = [(1, (0, 0, 2.0))]
+        cue_kinds = {cue.get("kind") for cue in spec.get("environment_motion", [])}
+        if "roof_tile_fall" in cue_kinds:
+            targets = [(1, (-7.0, 5.5, 3.7))]
+        elif "mountain_fracture" in cue_kinds or "rock_slab_slide" in cue_kinds:
+            targets = [(1, (2.0, 8.0, 5.0))]
+        elif "water_surge" in cue_kinds:
+            targets = [(1, (0.0, 8.0, 2.5))]
+        elif "descending_light_trails" in cue_kinds:
+            targets = [(1, (0.0, 12.0, 8.0))]
+        else:
+            targets = [(1, (0, 0, 2.0))]
     start_frame, end_frame = 1, int(spec["frames"])
     move = str(shot_camera.get("movement", "")).lower()
     size = str(shot_camera.get("size", "")).lower()
+    if not cast and ("tilt" in move or "俯仰" in move) and "descending_light_trails" in {
+            cue.get("kind") for cue in spec.get("environment_motion", [])}:
+        targets = [(start_frame, (0.0, 12.0, 15.0)), (end_frame, (0.0, 12.0, 2.5))]
     if (spec["scene_kind"] == "hall" and len(cast) == 1 and not dialogue
             and ("wide" in size or "全景" in size)):
         # A hall-establishing shot should show the room plan and the throne,
@@ -293,6 +413,13 @@ def camera_path(scene, camera, spec, actor_centers):
         distance = 17.0
     else:
         distance = 10.0
+    cue_kinds = {cue.get("kind") for cue in spec.get("environment_motion", [])}
+    if "roof_tile_fall" in cue_kinds:
+        distance = min(distance, 14.0)
+    elif "mountain_fracture" in cue_kinds or "rock_slab_slide" in cue_kinds:
+        distance = max(distance, 25.0)
+    elif "water_surge" in cue_kinds or "descending_light_trails" in cue_kinds:
+        distance = max(distance, 24.0)
     if cast and not focus_events and len(cast) > 1:
         # Ensemble masters must be framed from the authored group bounds, not
         # from the generic single-subject shot-size default.  Otherwise a
@@ -378,6 +505,14 @@ def camera_path(scene, camera, spec, actor_centers):
                 location = Vector((actor["x"] + lateral, actor["y"] - d, eye_height))
             else:
                 location = Vector((actor["x"] + sign * d, actor["y"] - 1.6 + lateral, eye_height))
+        elif not cast and ("tilt" in move or "俯仰" in move) and "descending_light_trails" in cue_kinds:
+            location = Vector((0.0, -22.0, 17.0))
+        elif not cast and "roof_tile_fall" in cue_kinds:
+            location = Vector((target.x, target.y - distance, target.z + 4.8))
+        elif not cast and ("mountain_fracture" in cue_kinds or "rock_slab_slide" in cue_kinds):
+            location = Vector((target.x, target.y - distance, target.z + 9.0))
+        elif not cast and "water_surge" in cue_kinds:
+            location = Vector((target.x, target.y - distance, target.z + 10.0))
         elif "push" in move or "dolly in" in move or "推进" in move:
             start_distance = distance + 2.0
             d = start_distance if index == 0 else max(3.5, distance - 0.7)
@@ -518,11 +653,12 @@ def main():
     camera = bpy.context.object
     camera.name = "single authored shot camera"
     bpy.context.scene.camera = camera
-    camera_path(bpy.context.scene, camera, spec, centers)
-    validate_cast_projection(bpy.context.scene, camera, actor_roots, centers, spec["frames"])
-    setup_lights()
-
     scene = bpy.context.scene
+    camera_path(scene, camera, spec, centers)
+    validate_cast_projection(scene, camera, actor_roots, centers, spec["frames"])
+    setup_lights()
+    animate_environment_motion(spec, architecture, accent, scene, camera)
+
     engine_items = scene.render.bl_rna.properties["engine"].enum_items.keys()
     scene.render.engine = "BLENDER_EEVEE" if "BLENDER_EEVEE" in engine_items else "BLENDER_EEVEE_NEXT"
     scene.render.resolution_x = spec["width"]

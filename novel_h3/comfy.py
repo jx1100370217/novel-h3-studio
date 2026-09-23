@@ -336,6 +336,7 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
     if spatial_guide:
         prompt_shot["spatial_guide"] = spatial_guide
         asset_package["spatial_guide"] = spatial_guide
+        asset_package.setdefault("storyboard", {})["environment_motion"] = spatial_guide.get("motion_cues", [])
     if observed_handoff:
         prompt_shot["handoff_in"] = observed_handoff
     model_prompt = h3_prompt(prompt_shot, cfg["style"])

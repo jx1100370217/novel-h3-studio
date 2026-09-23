@@ -18,14 +18,15 @@ AUTHORING_RULES = """\
 正式剧本的每个镜头须写 cinematic_storyboard_version=cinematic_storyboard_v2、story_beat_id、source_fact_ids、editorial_purpose、dramatic_function、scene_goal 和 turning_point。剧本层须有场景目标、阻力/新信息、转折或后果；每一镜认领具体原文段落和一个连续可演的动作节拍。不得把原文事实改写成未发生的视觉事件；对白逐字保留，旁白只作画面依据。
 镜头层必须声明场景/地点、在场角色及精确数量、道具状态、画面开始/结束状态、演员走位与朝向、屏幕运动方向、剪辑/续接理由、景别/焦距/机位/单一有动机的运镜。对白镜头保持说话者可见、听者闭口、同一说话者跨镜保持同一场景/轴线/视线方向；长对白按语义分段，不能为填时长重复动作或对白。动作时间段按可见状态转变划分，不按固定帧数机械切段；连续动作只写一次并覆盖其真实持续时间，静止等待可用较长的单一时段。
 入场、到达、落座、起身、交接等必须使用明确的起点→路径→终点；不得用“到达/走入/登场”代替路径。群戏按同一空间调度，进入/离开画面必须可追踪。静默转场按信息量定时，通常 2–4 秒；动作剧情按动作完成时间；任何镜头不超过 15 秒。
-H3 提示词仅使用执行单绑定的图片/音频/白模标签；说话人、角色图片、参考声音一一绑定。源文、美术注释和执行单元数据不能作为语音输入。Blender 白模须展示精确角色数、标记点、路线、屏幕方向、镜头路径和首尾状态。
+环境动作也必须可视化建模：雷光、瓦片坠落、水浪推进、山体裂开、碎石滑落、尘土扩散、光轨下降等，要在动作节拍中写清对象、起点、方向、终点和物理后果；只写在文字里、白模仍保持静止的动作不得进入正式镜头。环境动作的尺度必须在所选景别中可辨，并用连续而明确的运动路径表达，不把一次事件拆成反复发生。
+H3 提示词仅使用执行单绑定的图片/音频/白模标签；说话人、角色图片、参考声音一一绑定。源文、美术注释和执行单元数据不能作为语音输入。Blender 白模须展示精确角色数、标记点、路线、屏幕方向、镜头路径、首尾状态和所有关键环境动作的时间/轨迹；H3 必须跟随这些动作的方向和时序。
 """
 
 
 QUALITY_STANDARD = {
     "story": ["source_faithful", "cause_effect", "visible_turn_or_consequence", "no_filler_repetition"],
     "coverage": ["one_source_beat_per_shot", "exact_dialogue", "speaker_and_voice_match", "all_required_assets_bound"],
-    "continuity": ["stable_location", "axis_and_eyelines", "screen_direction", "actor_count", "prop_state", "action_handoff"],
+    "continuity": ["stable_location", "axis_and_eyelines", "screen_direction", "actor_count", "prop_state", "action_handoff", "environment_motion_path"],
     "camera": ["motivated_shot_size", "motivated_lens", "single_physical_move", "subject_visible_and_readable"],
     "render": ["no_unbound_duplicate_or_missing_cast", "no_empty_set_during_bound_cast", "no_reverse_motion", "no_unlisted_human_voice", "dialogue_intelligible", "chapter_cut_coherent"],
 }
