@@ -2,10 +2,14 @@ import unittest
 
 from novel_h3.storyboard_design import (fit_action_beats, fit_timeline_beats,
                                         h3_instruction, validate_scene_content,
+                                        AUTHORING_RULES, VERSION,
                                         validate_shot)
 
 
 class CinematicStoryboardTests(unittest.TestCase):
+    def test_authoring_rules_match_current_schema_version(self):
+        self.assertIn(f"cinematic_storyboard_version={VERSION}", AUTHORING_RULES)
+
     def setUp(self):
         self.scene = {
             "scene_id": "E01",
