@@ -76,6 +76,40 @@ class CinemaDashboardTests(unittest.TestCase):
         (self.base / 'takes/full_S000/native.mp4').unlink()
         self.assertEqual(self.dashboard()['counts']['saved'], 49)
 
+    def test_user_rejected_story_overrides_technical_and_sound_success(self):
+        video = self.root / 'review_exports/current.mp4'
+        video.parent.mkdir(); video.write_bytes(b'review')
+        self.state['review'] = {'video': str(video.relative_to(self.root)), 'video_sha256': 'same',
+            'technical_qc': {'passed': True}, 'release_approved': True, 'human_listened': True}
+        self.state['narrative_review'] = {'status': 'rejected', 'video_sha256': 'same'}
+        write(self.base / 'production.json', self.state)
+        p = self.dashboard()
+        self.assertEqual(p['phase'], 'narrative_rework')
+        self.assertTrue(p['review']['ready'])
+        self.assertFalse(p['release_approved'])
+        self.assertEqual(p['stages'][-1]['status'], 'failed')
+
+    def test_old_rejection_does_not_apply_to_a_different_review_video(self):
+        video = self.root / 'review_exports/current.mp4'
+        video.parent.mkdir(); video.write_bytes(b'review')
+        self.state['review'] = {'video': str(video.relative_to(self.root)), 'video_sha256': 'new',
+            'technical_qc': {'passed': True}}
+        self.state['narrative_review'] = {'status': 'rejected', 'video_sha256': 'old'}
+        write(self.base / 'production.json', self.state)
+        self.assertFalse(self.dashboard()['review']['narrative_rejected'])
+
+    def test_explicit_reuse_from_a_previous_revision_is_counted_without_copying_media(self):
+        folder = self.root / 'production_v2/previous/takes/old_candidate'
+        write(folder / 'take.json', {'id': 'old_candidate', 'shot_id': 'S000', 'plan_id': 'previous',
+              'technical_qc': {'passed': True}, 'speech_screening': {'passed': True}})
+        (folder / 'native.mp4').write_bytes(b'old candidate')
+        self.canonical['reused_takes'] = {'S000': str(folder.relative_to(self.root))}
+        self.state['takes'].pop('S000')
+        write(self.plan_path, self.canonical); write(self.base / 'production.json', self.state)
+        p = self.dashboard()
+        self.assertEqual(p['counts']['saved'], 50)
+        self.assertEqual(p['shots'][0]['video'], str((folder / 'native.mp4').relative_to(self.root)))
+
     def test_dead_worker_does_not_appear_as_active_editing(self):
         p = self.dashboard(worker_pid=999999999)
         self.assertFalse(p['worker_alive'])

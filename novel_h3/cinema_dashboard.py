@@ -27,7 +27,7 @@ def _last_resource(path):
 
 
 def enrich(root, progress_path, active_plan, data):
-    root, base = Path(root), progress_path.parent
+    root, base = Path(root).resolve(), Path(progress_path).resolve().parent
     worker_alive = None
     if data.get('worker_pid'):
         try:
@@ -41,6 +41,8 @@ def enrich(root, progress_path, active_plan, data):
                         error='制作进程已退出，请查看执行日志。')
     state = _optional(base / 'production.json')
     canonical_path = inside(root, state['plan_path']) if state.get('plan_path') else base / 'chapter_production_plan.json'
+    if not canonical_path.is_file() and data.get('plan_path'):
+        canonical_path = inside(root, data['plan_path'])
     canonical = _optional(canonical_path) or active_plan
     canonical_id, active_id = canonical['id'], active_plan['id']
     is_repair = active_id != canonical_id and bool(state)
@@ -66,6 +68,13 @@ def enrich(root, progress_path, active_plan, data):
             continue
         receipts[item['id']] = (path.parent, item)
         attempts[item['shot_id']] = attempts.get(item['shot_id'], 0) + 1
+    for relative in canonical.get('reused_takes', {}).values():
+        folder = inside(root, relative)
+        if (folder / 'take.json').is_file():
+            item = read(folder / 'take.json')
+            if item['id'] not in receipts:
+                receipts[item['id']] = (folder, item)
+                attempts[item['shot_id']] = attempts.get(item['shot_id'], 0) + 1
     scenes = {s.get('id'): s.get('title', s.get('id')) for s in canonical.get('scenes', [])}
     blueprint = _optional(base / 'editorial_blueprint.json')
     descriptions = {s['shot_id']: s for s in blueprint.get('entries', [])}
@@ -104,11 +113,16 @@ def enrich(root, progress_path, active_plan, data):
     review = state.get('review', {})
     review_path = inside(root, review['video']) if review.get('video') else None
     review_ready = bool(review_path and review_path.is_file() and review.get('technical_qc', {}).get('passed') is True)
-    review_approved = review_ready and review.get('release_approved') is True and review.get('human_listened') is True
-    phase = ('shot_repair' if is_repair and data['status'] in ('generating','speech_screening') else
+    narrative_review = state.get('narrative_review', {})
+    rejected = (narrative_review.get('status') == 'rejected'
+                and bool(narrative_review.get('video_sha256'))
+                and narrative_review.get('video_sha256') == review.get('video_sha256'))
+    review_approved = review_ready and not rejected and review.get('release_approved') is True and review.get('human_listened') is True
+    phase = ('narrative_rework' if rejected or data['status'] == 'narrative_rework' else
+             'shot_repair' if is_repair and data['status'] in ('generating','speech_screening') else
              'review_pending' if review_ready and not review_approved else
              'delivery' if review_approved else data['status'])
-    phase_label = {'shot_repair': '定点重拍', 'review_pending': '整章待人工审片',
+    phase_label = {'narrative_rework': '故事完整性返修 · 后续章节暂停', 'shot_repair': '定点重拍', 'review_pending': '整章待人工审片',
                   'delivery': '整章已验收', 'generating': '镜头拍摄', 'speech_screening': '声音核对',
                   'editing': '剪辑与文字合成', 'failed': '制作已停止', 'interrupted': '制作进程已停止',
                   'dialogue_preparation': '对白制作', 'dialogue_screening': '对白核对',
@@ -119,12 +133,12 @@ def enrich(root, progress_path, active_plan, data):
     audio_total = audio.get('dialogue_shots', sum(bool(s.get('spoken_lines')) for s in canonical['shots']))
     audio_passed = data.get('audio_passed', 0)
     stages = [
-        {'id': 'script', 'title': '改编与分镜', 'status': 'done', 'current': len(rows), 'total': len(rows), 'detail': '章节剧本、事实清单与镜头计划已建立'},
+        {'id': 'script', 'title': '改编与故事完整性', 'status': 'active' if rejected else 'done', 'current': 0 if rejected else 1, 'total': 1, 'detail': '开场、关键因果与结尾需落实到观众交付；资料齐全不等于故事合格'},
         {'id': 'dialogue', 'title': '角色与对白准备', 'status': 'done' if audio_passed == audio_total and audio_total else 'active', 'current': audio_passed, 'total': audio_total, 'detail': '对白目标与H3重建自动核对'},
         {'id': 'shots', 'title': '镜头拍摄', 'status': 'done' if counts['saved'] == len(rows) else 'active', 'current': counts['saved'], 'total': len(rows), 'detail': '保存候选，不等同影视验收'},
         {'id': 'checks', 'title': '声音复核与重拍', 'status': 'done' if counts['sound_passed'] == len(rows) else 'active', 'current': counts['sound_passed'], 'total': len(rows), 'detail': '仅针对问题镜头重拍，保留全部素材'},
         {'id': 'edit', 'title': '剪辑与文字合成', 'status': 'done' if review_ready else 'active' if data['status'] == 'editing' else 'failed' if data['status'] in ('failed','interrupted') and counts['sound_passed'] == len(rows) else 'pending', 'current': int(review_ready), 'total': 1, 'detail': '按实际帧与对白剪辑，准确合成原文文字'},
-        {'id': 'review', 'title': '整章人工审片', 'status': 'done' if review_approved else 'active' if review_ready else 'pending', 'current': int(review_approved), 'total': 1, 'detail': '剧情、表演、连贯性、声音与读屏审核'},
+        {'id': 'review', 'title': '整章人工审片', 'status': 'failed' if rejected else 'done' if review_approved else 'active' if review_ready else 'pending', 'current': int(review_approved), 'total': 1, 'detail': '故事完整性已退回' if rejected else '剧情、表演、连贯性、声音与读屏审核'},
     ]
     active_folder = base / 'takes' / str(data.get('take_id', ''))
     resources = _last_resource(active_folder / 'resource_samples.jsonl')
@@ -132,6 +146,9 @@ def enrich(root, progress_path, active_plan, data):
         paths = list((base / 'takes').glob('*/resource_samples.jsonl'))
         if paths:
             resources = _last_resource(max(paths, key=lambda p:p.stat().st_mtime))
+    audit = _optional(base / 'narrative_audit.json')
+    revised_script = inside(root, audit['revised_script']) if audit.get('revised_script') else None
+    revised_check = _optional(inside(root, audit['revised_check'])) if audit.get('revised_check') else {}
     data.update(schema='cinema_dashboard_v1', available=True, title=canonical.get('title', canonical_id),
         chapter_id=canonical.get('chapter_id', base.name), plan_id=canonical_id,
         planned_total=len(rows), generated_shots=counts['saved'], counts=counts,
@@ -141,12 +158,16 @@ def enrich(root, progress_path, active_plan, data):
                            if r['shot'] in {s['id'] for s in active_plan['shots']}), 'is_repair': is_repair},
         review={'ready': review_ready, 'approved': review_approved, 'video': review.get('video') if review_ready else None,
                 'seconds': review.get('seconds'), 'subtitles': review.get('subtitles'),
-                'technical_passed': review.get('technical_qc', {}).get('passed')},
+                'technical_passed': review.get('technical_qc', {}).get('passed'), 'narrative_rejected': rejected},
+        narrative={'review': narrative_review, 'issues': audit.get('issues', []),
+                   'repair_summary': audit.get('repair_summary'), 'revised_check': revised_check},
         source_files={key: str(path.relative_to(root)) for key,path in {
             'script':base/'screenplay.md','story':base/'story.json','plan':canonical_path,
-            'edit':base/'editorial_blueprint.json','timeline':base/'chapter_review_timeline.json'}.items() if path.is_file()},
+            'edit':base/'editorial_blueprint.json','timeline':base/'chapter_review_timeline.json',
+            'narrative_audit':base/'narrative_audit.json',
+            **({'revised_script': revised_script} if revised_script else {})}.items() if path.is_file()},
         recent=sorted([r for r in rows if r['saved']], key=lambda r:r['completed_at'] or 0, reverse=True)[:6],
-        audio_prepared=audio_prepared, audio_total=audio_total, resources=resources,
+        audio_prepared=audio_prepared, audio_total=audio_total, audio_passed=audio_passed, resources=resources,
         resources_stale=bool(resources and time.time()-resources['time'] > 30),
         worker_alive=worker_alive, edit_progress=_optional(root / 'review_exports/progress.json'),
         observed_at=time.time(), service_role='workbench', release_approved=review_approved)

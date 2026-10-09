@@ -61,7 +61,16 @@ def validate_shot(shot, assets):
     if assets.get(shot.get('scene_id'), {}).get('kind') != 'scene':
         raise ValueError('The shot must have exactly one registered scene')
     speakers = {line['speaker'] for line in shot.get('spoken_lines', [])}
-    if len(speakers) > 1 or not speakers.issubset(cast):
+    if any(type(line.get('offscreen', False)) is not bool for line in shot.get('spoken_lines', [])):
+        raise ValueError('The offscreen flag must be a boolean, not an inferred speaker location')
+    voice_locations = {line.get('offscreen', False) for line in shot.get('spoken_lines', [])}
+    offscreen = voice_locations == {True}
+    if len(voice_locations) > 1:
+        raise ValueError('A clip must keep one consistent onscreen or offscreen speech source')
+    if offscreen and speakers.intersection(cast):
+        raise ValueError('An offscreen voice identity cannot also be in the visible cast')
+    if (len(speakers) > 1 or any(assets.get(a, {}).get('kind') != 'character' for a in speakers)
+            or not offscreen and not speakers.issubset(cast)):
         raise ValueError('This native pilot supports one visible speaker per clip, with reactions edited separately')
     for line in shot.get('spoken_lines', []):
         if not line.get('text', '').strip() or any(t in line['text'] for t in ('<', '>')):
@@ -123,6 +132,7 @@ def compile_shot(root, plan, shot, seed):
     else:
         camera_text = camera
     speaking = [line['speaker'] for line in shot.get('spoken_lines', [])]
+    offscreen = bool(shot.get('spoken_lines')) and all(line.get('offscreen') is True for line in shot['spoken_lines'])
     image_ids = list(dict.fromkeys(speaking + shot['cast'] + [shot['scene_id']] + shot.get('references', [])))
     aliases = plan.get('subject_aliases', {})
     visuals, subjects = [], {}
@@ -170,7 +180,10 @@ def compile_shot(root, plan, shot, seed):
     definitions, retention = [], []
     for ref in visuals:
         if ref['kind'] == 'character':
-            if ref['instances'] > 1:
+            if offscreen and ref['asset_id'] in speaking:
+                definitions.append(f"{ref['subject']} is the offscreen voice identity associated with {ref['picture']}; do not show this person, face, body or portrait in this shot. The reference identifies the voice source, not a visible cast member.")
+                retention.append(f"{ref['subject']}: retain the assigned vocal identity only; exclude this subject's visible appearance from the entire shot.")
+            elif ref['instances'] > 1:
                 definitions.append(f"{ref['subject']} is the ensemble of exactly {ref['instances']} distinct members in {ref['picture']}; preserve their individual faces and costumes. Use them in the authored coherent scene, not as a portrait grid.")
                 retention.append(f"{ref['subject']}: exactly {ref['instances']} distinct group members, no second group or cloned member; follow the authored seating and reaction.")
             else:
@@ -195,7 +208,10 @@ def compile_shot(root, plan, shot, seed):
             raise ValueError('Speech start falls outside the generated clip')
         milliseconds = round(start * 1000)
         timestamp = f"00:{milliseconds // 1000:02d}.{milliseconds % 1000:03d}"
-        dialogue.append(f"At {timestamp}, {subjects[lines[0]['speaker']]} (S1) says: <d>[Chinese] {text}</d>. Performance: {intention}. Speak this complete line once with natural phrasing and synchronized visible articulation; finish with a motivated listening reaction. Other visible characters listen without speaking.")
+        if offscreen:
+            dialogue.append(f"At {timestamp}, the offscreen voice of {subjects[lines[0]['speaker']]} (S1) says: <d>[Chinese] {text}</d>. Performance: {intention}. The sound comes from the authored offscreen location, not any visible person's mouth. Speak the complete line once. All visible characters keep their lips at rest and react by listening; do not reveal the unseen voice source.")
+        else:
+            dialogue.append(f"At {timestamp}, {subjects[lines[0]['speaker']]} (S1) says: <d>[Chinese] {text}</d>. Performance: {intention}. Speak this complete line once with natural phrasing and synchronized visible articulation; finish with a motivated listening reaction. Other visible characters listen without speaking.")
     else:
         dialogue.append('No spoken dialogue in this clip; play the authored reaction with natural breathing and physical sound.'
                         if shot['cast'] else 'No spoken dialogue; use only the authored room ambience and physical prop sounds.')

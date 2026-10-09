@@ -161,6 +161,29 @@ class CinemaCompilerTests(unittest.TestCase):
         self.assertNotIn('<Audio', req['prompt'])
         self.assertIn('natural breathing', req['prompt'])
 
+    def test_offscreen_ear_voice_does_not_turn_the_listener_into_the_speaker(self):
+        self.shot['cast'] = ['actor_b']
+        self.shot['spoken_lines'][0]['offscreen'] = True
+        self.shot['soundscape'] = 'A faint close voice is heard from the listening character ear.'
+        req = compile_shot(self.root, self.plan, self.shot, 123)
+        self.assertIn('the offscreen voice of <Subject 1> (S1)', req['prompt'])
+        self.assertIn('All visible characters keep their lips at rest', req['prompt'])
+        self.assertIn('exactly 1 people in total', req['prompt'])
+        self.assertNotIn('synchronized visible articulation', req['prompt'])
+        self.assertEqual(req['voices'][0]['asset_id'], 'actor_a')
+
+    def test_offscreen_permission_cannot_allow_an_unregistered_or_mixed_speaker(self):
+        self.shot['spoken_lines'][0]['offscreen'] = 1
+        with self.assertRaisesRegex(ValueError, 'boolean'):
+            compile_shot(self.root, self.plan, self.shot, 123)
+        self.shot['spoken_lines'][0]['offscreen'] = True
+        self.shot['spoken_lines'].append({'speaker': 'actor_a', 'text': '答复。', 'offscreen': False})
+        with self.assertRaisesRegex(ValueError, 'consistent'):
+            compile_shot(self.root, self.plan, self.shot, 123)
+        self.shot['spoken_lines'] = [{'speaker':'unknown','text':'耳语。','offscreen':True}]
+        with self.assertRaises(ValueError):
+            compile_shot(self.root, self.plan, self.shot, 123)
+
     def test_creative_change_invalidates_the_request(self):
         first = compile_shot(self.root, self.plan, self.shot, 123)
         changed = copy.deepcopy(self.shot)

@@ -2,7 +2,7 @@
 import math
 from pathlib import Path
 
-from ..project import file_hash, read
+from ..project import file_hash, inside, read
 
 
 def chapter_timeline(root, plan_path, selected, blueprint_path):
@@ -12,8 +12,11 @@ def chapter_timeline(root, plan_path, selected, blueprint_path):
     segments, typography, subtitles, pending, cursor = [], [], [], [], 0
     for shot in plan['shots']:
         sid, authored = shot['id'], entries[shot['id']]
-        folder = plan_path.parent / 'takes' / selected[sid]
+        reused = plan.get('reused_takes', {}).get(sid)
+        folder = inside(root, reused) if reused else plan_path.parent / 'takes' / selected[sid]
         receipt = read(folder / 'take.json')
+        if reused and receipt.get('id') != selected[sid]:
+            raise ValueError('Selected reused take differs from the explicit source: ' + sid)
         screening = receipt['speech_screening']
         if screening.get('passed') is not True:
             raise ValueError('Known speech problem cannot enter the chapter review: ' + sid)
@@ -45,6 +48,9 @@ def chapter_timeline(root, plan_path, selected, blueprint_path):
         segments.append({'shot_id': sid, 'take_dir': str(folder.relative_to(root)),
                          'source_in_frame': start, 'source_out_frame': end})
         for cue in [c for c in plan.get('typography_cues', []) if c['shot_id'] == sid]:
+            if cue.get('must_follow_speech') and (not speech or
+                    max(b for _, b in speech) + cue.get('minimum_gap_seconds', .4) > cue['start_seconds']):
+                raise ValueError('Closing text would interrupt the key dialogue or lacks measured speech timing: ' + sid)
             a, b = math.floor(cue['start_seconds'] * 24), math.ceil(cue['end_seconds'] * 24)
             if not start <= a < b <= end:
                 raise ValueError('The cut loses required readable text: ' + cue['id'])
@@ -57,8 +63,12 @@ def chapter_timeline(root, plan_path, selected, blueprint_path):
         pending.append({'shot_id': sid, 'take_id': selected[sid],
                         'scope': 'Actual action, pose, composition, continuity, paper geometry and final sound mix'})
         cursor += end - start
-    return {'fps': 24, 'tracks': [{'kind': 'av', 'segments': segments}], 'subtitles': subtitles,
+    result = {'fps': 24, 'tracks': [{'kind': 'av', 'segments': segments}], 'subtitles': subtitles,
             'typography': typography, 'final_loudnorm': False,
             'status': 'provisional_edit_needs_review', 'release_approved': False,
             'pending_visual_marks': pending, 'blueprint_sha256': file_hash(blueprint_path),
             'plan_sha256': file_hash(plan_path), 'sound_mix_status': 'Native dialogue and shot sound retained; scene mix still needs review'}
+    if plan.get('narrative_contract_required'):
+        from .narrative import preflight
+        result['narrative_check'] = preflight(root, plan_path, result)
+    return result

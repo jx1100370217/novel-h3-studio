@@ -155,9 +155,11 @@ def export_review(root, timeline):
                       str(intermediate / f'part_{index:04d}.nut')])
                 progress('rendering_segments', index + 1)
             concat = intermediate / 'concat.txt'
-            # NUT retains exact rational timestamps for 24 fps, unlike the
-            # millisecond rounding of Matroska at very short cut boundaries.
-            concat.write_text(''.join(f"file 'part_{index:04d}.nut'\n" for index in range(len(segments))))
+            # NUT keeps rational timestamps, but its inferred file duration can
+            # miss a packet tail. Lock each next cut to the authored frame count.
+            concat.write_text(''.join(f"file 'part_{index:04d}.nut'\n"
+                f"duration {(segment['timeline_out_frame'] - segment['timeline_in_frame']) / 24:.12f}\n"
+                for index, segment in enumerate(segments)))
             video = work / 'review.mp4'
             progress('encoding_chapter', len(segments))
             from .typography import rasterize

@@ -137,6 +137,9 @@ def run(root, plan_path, shot_ids, seed):
     if not plan_path.is_relative_to(root):
         raise ValueError('The plan must belong to this project')
     plan, cfg = read(plan_path), config(root)
+    if plan.get('narrative_contract_required'):
+        from .narrative import preflight
+        preflight(root, plan_path)
     selected = [s for s in plan['shots'] if not shot_ids or s['id'] in shot_ids]
     if not selected or (shot_ids and set(shot_ids) != {s['id'] for s in selected}):
         raise ValueError('Unknown or empty shot selection')

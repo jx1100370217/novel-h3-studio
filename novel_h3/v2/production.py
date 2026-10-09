@@ -125,19 +125,24 @@ def freeze_plan(root, source_path, audio_manifest):
     audio = read(audio_manifest)
     entries = {e['shot_id']: e for e in audio['entries']}
     plan = copy.deepcopy(source)
-    plan.update(id='kaochenghuang_v2_production_r1', status='production_candidates',
+    plan.update(id=source.get('production_id', source['id'] + '_production'), status='production_candidates',
         native_dialogue_required=False, audio_route='h3_audio_conditioned',
-        source_plan_sha256=file_hash(source_path), release_approved=False, reused_takes={})
-    pilot = read(source_path.parent / 'p03_audio_conditioned_canary.json')
+        source_plan_sha256=file_hash(source_path), release_approved=False,
+        reused_takes=dict(source.get('reused_takes', {})))
+    pilot_path = source_path.parent / 'p03_audio_conditioned_canary.json'
+    pilot = read(pilot_path) if pilot_path.is_file() else None
     for index, shot in enumerate(plan['shots']):
         lines = shot.get('spoken_lines', [])
         if not lines:
+            continue
+        if shot['id'] in plan['reused_takes']:
+            # compile_shot/reuse_candidate below verify the unchanged input and native media.
             continue
         entry = entries[shot['id']]
         expected = ''.join(line['text'] for line in lines)
         if expected != entry['expected_text'] or {l['speaker'] for l in lines} != {entry['speaker_asset_id']}:
             raise ValueError('Dialogue target differs from the final script: ' + shot['id'])
-        if shot['id'] == 'P03' and entry.get('reused_from_manifest'):
+        if shot['id'] == 'P03' and pilot and entry.get('reused_from_manifest'):
             replacement = copy.deepcopy(pilot['shots'][0])
             if replacement['audio_target']['sha256'] == entry['target']['sha256']:
                 plan['shots'][index] = replacement
@@ -163,6 +168,8 @@ def produce(root, source_plan, seed):
     state = {'status': 'starting', 'started_at': time.time(), 'seed': seed, 'source_plan': str(source_plan.relative_to(root)),
              'release_approved': False, 'human_listened': False}
     with locked(root, 'cinema_production'):
+        from .narrative import preflight
+        preflight(root, source_plan)
         write(state_path, state)
         try:
             check_paused()
@@ -181,9 +188,19 @@ def produce(root, source_plan, seed):
                 api(cfg['comfy_url'], '/free', {'unload_models': True, 'free_memory': True})
                 time.sleep(3)
                 phase(root, base, source_plan, 'dialogue_preparation', note='逐角色准备全章白话对白，保留原始音频；P03可复用。')
-                result = job([REPO / '.venv-dialogue/bin/python', REPO / 'scripts/prepare_chapter_audio.py',
-                    '--project', root, '--plan', source_plan, '--execute', '--seed', seed + attempt * 100],
-                    logs / f'tts_{attempt}.log')
+                source = read(source_plan)
+                needed = [s['id'] for s in source['shots'] if s.get('spoken_lines')
+                          and s['id'] not in source.get('reused_takes', {})]
+                command = [REPO / '.venv-dialogue/bin/python', REPO / 'scripts/prepare_chapter_audio.py',
+                    '--project', root, '--plan', source_plan, '--execute', '--seed', seed + attempt * 100]
+                if source.get('reused_takes') and needed:
+                    command += ['--shots', *needed]
+                if source.get('reused_takes') and not needed:
+                    if not audio.is_file():
+                        raise ValueError('Reused dialogue needs its existing audio manifest')
+                    result = 0
+                else:
+                    result = job(command, logs / f'tts_{attempt}.log')
                 if result:
                     if attempt == 2:
                         raise RuntimeError('Dialogue preparation failed; original audio retained, see production logs')
@@ -202,6 +219,7 @@ def produce(root, source_plan, seed):
             if plan_path.exists() and read(plan_path) != plan:
                 raise ValueError('Frozen production plan changed; start an explicit new revision')
             write(plan_path, plan)
+            preflight(root, plan_path)
             # Validate every actual reference/model input before the first expensive shot.
             for index, shot in enumerate(plan['shots']):
                 request = compile_shot(root, plan, shot, seed + index)
@@ -215,7 +233,9 @@ def produce(root, source_plan, seed):
                 batch = read(run(root, plan_path, pending, seed + attempt * 1000))
                 selected.update(batch['takes'])
                 pending = [s['id'] for s in plan['shots']
-                    if read(base / 'takes' / selected[s['id']] / 'take.json')['speech_screening'].get('passed') is not True]
+                    if read((inside(root, plan['reused_takes'][s['id']])
+                        if s['id'] in plan['reused_takes'] else base / 'takes' / selected[s['id']])
+                        / 'take.json')['speech_screening'].get('passed') is not True]
                 state.update(takes=selected, unresolved_speech=pending, render_attempt=attempt + 1)
                 write(state_path, state)
                 if not pending:
@@ -226,6 +246,8 @@ def produce(root, source_plan, seed):
             from .chapter_edit import chapter_timeline
             from .edit import export_review
             timeline = chapter_timeline(root, plan_path, selected, base / 'editorial_blueprint.json')
+            if 'narrative_check' not in timeline:
+                timeline['narrative_check'] = preflight(root, plan_path, timeline)
             write(base / 'chapter_review_timeline.json', timeline)
             review = export_review(root, timeline)
             state.update(status='chapter_review_ready', review=review, completed_at=time.time())

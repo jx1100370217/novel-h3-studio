@@ -180,6 +180,26 @@ class CinemaEditTests(unittest.TestCase):
         self.assertEqual(result['technical_qc']['frames'], 23)
         self.assertTrue(result['technical_qc']['passed'])
 
+    def test_fifty_fractional_duration_cuts_do_not_accumulate_sync_drift(self):
+        lengths = [5, 7, 11] * 16 + [5, 7]
+        segments = [{'take_dir': 'a' if i % 2 == 0 else 'b',
+                     'source_in_frame': 0, 'source_out_frame': length}
+                    for i, length in enumerate(lengths)]
+        result = export_review(self.root, {'fps': 24, 'tracks': [{'kind': 'av', 'segments': segments}]})
+        self.assertEqual(result['technical_qc']['frames'], sum(lengths))
+        video = self.root / result['video']
+        audio = next(s for s in probe(video)['streams'] if s['codec_type'] == 'audio')
+        self.assertAlmostEqual(float(audio['duration']), sum(lengths) / 24, delta=1 / 48)
+        rgb = subprocess.check_output(['ffmpeg', '-v', 'error', '-i', str(video), '-map', '0:v:0',
+                                       '-f', 'rawvideo', '-pix_fmt', 'rgb24', 'pipe:1'])
+        frames = np.frombuffer(rgb, dtype=np.uint8).reshape(-1, 32, 32, 3)
+        cursor = 0
+        for index, length in enumerate(lengths):
+            channel = 0 if index % 2 == 0 else 2
+            self.assertAlmostEqual(float(frames[cursor + 2, :, :, channel].mean()), 46, delta=5)
+            self.assertLess(float(frames[cursor + 2, :, :, 2 - channel].mean()), 5)
+            cursor += length
+
 
 if __name__ == '__main__':
     unittest.main()
