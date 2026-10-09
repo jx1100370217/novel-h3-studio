@@ -28,6 +28,9 @@ sudo tailscale up --hostname=novel-h3-workbench
 
 Tailscale 的 `tailscaled` 服务需要保持启用。工作台登录仍使用
 `runtime/public-workbench-credentials.json` 中的账号密码；不要把该文件提交到 Git。
+浏览器通过 `/login` 网页表单登录，成功后获得最长 8 小时的受保护会话，
+无需内置浏览器弹出 HTTP Basic 认证窗口。API 与视频仍需认证；原有 Basic
+凭据调用方式继续可用。
 
 查看或关闭 Funnel：
 

@@ -56,8 +56,20 @@ class LiveProgress:
 
     def active(self):
         takes = read(self.root / 'state.json').get('takes', {}).values()
-        return max((t for t in takes if not t.get('retired') and t.get('status') == 'submitted'
-                    and t.get('prompt_id')), key=lambda t: t['created_at'], default=None)
+        candidates = [t for t in takes if not t.get('retired') and t.get('status') == 'submitted'
+                      and t.get('prompt_id')]
+        for path in self.root.glob('production_v2/*/progress.json'):
+            progress = read(path)
+            if progress.get('status') != 'generating' or not progress.get('take_id'):
+                continue
+            folder = path.parent / 'takes' / progress['take_id']
+            receipt = folder / 'take.json'
+            if not receipt.exists():
+                continue
+            take = read(receipt)
+            if take.get('status') == 'submitted' and take.get('prompt_id') == progress.get('prompt_id'):
+                candidates.append(dict(take, graph_path=str((folder / 'graph.json').relative_to(self.root))))
+        return max(candidates, key=lambda t: t['created_at'], default=None)
 
     def run(self):
         while True:
@@ -67,7 +79,8 @@ class LiveProgress:
                     time.sleep(1)
                     continue
                 prompt_id = take['prompt_id']
-                nodes = read(self.root / 'renders' / take['id'] / 'prompt.json')
+                nodes = read(self.root / take['graph_path'] if take.get('graph_path')
+                             else self.root / 'renders' / take['id'] / 'prompt.json')
                 url = read(self.root / 'config.json')['comfy_url'].rstrip('/')
                 url = url.replace('http://', 'ws://', 1).replace('https://', 'wss://', 1)
                 # The runner reserves this client ID but opens no websocket.

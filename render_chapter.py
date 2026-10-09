@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serial generation of independent cuts; strict speech failures are retained and flagged."""
+"""Serial generation of independent cuts; strict speech and lip-sync failures are retried before acceptance."""
 import argparse
 import json
 import subprocess
@@ -11,7 +11,7 @@ from novel_h3.rework_queue import claim as claim_rework, complete as complete_re
 from novel_h3.project import locked, write, read, update_state, load_state, inside
 from novel_h3.safety import PAUSE, SLICE, check_paused, check_power_cap, user_service_env
 
-MAX_SPEECH_RETRIES = 3
+MAX_SPEECH_RETRIES = 3  # Three total render attempts, including the first candidate.
 AUDIO_QC_TIMEOUT = 300
 DEFAULT_OFFICIAL_SHOT_TIMEOUT_SECONDS = 3600
 
@@ -82,34 +82,34 @@ def stop(reason):
     subprocess.run(['systemctl', '--user', 'stop', SLICE], timeout=45, check=True, env=user_service_env())
 
 
-def discard_speech_failure(root, take_id):
-    """Remove only this failed take's videos; retain its diagnostic reports."""
+def retire_speech_failure(root, take_id, attempt):
+    """Retire a failed candidate for a new seed while preserving its media and diagnostics."""
     take = load_state(root)['takes'][take_id]
-    if take.get('speech_check', {}).get('passed') is not False:
-        raise ValueError('只能清理已确认转写不通过的镜头')
-    folder = inside(config(root)['output_dir'], take['prefix'])
-    paths = [inside(root, take['video']), *folder.glob('video*.mp4')]
-    for path in paths:
-        if path.is_symlink():
-            raise ValueError('拒绝清理符号链接视频')
-    for path in paths:
-        path.unlink(missing_ok=True)
+    report = take.get('speech_check', {})
+    if (report.get('passed') is not False
+            and report.get('lip_sync_gate', {}).get('status') != 'blocked'):
+        raise ValueError('只能重生成声音转写或口型门禁未通过的镜头')
     update_state(root, lambda state: state['takes'][take_id].update(
         status='rejected', retired=True, speech_retry=True,
-        video_deleted=True, deletion_reason='转写核对未通过，自动重生成'))
+        speech_retry_attempt=attempt, review_required='speech_qc_failed_retrying',
+        video_deleted=False,
+        retention_note='严格转写或口型核对未通过；保留候选视频与诊断记录，使用新随机种子重生成。'))
 
 
 def retain_speech_failure(root, take_id):
     """Keep the third failed render and allow the serial queue to advance."""
     take = load_state(root)['takes'][take_id]
-    if take.get('speech_check', {}).get('passed') is not False:
-        raise ValueError('只能保留已确认转写不通过的镜头')
+    report = take.get('speech_check', {})
+    if report.get('passed') is not False and report.get('lip_sync_gate', {}).get('status') != 'blocked':
+        raise ValueError('只能保留声音转写或口型门禁未通过的镜头')
+    reason = ('lip_sync_gate_blocked' if report.get('lip_sync_gate', {}).get('status') == 'blocked'
+              else 'speech_qc_failed_after_3_attempts')
     update_state(root, lambda state: state['takes'][take_id].update(
         status='rendered', retired=False, speech_retry_exhausted=True,
         speech_retry_failures=MAX_SPEECH_RETRIES,
-        review_required='speech_qc_failed_after_3_retries',
+        review_required=reason,
         video_deleted=False,
-        retention_note='严格转写连续三次失败后保留，必须人工复核；未放宽转写条件'))
+        retention_note='声音转写或口型门禁连续三次未通过；保留候选和诊断，禁止自动纳入章节成片。'))
 
 
 def retain_speech_qc_failure(root, take_id):
@@ -173,6 +173,7 @@ def run(root, episode, rework_only=False):
                 print('SUBMITTED', take['id'], take['shot'],
                       'REWORK' if current_rework else 'NORMAL', flush=True)
                 started = time.monotonic()
+                speech_retry_queued = False
                 shot_budget = shot_timeout_seconds(cfg, take)
                 while True:
                     check_paused()
@@ -236,16 +237,51 @@ def run(root, episode, rework_only=False):
                                 update_state(root,lambda state: state['takes'][take['id']].update(
                                     speech_check=report,
                                     video_sha256=report.get('video_sha256', state['takes'][take['id']].get('video_sha256')),
+                                    qc=report.get('technical_qc', state['takes'][take['id']].get('qc')),
                                     audio_policy=read(policy_path) if policy_path.exists() else state['takes'][take['id']].get('audio_policy')))
-                            if result.returncode == 2 and report_path.exists() and read(report_path).get('passed') is False:
-                                retain_speech_qc_failure(root, take['id'])
+                            report = read(report_path) if report_path.exists() else {}
+                            technical_qc = report.get('technical_qc')
+                            if technical_qc and technical_qc.get('passed') is False:
+                                errors = technical_qc.get('errors', [])
+                                update_state(root, lambda state: state['takes'][take['id']].update(
+                                    status='failed', retired=True, review_required='post_audio_technical_qc_failed',
+                                    retention_note='后音频处理后的媒体技术检查失败；保留原始视频、处理候选和完整诊断，不再以换随机种子重复渲染。'))
                                 write(dest/'status.json', {
-                                      'id': take['id'], 'shot': take['shot'], 'status': 'rendered',
-                                      'speech_qc_failed_retained': True,
-                                      'review_required': 'speech_qc_failed_retained'})
+                                    'id': take['id'], 'shot': take['shot'],
+                                    'status': 'post_audio_technical_qc_failed', 'errors': errors})
+                                raise RuntimeError('音频处理后媒体技术检查失败：' + '; '.join(errors))
+                            lip_sync = report.get('lip_sync_gate', {})
+                            speech_failed = (report.get('passed') is False
+                                             or lip_sync.get('status') == 'blocked')
+                            if speech_failed:
+                                prior_failures = sum(
+                                    1 for old in load_state(root)['takes'].values()
+                                    if old.get('episode') == take.get('episode')
+                                    and old.get('shot') == take.get('shot')
+                                    and old.get('fingerprint') == take.get('fingerprint')
+                                    and old.get('speech_retry') is True)
+                                attempt = prior_failures + 1
+                                if attempt < MAX_SPEECH_RETRIES:
+                                    retire_speech_failure(root, take['id'], attempt)
+                                    write(dest/'status.json', {
+                                          'id': take['id'], 'shot': take['shot'], 'status': 'speech_qc_retry_queued',
+                                          'speech_retry_attempt': attempt,
+                                          'transcript': report.get('transcript'),
+                                          'lip_sync_gate': lip_sync})
+                                    if current_rework:
+                                        complete_rework(root, current_rework['id'], take['id'])
+                                    print('SPEECH_OR_LIP_SYNC_FAILED_RETRYING', take['id'], attempt, flush=True)
+                                    speech_retry_queued = True
+                                    break
+                                retain_speech_failure(root, take['id'])
+                                write(dest/'status.json', {
+                                      'id': take['id'], 'shot': take['shot'], 'status': 'rendered_pending_speech_review',
+                                      'speech_retry_failures': attempt,
+                                      'transcript': report.get('transcript'),
+                                      'lip_sync_gate': lip_sync})
                                 if current_rework:
                                     complete_rework(root, current_rework['id'], take['id'])
-                                print('SPEECH_FAILED_RETAINED_CONTINUING', take['id'], flush=True)
+                                print('SPEECH_OR_LIP_SYNC_FAILED_RETRY_LIMIT', take['id'], flush=True)
                                 break
                             if result.returncode:
                                 detail = ('目标：' + read(report_path)['expected'] + '；实际转写：' + read(report_path)['transcript']) if report_path.exists() else '本地转写程序失败，需检查日志。'
@@ -266,6 +302,8 @@ def run(root, episode, rework_only=False):
                         break
                     time.sleep(5)
                 from novel_h3.delivery_policy import finish_shot
+                if speech_retry_queued:
+                    continue
                 finish_shot(root, take['id'], retake=bool(current_rework))
         except Exception as exc:
             if current_rework:

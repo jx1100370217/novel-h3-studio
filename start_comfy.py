@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Start the isolated H3 service with pinned Motion Context and VDN-H3 nodes."""
+import argparse
 import os
 from pathlib import Path
 import subprocess
@@ -13,7 +14,10 @@ from novel_h3.safety import bounded_worker, check_power_cap
 # service itself from starting and serving health checks.
 bounded_worker(ignore_pause=True)
 
-cfg = config(DEFAULT_PROJECT)
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
+options = parser.parse_args()
+cfg = config(options.project.resolve())
 check_power_cap(cfg.get("resource_policy", {}).get("max_gpu_power_w", 450))
 try:
     stats = api(cfg["comfy_url"], "/system_stats", timeout=2)
@@ -55,7 +59,9 @@ args = [str(comfy / ".venv/bin/python"), "main.py", "--listen", "127.0.0.1", "--
         "--input-directory", cfg["input_dir"], "--output-directory", cfg["output_dir"],
         "--user-directory", str(runtime / "comfy-user"),
         "--database-url", "sqlite:///" + str(runtime / "comfyui.db"),
-        "--disable-api-nodes", "--cache-ram", "4", "8", "--fast-disk", "--disable-pinned-memory",
+        # Evict earlier than the renderer's 4 GiB safety floor. These are
+        # available-RAM thresholds, not cache-size limits.
+        "--disable-api-nodes", "--cache-ram", "12", "16", "--fast-disk", "--disable-pinned-memory",
         "--reserve-vram", "4", "--disable-async-offload",
         "--disable-all-custom-nodes", "--whitelist-custom-nodes", *whitelist]
 os.chdir(comfy)

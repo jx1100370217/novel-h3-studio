@@ -7,10 +7,12 @@ def bindings(root, shot):
     lines = shot.get("dialogue", [])
     if not lines:
         return []
-    if shot.get("mode") != "ref2va":
-        raise ValueError("有对白的镜头必须使用支持声音参考的 Ref2VA")
     cfg_path = Path(root) / "config.json"
     cfg = read(cfg_path) if cfg_path.exists() else {}
+    local_postdub = (cfg.get("speech_policy", {}).get("dialogue_audio_source")
+                     == "qwen3_tts_local_postdub")
+    if shot.get("mode") != "ref2va" and not (shot.get("mode") == "fl2va" and local_postdub):
+        raise ValueError("有对白的镜头必须使用支持声音参考的 Ref2VA")
     if cfg.get("speech_policy", {}).get("dialogue_only") and any(
             line.get("kind") == "voiceover" for line in lines):
         raise ValueError("当前项目旁白仅作画面参考，禁止绑定旁白声音")

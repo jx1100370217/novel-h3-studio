@@ -42,7 +42,10 @@ class AudioReviewTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root=Path(d);source=root/'source.wav';source.write_bytes(b'fixture')
             write(root/'config.json',{'comfy_url':'http://localhost:8191'})
-            with patch('novel_h3.comfy.api',return_value={'queue_running':[1],'queue_pending':[]}) as api, patch('novel_h3.listening.subprocess.Popen') as popen:
+            runtime = root / '.venv-audio/bin/python'
+            runtime.parent.mkdir(parents=True)
+            runtime.write_bytes(b'fixture')
+            with patch('novel_h3.listening.REPO', root), patch('novel_h3.comfy.api',return_value={'queue_running':[1],'queue_pending':[]}) as api, patch('novel_h3.listening.subprocess.Popen') as popen:
                 with self.assertRaisesRegex(ValueError,'视频正在生成'):
                     start_audio(root,source)
                 self.assertEqual([c.args[1] for c in api.call_args_list],['/queue'])

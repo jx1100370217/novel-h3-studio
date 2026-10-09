@@ -1,6 +1,6 @@
 import unittest
 
-from novel_h3.blender_previs import GUIDE_POLICY, environment_motion_cues
+from novel_h3.blender_previs import GUIDE_POLICY, _blocking, _scene_kind, environment_motion_cues
 
 
 class BlenderEnvironmentMotionTests(unittest.TestCase):
@@ -46,6 +46,30 @@ class BlenderEnvironmentMotionTests(unittest.TestCase):
     def test_reference_policy_requires_event_trajectory_and_timing(self):
         self.assertIn("start-to-end timing and trajectory", GUIDE_POLICY)
         self.assertIn("do not omit, replay, or invent", GUIDE_POLICY)
+
+    def test_grounded_city_light_and_courtyard_do_not_become_cloud_road_or_hall(self):
+        self.assertEqual(_scene_kind("city", {"name": "异境城郭",
+                         "design_description": "Walled city, cloud-filtered light and palace roofs."}), "landscape")
+        self.assertEqual(_scene_kind("washing", {"name": "宋家洗濯处",
+                         "design_description": "Family home courtyard, basin beside room threshold."}), "interior")
+        self.assertEqual(_scene_kind("cloud", {"name": "太微宫外云路"}), "celestial_exterior")
+
+    def test_pose_transition_and_group_positions_survive_spec_blocking(self):
+        plan = {"asset_id": "scholars", "start_position": {"x": 0, "y": -6, "z": 0},
+                "pose": "standing", "pose_out": "seated", "heading": 3.141592653589793,
+                "pose_transition": {"start_frame": 30, "end_frame": 42}, "instances": 2,
+                "pose_keyframes": [{"frame": 0, "pose": "standing"}, {"frame": 42, "pose": "seated"}],
+                "heading_keyframes": [{"frame": 0, "heading": 3.141592653589793}, {"frame": 42, "heading": 0}],
+                "instance_layout": [{"offset": {"x": -1, "y": 0, "z": 0}},
+                                    {"offset": {"x": 1, "y": 0, "z": 0}}]}
+        actor = _blocking({}, [{"id": "scholars", "name": "秀才"}], "hall",
+                          {"blocking_plan": {"actors": [plan]}})[0]
+        self.assertEqual(actor["pose_out"], "seated")
+        self.assertEqual(actor["heading"], plan["heading"])
+        self.assertEqual(actor["pose_transition"], plan["pose_transition"])
+        self.assertEqual(actor["pose_keyframes"], plan["pose_keyframes"])
+        self.assertEqual(actor["heading_keyframes"], plan["heading_keyframes"])
+        self.assertEqual(actor["instance_layout"], plan["instance_layout"])
 
 
 if __name__ == "__main__":

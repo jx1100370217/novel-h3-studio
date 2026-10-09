@@ -1,3 +1,4 @@
+import copy
 import math
 import re
 from pathlib import Path
@@ -39,20 +40,22 @@ def gender_prompt(value):
 
 def soundscape_for(shot):
     """Build a diegetic sound brief without turning narration into speech."""
-    text = " ".join(str(shot.get(key, "")) for key in ("action", "visual_narration", "soundscape"))
-    cues = []
+    explicit = str(shot.get("soundscape") or "").strip()
+    text = str(shot.get("action") or "")
+    cues = [explicit] if explicit else []
     patterns = (
         (r"雷|闪电|雷鸣", "sharp lightning cracks followed by layered distant thunder"),
         (r"震动|震荡|山崩|地裂|坍塌|碎石", "clear low ground rumble, stone fracture and layered distant collapse at a natural film-mix level"),
         (r"海水|海浪|水面|倾覆|潮", "clearly audible heavy surf, wave impact and wind pushed by the moving water"),
-        (r"金光|光芒|飞落|飞去|飞射|腾云|金云|云", "high-altitude wind rush and a focused, non-musical energy whoosh"),
+        (r"金光|光芒|飞射|腾云|金云|云海", "high-altitude wind rush and a focused, non-musical energy whoosh"),
         (r"走|脚踏|进入|点头|躬身|跪|站", "motivated footsteps, cloth movement and light contact sounds"),
         (r"天兵|神将|铠甲|玉笏|宫|殿|门", "audible armor or prop contact with a natural palace-space reverb"),
         (r"黑暗|虚空|天外天|寂静", "subtle but clearly audible cosmic air and natural spatial bed, never a musical drone"),
     )
-    for pattern, cue in patterns:
-        if re.search(pattern, text):
-            cues.append(cue)
+    if not explicit:
+        for pattern, cue in patterns:
+            if re.search(pattern, text):
+                cues.append(cue)
     if not cues:
         cues.append("quiet location ambience and small movement sounds only when visibly motivated")
     if shot.get("dialogue"):
@@ -251,28 +254,24 @@ def _speech_safe_visual_text(value):
     """Keep dialogue-shot visual direction from becoming a spoken source.
 
     Chinese is retained in the exact ``<d>`` line below, but free-form Chinese
-    in action, timeline or handoff metadata is replaced before it reaches H3's
+    in action, timeline or handoff metadata is removed before it reaches H3's
     audio head. The full text remains in the execution sheet for review.
     """
-    return re.sub(r"[\u3400-\u9fff]+", "visual metadata", str(value or ""))
+    return re.sub(r"[\u3400-\u9fff]+", "", str(value or ""))
 
 
 def character_visibility_policy(cast_count, has_dialogue):
     """Return the hard character-visibility rule for both the sheet and H3."""
-    if has_dialogue:
-        if cast_count:
-            return ("Dialogue shot character lock: only the registered character assets explicitly bound in this shot may appear. "
-                    "Do not generate or show any unbound or unregistered person, face, silhouette, reflection, clone, crowd, passerby, "
-                    "background human, guard, child, deity or other human-like figure. Character reference pictures are the sole identity source. "
-                    "Every visible speaking or listening person must be one of the bound character subjects. "
-                    "The total number of human bodies must equal the bound cast count; never add a body, face, silhouette or duplicate.")
-        return ("Dialogue shot character lock: no bound character asset is present, so no person, face, silhouette, reflection, clone, crowd, "
-                "passerby or human-like figure may appear. Do not invent a speaker or listener.")
+    prefix = "Dialogue shot character lock" if has_dialogue else "Silent visual cast policy"
     if cast_count:
-        return ("Silent visual cast policy: the bound character assets are the only named or foreground identities. "
-                "Keep every registered mouth at rest; unregistered background extras, if visually motivated, stay distant and non-identifiable.")
-    return ("Silent visual cast policy: no bound character is required. Any motivated background atmosphere stays distant and non-identifiable; "
-            "do not create a foreground human identity or a vocal performance.")
+        return (f"{prefix}: exactly {cast_count} bound character bodies in the entire frame. "
+                "Only registered individuals or declared group members may appear, once each. "
+                "Do not add any unbound person, foreground shoulder, face, human silhouette, reflection, clone or background extra, "
+                "even if distant, silent or non-identifiable. Character references supply identity only; their pose or background "
+                "never authorizes a second body. "
+                + ("Only event-bound speakers move their mouths." if has_dialogue else "Keep all bound mouths at rest."))
+    return (f"{prefix}: zero character bodies. No person, face, human silhouette, reflection, clone or background extra "
+            "may appear at any depth. Do not invent a speaker, listener or foreground human identity.")
 
 
 def bound_character_action_contract(shot, cast_count):
@@ -306,6 +305,34 @@ def bound_character_action_contract(shot, cast_count):
 
 
 def h3_prompt(shot, style):
+    shot = copy.deepcopy(shot)
+    if shot.get("speaker_focus_mode") == "speaker_only":
+        # A reworked single-speaker close-up is independent camera coverage;
+        # inherited conversation-axis and reverse-shot notes can reintroduce
+        # a listener or wide establishing frame, so keep them out of H3 input.
+        shot["scene_continuity_contract"] = {}
+        shot["spatial_guide"] = None
+    visual_only_postdub = shot.get("h3_visual_only") is True
+    if visual_only_postdub:
+        # FL2VA is being used only to hold a checked close-up keyframe. Spoken
+        # words are added later by the local postdub pipeline; sending them to
+        # H3's visual/audio head can turn them into on-screen subtitles.
+        shot["dialogue"] = []
+        shot["soundscape"] = "Quiet courtroom air and subtle clothing movement only."
+        shot["scene_continuity_contract"] = {}
+        shot["spatial_guide"] = None
+        package = copy.deepcopy(shot.get("asset_package") or {})
+        package["audio_bindings"] = []
+        package["identity_bindings"] = []
+        package["dialogue_event_bindings"] = []
+        interaction = copy.deepcopy(package.get("interaction_contract") or {})
+        interaction.update(speakers=[], speaker_visual_bindings=[], dialogue_event_bindings=[],
+                           human_voice_allowlist=[], visible_listeners=[])
+        package["interaction_contract"] = interaction
+        character_lock = copy.deepcopy(package.get("character_identity_lock") or {})
+        character_lock.update(present_time_only=False, no_flashback_or_apparition=False)
+        package["character_identity_lock"] = character_lock
+        shot["asset_package"] = package
     offset = CONTEXT if shot["continuity"] == "continue" else 0
     camera = shot["camera"]
     package = shot.get("asset_package", {})
@@ -321,7 +348,8 @@ def h3_prompt(shot, style):
              f"{visual_movement}. {visual_action}\n")
     if shot.get("storyboard_schema"):
         from .storyboard_design import h3_instruction
-        intro += h3_instruction(shot) + "\n"
+        instruction = h3_instruction(shot)
+        intro += _speech_safe_visual_text(instruction) + "\n"
     spatial_guide = shot.get("spatial_guide")
     if spatial_guide:
         intro += "SPATIAL_REFERENCE: " + spatial_guide.get(
@@ -330,6 +358,11 @@ def h3_prompt(shot, style):
             "Match scene geometry, registered-actor count and blocking, screen direction, camera path, and timing. "
             "Do not copy proxy appearance, gray materials, lighting, or sound. Use approved <Picture> references "
             "for character identity and photorealistic appearance. <Video 1> has no audio.") + "\n"
+        intro += (
+            "Video 1's gray proxies are coarse geography, cast and camera markers; do not copy idle hands, "
+            "rigid legs, sliding feet or proxy joint mechanics. Perform natural grounded steps, hand interactions, "
+            "bows and facial acting exactly once per authored action beat while preserving cast and root geography.\n"
+        )
     camera_execution = package.get("camera_execution", {})
     if camera_execution.get("model_instruction"):
         camera_instruction = camera_execution["model_instruction"]
@@ -356,7 +389,12 @@ def h3_prompt(shot, style):
             "IDENTITY_BINDING_LOCK (visual production metadata only; never speak, subtitle or turn this table into narration):\n"
         )
         for item in identity_bindings:
+            instances = int(item.get("expected_instances") or 1)
             role = "the only assigned speaker" if item.get("role") == "speaker" else "the only silent listener"
+            body_lock = "one body only"
+            if instances > 1:
+                role = "the registered silent listener group" if item.get("role") == "listener" else "the registered speaker group"
+                body_lock = f"exactly {instances} distinct member bodies, each once"
             view = item.get("selected_character_view_label") or item.get("selected_character_view") or "approved independent view"
             view = {"正面": "front view", "背面": "rear view", "侧面": "side view", "特写": "close-up view"}.get(view, "bound view")
             # Names and Chinese appearance notes belong to the auditable sheet,
@@ -368,7 +406,7 @@ def h3_prompt(shot, style):
             intro += (
                 f"- {item['subject_label']} = registered visual subject {name} "
                 f"(asset_id={item['asset_id']}), {item['picture_label']}, {role}, "
-                f"one body only, reference view={view}. "
+                f"{body_lock}, reference view={view}. "
                 f"Approved appearance anchor: {anchor}. "
                 "This identity is visually distinct from every other bound identity; never swap, merge or duplicate it.\n"
             )
@@ -384,6 +422,14 @@ def h3_prompt(shot, style):
             view = item.get("selected_character_view_label") or item.get("selected_character_view") or "approved independent view"
             view = {"正面": "front view", "背面": "rear view", "侧面": "side view", "特写": "close-up view"}.get(view, "bound view")
             listener_name = item.get("subject_label", "visual subject")
+            instances = int(item.get("expected_instances") or 1)
+            if instances > 1:
+                intro += (
+                    f"- LISTENER_LOCK: {listener_name} -> {item['asset_id']} -> {item['picture_label']} -> {view}; "
+                    f"this is the registered silent group with exactly {instances} distinct member bodies; "
+                    "keep each member once in its authored position, with no omitted member, extra person or clone.\n"
+                )
+                continue
             intro += (
                 f"- LISTENER_LOCK: {listener_name} -> {item['asset_id']} -> {item['picture_label']} -> {view}; "
                 "this is the one silent listener body in the blocking, shown only in the requested rear/occluded framing; "
@@ -406,13 +452,47 @@ def h3_prompt(shot, style):
                   "apply the requested correction to picture, blocking, identity, camera, continuity and sound as applicable. "
                   "The private review note is not a script, subtitle, narration, voice, lyric or sound cue; never read, quote, "
                   "paraphrase, translate or vocalize any review text, metadata or instruction, and do not add new dialogue.\n")
-    if shot.get("speaker_focus_mode") == "speaker_dominant":
+    if shot.get("speaker_focus_mode") == "speaker_only":
+        frame_with_prop = shot.get("speaker_frame_prop") is True
+        framing = (
+            "frame zero is a chest-up medium close-up of the assigned speaker. Keep the face large, eyes and mouth clear; both hands hold the same blank longevity register visibly in the lower frame through every line and pause. "
+            if frame_with_prop else
+            "frame zero is already a tight head-and-shoulders close-up of the assigned speaker; keep that one face centered and readable through every line and pause. "
+        )
+        label = "SINGLE_SPEAKER_WITH_PROP_RETAKE" if frame_with_prop else "SINGLE_SPEAKER_CLOSEUP_RETAKE"
+        intro += (
+            f"{label} (silent production direction only; never speak or subtitle this metadata): "
+            f"{framing}Every listener and all other people remain completely outside the frame; no shoulder, back-of-head, "
+            "silhouette, reflection, empty-room/court opening, wide shot, reverse shot or cutaway. Use a locked camera and stable identity.\n"
+        )
+    elif shot.get("speaker_focus_mode") == "speaker_dominant":
         intro += (
             "SPEAKER_DOMINANT_RETAKE (visual production instruction only; never speak or subtitle this metadata): "
             "the assigned speaker subject is the only fully visible face and the only visible moving mouth. "
             "Keep the listener in the same physical space only as one partial rear shoulder or back-of-head at the edge of frame; "
             "hide the listener's face completely, do not show listener lips, and do not create a second frontal face. "
             "Do not change the bound speaker, voice reference, costume, scene or dialogue.\n"
+        )
+    retake_contract = shot.get("retake_visual_contract") or {}
+    if retake_contract.get("mode") == "exact_cast":
+        subject_labels = {item.get("asset_id"): item.get("subject_label", item.get("picture_label", "registered subject"))
+                          for item in package.get("visual_assets", [])
+                          if item.get("kind") == "character"}
+        visible_labels = [subject_labels.get(asset_id, asset_id)
+                          for asset_id in retake_contract.get("visible_character_ids", [])]
+        intro += (
+            "EXACT_REGISTERED_CAST_RETAKE (silent production direction only; never speak or subtitle this metadata): "
+            f"show only the registered visual subjects {', '.join(visible_labels)}; "
+            f"exactly {retake_contract.get('visible_body_count', len(visible_labels))} people in every frame. "
+            "Keep both bound faces and upper bodies unobstructed in one stable composition. "
+            "No examiner, clerk, servant, crowd, extra person, foreground body, silhouette or reflection. "
+            "No person enters, crosses between the bound characters, receives a prop or blocks either face.\n"
+        )
+    if retake_contract.get("blank_paper") or retake_contract.get("mode") == "blank_paper":
+        intro += (
+            "BLANK_PAPER_RETAKE (silent production direction only): all exam manuscript pages are featureless blank cream paper; "
+            "no ink strokes, glyphs, characters, numbers, seals, title cards or subtitles. Keep pages face down or angled away; "
+            "never show a page surface to camera.\n"
         )
     dialogue_events = package.get("dialogue_event_bindings", [])
     if dialogue_events:
@@ -455,10 +535,11 @@ def h3_prompt(shot, style):
     if shot.get("visual_narration"):
         intro += "Source prose is used only by the human storyboard and is intentionally omitted from the model prompt.\n"
     cast = [item for item in package_visuals if item["kind"] == "character"]
+    body_count = sum(int(item.get("expected_instances") or 1) for item in cast)
     if package_visuals:
         if cast:
             labels = ", ".join(f"<Subject {item['subject_label'].split()[-1]}>" for item in cast)
-            intro += f"Visible cast count: exactly {len(cast)} distinct character(s): {labels}. "
+            intro += f"Visible cast count: exactly {body_count} distinct character(s): {labels}. "
             intro += "Show each bound character exactly once.\n"
             locks = "; ".join(
                 f"<Subject {item['subject_label'].split()[-1]}> {gender_prompt(item.get('gender', '未知'))}"
@@ -467,11 +548,16 @@ def h3_prompt(shot, style):
                 intro += "Visual-only gender locks (never speak or subtitle this metadata): " + locks + ".\n"
             if len(cast) > 1:
                 intro += (
-                    "Distinct-identity check before rendering: assign each body to exactly one subject slot by its "
-                    "bound picture, costume, face and silhouette. Subject slots cannot be reused. "
+                    "Distinct-identity check before rendering: assign each body to its bound individual identity "
+                    "or declared group member by the reference picture, costume, face and silhouette. "
+                    "Each individual or group member may appear only once. "
                     "If a framing change is needed, reframe the same bodies; never add a replacement body or "
                     "leave a stale copy in the background.\n"
                 )
+            if body_count > len(cast):
+                intro += ("A bound group subject contains its declared distinct members: each member occupies its own "
+                          "authored body position once and retains its own reference face and costume. The group label "
+                          "covers those members together; never collapse the group into one person or clone a member.\n")
             if len(cast) > 1:
                 intro += ("Keep every bound character visible in the same continuous physical space as a real interaction shot. "
                           "Use shared blocking, coherent scale, eyelines and screen direction; never replace the interaction with "
@@ -495,6 +581,7 @@ def h3_prompt(shot, style):
             intro += (f"Environment anchor (highest visual priority): {label} is the exclusive background plate and the only location. "
                       f"Use the exact environment from <Picture {picture_label.split()[-1]}> across the entire shot; preserve its geography, depth, lighting and distinctive structures. "
                       "Composite bound characters and props into this plate. Never substitute a different interior, exterior, architecture, room, palace, furniture layout or unrelated location, and never import a background from a character or prop reference.\n")
+            intro += "The environment plate never authorizes incidental people; show only the declared bound character bodies.\n"
             design = scene.get("design_description", "").strip()
             if design:
                 # Keep the full design note in the human-facing execution
@@ -510,11 +597,11 @@ def h3_prompt(shot, style):
                       "orientation and state continuous with the action; do not drop, duplicate or teleport it.\n")
         intro += ("Reference pictures provide identity, environment or prop appearance only. Never reproduce a reference-sheet layout, "
                   "split screen, inset portrait, reflection, twin, clone, mirrored duplicate or second copy of a bound subject.\n")
-    intro += character_visibility_policy(len(cast), bool(shot.get("dialogue"))) + "\n"
+    intro += character_visibility_policy(body_count, bool(shot.get("dialogue"))) + "\n"
     if bound_cast:
         labels = ", ".join(f"<Subject {item.get('subject_label', 'visual subject').split()[-1]}>" for item in bound_cast)
         intro += (
-            "BOUND_CAST_PRESENCE_LOCK: the declared bound cast is the complete foreground cast for the entire shot "
+            "BOUND_CAST_PRESENCE_LOCK: the declared bound cast is the complete visible cast at every depth for the entire shot "
             f"({labels}). Keep the same registered body or bodies visibly present in every frame at a stable human scale; "
             "the environment image is a background layer only and can never replace the cast. No empty hall, empty room, "
             "throne-only, architecture-only, corridor-only or background-only frame is allowed. Never shrink, grow, float, "
@@ -561,7 +648,7 @@ def h3_prompt(shot, style):
         # shot-level visibility contract govern dialogue framing.
         intro += (
             "VISUAL_TIMELINE_LOCK: perform the bound blocking and camera move continuously from start to end. "
-            "Use the declared time windows only for picture timing; visual metadata is non-speech.\n"
+            "Use the declared time windows only for picture timing; production directions are non-speech.\n"
         )
         visible_subjects = sorted({
             str(event.get("subject_label"))
@@ -619,7 +706,8 @@ def h3_prompt(shot, style):
     # the tail increased the amount of text available to H3's audio head and
     # made metadata more likely to be interpreted as a vocal continuation.
     if shot.get("scene_continuity_contract"):
-        intro += "\nVisual set continuity (not spoken): " + shot["scene_continuity_contract"]["prompt"]
+        continuity = shot["scene_continuity_contract"]["prompt"]
+        intro += "\nVisual set continuity (not spoken): " + _speech_safe_visual_text(continuity)
     tail = (f"\noverall_soundscape:\n{soundscape}\n\nnon_diegetic_music:\nN/A")
     if shot["mode"] == "fl2va":
         alignment = ""
@@ -650,6 +738,12 @@ def h3_prompt(shot, style):
             else:
                 description = f"exactly one{identity_label} {gender} using only the bound independent {view} view"
             lock = ref["lock"] + "; render one instance only, with no duplicate, inset, reflection or clone"
+            instances = int(package_ref.get("expected_instances") or 1)
+            if instances > 1:
+                description = (f"one registered group containing exactly {instances} distinct members "
+                               f"using only the bound independent {view} view; preserve each member's identity and order")
+                lock = (ref["lock"] + f"; render exactly {instances} member bodies once each, "
+                        "with no omitted member, extra person, duplicate, inset, reflection or clone")
         elif package_ref and package_ref["kind"] == "scene":
             description = "the environment"
             lock = ref["lock"] + "; use it only as the location and never as a person or voice source"

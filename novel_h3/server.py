@@ -4,6 +4,7 @@ import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import mimetypes
+import os
 from pathlib import Path
 import re
 import shutil
@@ -187,11 +188,18 @@ class Handler(BaseHTTPRequestHandler):
                 payload = snapshot(self.root)
                 payload["project_context"] = _project_context(self.root)
                 return self.send_json(payload)
+            if url.path == "/api/production-progress":
+                from .progress import cinema_progress
+                payload = cinema_progress(self.root) or {"available": False}
+                payload["project_context"] = _project_context(self.root)
+                payload["workbench_pid"] = os.getpid()
+                return self.send_json(payload)
             if url.path == "/api/workflow":
                 from .workflow import summary
                 return self.send_json(summary(self.root))
             if url.path == "/api/status":
                 payload = status(self.root)
+                payload["production_available"] = any(self.root.glob('production_v2/*/progress.json'))
                 payload["project_context"] = _project_context(self.root)
                 return self.send_json(payload)
             if url.path == "/api/audio-reports":
@@ -206,9 +214,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(visual_packet(self.root, parse_qs(url.query)["episode"][0]))
             if url.path == "/":
                 return self.file(Path(__file__).with_name("web.html"))
+            if url.path in ('/cinema_dashboard.js', '/cinema_dashboard.css'):
+                return self.file(Path(__file__).with_name(url.path[1:]))
             if url.path == "/media":
                 path = inside(self.root, parse_qs(url.query)["path"][0])
-                if path.suffix.lower() not in (".mp4", ".png", ".jpg", ".jpeg", ".webp", ".srt", ".json", ".jsonl", ".flac", ".wav", ".txt"):
+                if path.suffix.lower() not in (".mp4", ".png", ".jpg", ".jpeg", ".webp", ".srt", ".json", ".jsonl", ".flac", ".wav", ".txt", ".md"):
                     raise ValueError("不支持的文件类型")
                 return self.file(path)
             self.send_error(404)
@@ -228,9 +238,11 @@ class Handler(BaseHTTPRequestHandler):
             url = urlsplit(self.path)
             if url.path == "/":
                 return self.file(Path(__file__).with_name("web.html"), head=True)
+            if url.path in ('/cinema_dashboard.js', '/cinema_dashboard.css'):
+                return self.file(Path(__file__).with_name(url.path[1:]), head=True)
             if url.path == "/media":
                 path = inside(self.root, parse_qs(url.query)["path"][0])
-                if path.suffix.lower() not in (".mp4", ".png", ".jpg", ".jpeg", ".webp", ".srt", ".json", ".jsonl", ".flac", ".wav", ".txt"):
+                if path.suffix.lower() not in (".mp4", ".png", ".jpg", ".jpeg", ".webp", ".srt", ".json", ".jsonl", ".flac", ".wav", ".txt", ".md"):
                     raise ValueError("不支持的文件类型")
                 return self.file(path, head=True)
             self.send_error(404)
@@ -348,7 +360,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(end - start + 1))
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("X-Content-Type-Options", "nosniff")
-        if path.suffix.lower() in (".html", ".htm"):
+        if path.suffix.lower() in (".html", ".htm", ".js", ".css"):
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
         if value:
             self.send_header("Content-Range", f"bytes {start}-{end}/{total}")

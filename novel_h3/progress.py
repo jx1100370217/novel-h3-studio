@@ -5,7 +5,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from .project import read, sync_speech_reports
+from .project import file_hash, read, sync_speech_reports
 from .safety import PAUSE, REPO, user_service_env
 
 
@@ -43,11 +43,26 @@ def parse_sampling_progress(text, total_steps=8):
     return (matches[-1] if matches else None), initializing
 
 
+def _prefer_websocket_progress(log_steps, live):
+    """Use websocket steps only when they are at least as current as the log."""
+    if not live:
+        return False
+    live_steps = live.get('steps')
+    if live_steps is not None:
+        return log_steps is None or live_steps >= log_steps
+    if log_steps is None:
+        return True
+    return live.get('stage') in {
+        '保存采样结果', '解码视频与音频', '封装视频', '生成完成，等待核对',
+    }
+
+
 def _live_comfy_text(active):
     """Read current ComfyUI output without touching the generation queue."""
     if not active:
         return '', 'none'
     chunks = []
+    source = 'none'
     # The dedicated service writes to journald. Filter by task start time so
     # older completed prompts cannot be shown as the active task.
     try:
@@ -69,18 +84,26 @@ def _live_comfy_text(active):
                 messages.append(str(message))
             if messages:
                 chunks.append('\n'.join(messages))
+                source = 'journal'
     except (OSError, subprocess.SubprocessError, ValueError):
         pass
     # File-log fallback for installations launched outside systemd.
     for path in (REPO / 'runtime/comfy-resource-optimized.log',
                  REPO / 'runtime/comfy-vdn.log',
-                 REPO / 'runtime/comfy-vdn-retry.log'):
+                 REPO / 'runtime/comfy-vdn-retry.log',
+                 REPO / 'runtime/liaozhai_comfy_start.log'):
         try:
             if path.exists() and path.stat().st_mtime >= float(active['created_at']):
-                chunks.append(tail(path))
+                text = tail(path)
+                if path.name == 'liaozhai_comfy_start.log':
+                    prompts = list(re.finditer(r'(?m)^.*got prompt.*$', text))
+                    if prompts:
+                        text = text[prompts[-1].start():]
+                chunks.append(text)
+                source = 'file'
         except (OSError, ValueError):
             continue
-    return '\n'.join(chunks), 'journal' if chunks else 'none'
+    return '\n'.join(chunks), source
 
 
 def _parallel_preparation(root):
@@ -238,9 +261,14 @@ def snapshot(root):
     from .live_progress import listener
     live = listener(root).get(active.get('prompt_id') if active else None)
     if live:
-        steps, stage = live['steps'], live['stage']
-        total_steps = live.get('steps_total', total_steps)
-        progress_source = 'websocket'
+        # Comfy's websocket can miss intermediate progress events for H3's
+        # long sampler. Prefer the larger current-step count from the process
+        # log, while still accepting websocket stage transitions and newer
+        # step counts immediately.
+        if _prefer_websocket_progress(steps, live):
+            steps, stage = live.get('steps'), live['stage']
+            total_steps = live.get('steps_total', total_steps)
+            progress_source = 'websocket'
     generation = cfg.get('generation', {})
     delivery = cfg.get('delivery', generation)
     resolution_label = (f"成片 {delivery.get('width', '—')} × {delivery.get('height', '—')}"
@@ -277,7 +305,7 @@ def snapshot(root):
     from .rework_queue import snapshot as rework_snapshot
     from .media import assembly_progress
     parallel_preparation = _parallel_preparation(root)
-    return {'video_control': video_activity, 'preparation_progress': preparation_summary(root), 'parallel_preparation': parallel_preparation, 'preparation_targets': _preparation_targets(root, parallel_preparation), 'book_progress': book_progress(root, takes), 'chapter_assembly': assembly_progress(root), 'video_engine': video_engine, 'resolution_label': resolution_label, 'updated_at': time.time(), 'paused': PAUSE.exists(),
+    return {'cinema_v2': cinema_progress(root), 'video_control': video_activity, 'preparation_progress': preparation_summary(root), 'parallel_preparation': parallel_preparation, 'preparation_targets': _preparation_targets(root, parallel_preparation), 'book_progress': book_progress(root, takes), 'chapter_assembly': assembly_progress(root), 'video_engine': video_engine, 'resolution_label': resolution_label, 'updated_at': time.time(), 'paused': PAUSE.exists(),
             'pause_reason': PAUSE.read_text() if PAUSE.exists() else None,
             'chapter': episode.get('title', '尚无任务'), 'episode': latest['episode'] if latest else None,
             'total': len(episode['shots']), 'completed': len(completed),
@@ -296,3 +324,64 @@ def snapshot(root):
                         'speech_exception': speech_exception(t),
                         'speech_exception_label': '转写核对失败·已保留' if speech_exception(t) else None}
                        for t in list(reversed(shots))[:8]]}
+
+
+def cinema_progress(root):
+    """Show the new production revision without counting old approved clips as new work."""
+    paths = list(Path(root).glob('production_v2/*/progress.json'))
+    if not paths:
+        return None
+    path = max(paths, key=lambda p: p.stat().st_mtime)
+    data = read(path)
+    plan_path = Path(root) / data['plan_path'] if data.get('plan_path') else path.parent / 'pilot.json'
+    plan = read(plan_path)
+    data.update(title=plan.get('title', plan['id']), planned_total=len(plan['shots']),
+                script=str((path.parent / 'screenplay.md').relative_to(root)),
+                model=('MiniMax H3 · 对白驱动表演' if data.get('audio_route') == 'h3_audio_conditioned'
+                       else 'MiniMax H3 · 原生音画'), release_approved=False)
+    data['stage'] = {'generating': '正在生成原生音画', 'speech_screening': '正在核对台词',
+                     'candidates_ready': '候选完成，待审片', 'failed': '本次任务已停止',
+                     'quality_review': '质量复核与对白方案验证',
+                     'dialogue_preparation': '正在制作全章白话对白',
+                     'audio_roundtrip': '正在验证H3对白音频',
+                     'dialogue_screening': '正在核对全章对白',
+                     'editing': '正在剪辑全章审片版',
+                     'chapter_review_ready': '全章审片版已生成，待影视质量审核'}.get(data['status'], data['status'])
+    if data['status'] == 'generating':
+        live_text, source = _live_comfy_text({'created_at': data['started_at']})
+        steps, _ = parse_sampling_progress(live_text, 20)
+        data.update(steps=steps, steps_total=20, progress_source=source)
+        from .live_progress import listener
+        live = listener(root).get(data.get('prompt_id'))
+        if _prefer_websocket_progress(steps, live):
+            data.update(steps=live.get('steps'), stage=live['stage'], progress_source='websocket')
+    rows = []
+    reused_ids = {Path(p).name for p in plan.get('reused_takes', {}).values()}
+    for receipt in path.parent.glob('takes/*/take.json'):
+        take = read(receipt)
+        take_plan = take.get('plan_id')
+        if not take_plan and (receipt.parent / 'request.json').exists():
+            take_plan = read(receipt.parent / 'request.json').get('plan_id')
+        if take_plan != plan['id'] and take['id'] not in reused_ids:
+            continue
+        media = receipt.parent / 'native.mp4'
+        if take.get('technical_qc', {}).get('passed') is True and media.exists():
+            rows.append({'shot': take['shot_id'], 'take_id': take['id'],
+                         'video': str(media.relative_to(root)), 'status': take['status'],
+                         'transcript_passed': take.get('speech_screening', {}).get('passed'),
+                         'completed_at': take.get('completed_at', 0)})
+    data['generated_shots'] = len({row['shot'] for row in rows})
+    data['recent'] = sorted(rows, key=lambda r: r['completed_at'], reverse=True)[:6]
+    audio_manifest = path.parent / 'chapter_audio/manifest.json'
+    if audio_manifest.exists():
+        audio = read(audio_manifest)
+        data['audio_prepared'] = sum(bool(e.get('target', {}).get('path')) for e in audio.get('entries', []))
+        data['audio_total'] = audio.get('dialogue_shots', 0)
+        check_path = audio_manifest.with_name('manifest.speech_check.json')
+        if check_path.exists():
+            checks = read(check_path)
+            if checks.get('manifest_sha256') == file_hash(audio_manifest):
+                data['audio_checked'] = checks['counts']['entries']
+                data['audio_passed'] = checks['counts']['passed']
+    from .cinema_dashboard import enrich
+    return enrich(root, path, plan, data)

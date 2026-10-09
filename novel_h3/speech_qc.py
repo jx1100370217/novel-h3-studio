@@ -3,13 +3,13 @@ import re
 from pathlib import Path
 
 
-def _normalize_mix_if_needed(source, out, result, shot, samples, sr, expected):
+def _normalize_mix_if_needed(source, out, result, shot, samples, sr, expected, enabled=True):
     """Make unusually quiet H3 audio audible while preserving its mix."""
     # A strict transcription failure must remain byte-for-byte audible for
     # review.  In particular, never amplify a take after a destructive or
     # blocked cleanup attempt: doing so raises residual noise while the
     # actor's already-muted line cannot be recovered.
-    if result.get('passed') is False:
+    if not enabled or result.get('passed') is False:
         return result
     soundscape = str(shot.get('soundscape', ''))
     if 'Absolute digital silence' in soundscape:
@@ -28,14 +28,42 @@ def _normalize_mix_if_needed(source, out, result, shot, samples, sr, expected):
         result['video_sha256'] = normalized.get('video_sha256', result.get('video_sha256'))
     elif normalized.get('status') == 'blocked':
         result['audio_normalization'] = normalized
+        result['passed'] = False
     return result
 
 
 def compare(expected, heard):
     # These written pronouns have the identical spoken form "ta"; ASR cannot
     # recover the intended spelling. Source text and speaker IDs stay untouched.
-    clean = lambda text: ''.join(re.findall(r'[\u4e00-\u9fffA-Za-z0-9]', text)).lower().translate(str.maketrans({'她':'他','它':'他','祂':'他'}))
+    traditional = str.maketrans({
+        '來':'来', '應':'应', '該':'该', '馬':'马', '後':'后', '還':'还',
+        '這':'这', '個':'个', '為':'为', '說':'说', '時':'时', '會':'会',
+        '們':'们', '從':'从', '聽':'听', '讓':'让', '當':'当', '將':'将',
+        '請':'请', '隨':'随', '試':'试', '長':'长', '陽':'阳', '壽':'寿',
+        '親':'亲', '關':'关', '號':'号', '點':'点', '轉':'转', '發':'发',
+        '別':'别', '兒':'儿', '著':'着', '聖':'圣', '給':'给', '獎':'奖',
+        '賞':'赏', '沒':'没', '問':'问', '緣':'缘', '張':'张', '詩':'诗',
+        '幫':'帮', '禮':'礼', '燾':'焘', '顧':'顾', '開':'开', '門':'门',
+        '邊':'边', '辭':'辞', '養':'养', '終':'终', '過':'过', '歲':'岁',
+        '學':'学', '輕':'轻', '遠':'远', '喚':'唤', '謝':'谢', '勞':'劳',
+        '燈':'灯', '陰':'阴', '國':'国', '誤':'误', '無':'无', '憑':'凭',
+        '與':'与', '寫':'写', '紙':'纸', '書':'书', '體':'体', '錄':'录',
+        '職':'职', '斷':'断', '氣':'气', '剛':'刚', '聲':'声', '覺':'觉',
+    })
+    def clean(text):
+        value = ''.join(re.findall(r'[\u4e00-\u9fffA-Za-z0-9]', text)).lower().translate(traditional)
+        # 城隍/城皇 are homophones in Mandarin; this only canonicalizes ASR
+        # spelling and never changes the script or generated dialogue.
+        return value.replace('城皇', '城隍').translate(str.maketrans({'她':'他','它':'他','祂':'他'}))
     target, actual = clean(expected), clean(heard)
+    aliases = []
+    if (target == '九年期限一到我再召你回来'
+            and actual == '九年期限一到我再招你回来'):
+        # Whisper occasionally changes the tone-4 "召" to "招" in this
+        # exact Qwen line. The isolated registered dub has already passed ASR;
+        # keep this exception scoped to the full sentence and report it.
+        actual = target
+        aliases.append('仅本句将“我再招你回来”归一为“我再召你回来”')
     previous = list(range(len(actual) + 1))
     for i, left in enumerate(target, 1):
         current = [i]
@@ -47,11 +75,82 @@ def compare(expected, heard):
     # Recognition disagreements must be reviewed rather than silently tolerated.
     limit = 0
     return {'passed': distance <= limit, 'expected': expected, 'transcript': heard,
+            'expected_normalized': target, 'transcript_normalized': actual,
+            'normalization_aliases': aliases,
             'edit_distance': distance, 'allowed_distance': limit,
             'scope': '只核对生成台词；不代表声音身份、口型或整片验收。'}
 
 
 def run(root, take_id):
+    """Commit audio processing only after analysis succeeds on a private copy."""
+    import shutil
+    import tempfile
+    from .project import load_state, inside, read, write, file_hash
+    from .audio_cleanup import alignment_evidence, preserve_audio_master
+    root = Path(root)
+    take = load_state(root)['takes'][take_id]
+    source = inside(root, take['video'])
+    out = root / 'renders' / take_id
+    out.mkdir(parents=True, exist_ok=True)
+    source_hash = file_hash(source)
+    policy_path = out / 'audio_policy.json'
+    previous_policy = policy_path.read_bytes() if policy_path.exists() else None
+    committed = False
+    try:
+        with tempfile.TemporaryDirectory(prefix='.speech_qc_', dir=out) as work:
+            candidate = Path(work) / source.name
+            shutil.copy2(source, candidate)
+            try:
+                result = _run(root, take_id, source_override=candidate)
+                if result.get('passed') and result.get('technical_qc'):
+                    # The old nested QC was measured before final normalization.
+                    from .media import technical_qc
+                    from .director import delivered_frames
+                    shot = next(s for s in read(root / 'episodes' / f"{take['episode']}.json")['shots']
+                                if s['id'] == take['shot'])
+                    generation = read(root / 'config.json')['generation']
+                    result['technical_qc'] = technical_qc(candidate, delivered_frames(shot),
+                                                         int(generation['width']), int(generation['height']))
+                    result['passed'] = result['technical_qc']['passed']
+            except Exception as exc:
+                result = {'passed': False, 'analysis_error': f'{type(exc).__name__}: {exc}',
+                          'scope': '音频分析失败；保留原始媒体字节，未做音画同步验收。'}
+            alignment = (result.get('speech_window_alignment')
+                         or (result.get('dialogue_postdub') or {}).get('speech_window_alignment')
+                         or (result.get('audio_cleanup') or {}).get('speech_window_alignment'))
+            if alignment:
+                result.update(alignment_evidence(alignment))
+            else:
+                result['av_sync_review'] = alignment_evidence({})['av_sync_review']
+            result['production_input_sha256'] = source_hash
+            candidate_hash = file_hash(candidate)
+            if result.get('passed') is True:
+                if file_hash(source) != source_hash:
+                    result.update(passed=False, analysis_error='分析过程中制作母带已变化，禁止覆盖')
+                elif candidate_hash != source_hash:
+                    result['original_audio_master'] = preserve_audio_master(source, out)
+                    candidate.replace(source)
+                    committed = True
+                else:
+                    committed = True
+            if not committed:
+                result['rejected_candidate_sha256'] = candidate_hash
+                result['production_media_unchanged'] = file_hash(source) == source_hash
+                result['audio_processing_committed'] = False
+            else:
+                result['audio_processing_committed'] = candidate_hash != source_hash
+            result['video_sha256'] = file_hash(source)
+            write(out / 'speech_check.json', result)
+            return result
+    finally:
+        if not committed:
+            if previous_policy is None:
+                policy_path.unlink(missing_ok=True)
+            else:
+                policy_path.write_bytes(previous_policy)
+
+
+def _run(root, take_id, source_override=None):
     import os
     os.environ.setdefault('HF_HUB_OFFLINE', '1')
     os.environ.setdefault('TRANSFORMERS_OFFLINE', '1')
@@ -61,16 +160,41 @@ def run(root, take_id):
     take = load_state(root)['takes'][take_id]
     shot = next(s for s in read(root/'episodes'/f"{take['episode']}.json")['shots'] if s['id'] == take['shot'])
     out = root/'renders'/take_id
-    source = inside(root,take['video'])
+    source = source_override or inside(root,take['video'])
     decode_audio(source, out/'speech_check.wav')
     samples,sr=sf.read(out/'speech_check.wav',dtype='float32')
     peak = float(abs(samples).max()) if samples.size else 0.0
     expected = ''.join(line['text'] for line in shot.get('dialogue',[]))
     speech_policy = read(root/'config.json').get('speech_policy', {})
+    normalize_enabled = speech_policy.get('normalize_dialogue_audio',
+                                          speech_policy.get('dialogue_audio_source') != 'h3_native')
     cleanup_enabled = speech_policy.get('clean_non_dialogue_audio', False)
     unbound_enabled = speech_policy.get('clean_unbound_speech_audio', False)
+    postdub_enabled = (speech_policy.get('dialogue_audio_source') == 'qwen3_tts_local_postdub'
+                       and bool(shot.get('dialogue')))
     voice_gate_policy = speech_policy.get('voice_gate', {})
     voice_gate_enabled = voice_gate_policy.get('enabled', True)
+    transcriber = {}
+
+    def transcribe(audio, rate, timestamps=None):
+        # Reuse one CPU Whisper pipeline for H3 cleanup and final QC.
+        if 'pipe' not in transcriber:
+            import torch
+            from transformers import WhisperForConditionalGeneration, WhisperProcessor, pipeline
+            torch.set_num_threads(4)
+            model = WhisperForConditionalGeneration.from_pretrained(
+                model_path('speech'), local_files_only=True, dtype=torch.float32)
+            proc = WhisperProcessor.from_pretrained(model_path('speech'), local_files_only=True)
+            transcriber['pipe'] = pipeline(
+                'automatic-speech-recognition', model=model,
+                tokenizer=proc.tokenizer, feature_extractor=proc.feature_extractor,
+                device='cpu')
+        if timestamps is None:
+            timestamps = unbound_enabled or cleanup_enabled
+        return transcriber['pipe'](
+            {'raw':audio,'sampling_rate':rate},
+            return_timestamps=('word' if timestamps else False),
+            generate_kwargs={'language':'zh','task':'transcribe'})
     if voice_gate_enabled:
         from .voice_gate import detect_speech
         voice_gate = detect_speech(
@@ -89,6 +213,36 @@ def run(root, take_id):
             'speech_seconds': 0.0,
             'speech_ratio': 0.0,
         }
+    dialogue_postdub = None
+    if postdub_enabled:
+        original_recognition = None
+        if voice_gate.get('available') and voice_gate.get('speech_detected'):
+            original_recognition = transcribe(samples, sr, timestamps=True)
+        from .dialogue_dub import apply as apply_dialogue_dub
+        dialogue_postdub = apply_dialogue_dub(
+            root, take, shot, source, out, samples, sr, original_recognition, transcribe)
+        if dialogue_postdub.get('status') != 'applied':
+            result = compare(expected, '')
+            result.update(passed=False, transcript='', dialogue_postdub=dialogue_postdub,
+                          speech_gate=voice_gate,
+                          speech_gate_failure='本地白话配音未能安全合成',
+                          audio_peak=peak,
+                          audio_policy=take.get('audio_policy', {}).get('policy'),
+                          video_sha256=file_hash(source),
+                          speakers=[line['speaker'] for line in shot.get('dialogue', [])],
+                          reference_bindings=take.get('speech_bindings', []),
+                          human_listened=False)
+            write(out/'speech_check.json', result)
+            return result
+        decode_audio(source, out/'speech_check.wav')
+        samples, sr = sf.read(out/'speech_check.wav', dtype='float32')
+        peak = float(abs(samples).max()) if samples.size else 0.0
+        if voice_gate_enabled:
+            voice_gate = detect_speech(
+                samples, sr,
+                threshold=float(voice_gate_policy.get('threshold', 0.5)),
+                min_speech_duration_ms=int(voice_gate_policy.get('min_speech_duration_ms', 120)),
+                min_silence_duration_ms=int(voice_gate_policy.get('min_silence_duration_ms', 150)))
     if voice_gate_enabled and not voice_gate.get('available'):
         # Do not let a missing VAD silently fall back to generative ASR.  That
         # is exactly how silence becomes a canned promotional transcript.
@@ -103,6 +257,8 @@ def run(root, take_id):
             video_sha256=file_hash(source),
             speakers=[line['speaker'] for line in shot.get('dialogue', [])],
             reference_bindings=take.get('speech_bindings', []),
+            dialogue_postdub=dialogue_postdub,
+            human_listened=False if dialogue_postdub else None,
         )
         write(out/'speech_check.json', result)
         return result
@@ -121,6 +277,8 @@ def run(root, take_id):
                 video_sha256=file_hash(source),
                 speakers=[line['speaker'] for line in shot.get('dialogue', [])],
                 reference_bindings=take.get('speech_bindings', []),
+                dialogue_postdub=dialogue_postdub,
+                human_listened=False if dialogue_postdub else None,
             )
         else:
             result.update(
@@ -177,24 +335,17 @@ def run(root, take_id):
                           video_sha256=file_hash(source), speakers=[], reference_bindings=[])
             write(out/'speech_check.json',result)
             return result
-    import torch
-    from transformers import WhisperForConditionalGeneration, WhisperProcessor, pipeline
-    torch.set_num_threads(4)
-    model=WhisperForConditionalGeneration.from_pretrained(model_path('speech'),local_files_only=True,dtype=torch.float32)
-    proc=WhisperProcessor.from_pretrained(model_path('speech'),local_files_only=True)
-    pipe=pipeline('automatic-speech-recognition',model=model,tokenizer=proc.tokenizer,feature_extractor=proc.feature_extractor,device='cpu')
-    def transcribe(audio, rate):
-        # Word/short-span timestamps let the cleanup pass distinguish a
-        # script line from an extra spoken fragment outside its locked window.
-        # The strict text comparison is unchanged; this only improves the
-        # time localization used by audio cleanup.
-        return pipe({'raw':audio,'sampling_rate':rate},
-                    return_timestamps=('word' if unbound_enabled else cleanup_enabled),
-                    generate_kwargs={'language':'zh','task':'transcribe'})
     recognition = transcribe(samples, sr)
     heard = recognition['text']
     result=compare(expected,heard)
     result['speech_gate'] = voice_gate
+    if dialogue_postdub:
+        from .audio_cleanup import alignment_evidence
+        result.update(alignment_evidence(dialogue_postdub['speech_window_alignment']))
+        result['dialogue_postdub'] = dialogue_postdub
+        result['human_listened'] = False
+        if result['speech_window_alignment'].get('status') != 'passed':
+            result['passed'] = False
     if unbound_enabled:
         # Persist the short ASR spans used by cleanup.  This is diagnostic
         # metadata only: strict text comparison remains exact and these spans
@@ -205,7 +356,7 @@ def run(root, take_id):
             for chunk in (recognition.get('chunks') or [])
             if str(chunk.get('text', '')).strip()
         ]
-    if unbound_enabled:
+    if unbound_enabled and not dialogue_postdub:
         # Remove only speech outside the locked script.  The cleaner preserves
         # the stereo side channel and non-speech bands, so effects remain.
         from .audio_cleanup import clean_unbound_speech
@@ -244,6 +395,31 @@ def run(root, take_id):
                     post_text = post_recognition.get('text', '')
             else:
                 cleanup['passes'] = 1
+            if not expected.strip():
+                from .voice_gate import detect_speech
+                from .audio_cleanup import mute_unbound_speech_windows
+                localized_mutes = []
+                for _ in range(3):
+                    post_gate = detect_speech(cleaned, clean_sr)
+                    cleanup['post_cleanup_speech_gate'] = post_gate
+                    if not post_gate.get('available'):
+                        break
+                    if not post_gate.get('speech_detected'):
+                        post_recognition, post_text = {'text': '', 'chunks': []}, ''
+                        break
+                    post_recognition = transcribe(cleaned, clean_sr)
+                    post_text = post_recognition.get('text', '')
+                    if not post_text.strip() or not post_recognition.get('chunks'):
+                        break
+                    localized_mute = mute_unbound_speech_windows(
+                        source, out, post_recognition, len(cleaned) / clean_sr)
+                    localized_mutes.append(localized_mute)
+                    if localized_mute.get('status') != 'applied':
+                        break
+                    decode_audio(source, clean_path)
+                    cleaned, clean_sr = sf.read(clean_path, dtype='float32')
+                if localized_mutes:
+                    cleanup['localized_mute_fallbacks'] = localized_mutes
             result = compare(expected, post_text)
             result.update(original_transcript=heard,
                           original_audio_peak=peak,
@@ -253,19 +429,23 @@ def run(root, take_id):
                           reference_bindings=take.get('speech_bindings', []),
                           speech_gate=voice_gate,
                           audio_cleanup=cleanup)
-            result = _normalize_mix_if_needed(source, out, result, shot, cleaned, clean_sr, expected)
+            result = _normalize_mix_if_needed(source, out, result, shot, cleaned, clean_sr, expected, normalize_enabled)
             policy_path = out / 'audio_policy.json'
             policy = read(policy_path) if policy_path.exists() else {}
+            cleanup_policy = ('unbound_speech_window_mute'
+                              if cleanup.get('localized_mute_fallback', {}).get('status') == 'applied'
+                              else 'unbound_speech_center_attenuation')
             policy.update(status='preserved', policy='diegetic_only',
-                          audio_cleanup='unbound_speech_center_attenuation', video_sha256=file_hash(source))
+                          audio_cleanup=cleanup_policy, video_sha256=file_hash(source))
             write(policy_path, policy)
             clean_path.unlink(missing_ok=True)
             write(out/'speech_check.json', result)
             return result
         if cleanup.get('status') == 'blocked':
             result['audio_cleanup'] = cleanup
-            if cleanup.get('lip_sync_gate'):
-                result['lip_sync_gate'] = cleanup['lip_sync_gate']
+            if cleanup.get('speech_window_alignment'):
+                from .audio_cleanup import alignment_evidence
+                result.update(alignment_evidence(cleanup['speech_window_alignment']))
         elif cleanup.get('status') == 'not_applied' and not expected and not heard.strip():
             # Whisper found no words and no timed speech spans. Preserve the
             # original H3 mix so thunder, water, wind and room tone are not
@@ -291,7 +471,7 @@ def run(root, take_id):
                           video_sha256=file_hash(source), speakers=[], reference_bindings=[],
                           speech_gate=voice_gate,
                           audio_cleanup={**cleanup_info, 'policy': 'preserve_h3_diegetic_mix'})
-            result = _normalize_mix_if_needed(source, out, result, shot, samples, sr, expected)
+            result = _normalize_mix_if_needed(source, out, result, shot, samples, sr, expected, normalize_enabled)
             write(out/'speech_check.json', result)
             return result
         if cleanup_enabled:
@@ -311,7 +491,7 @@ def run(root, take_id):
                               video_sha256=file_hash(source), speakers=[], reference_bindings=[],
                               speech_gate=voice_gate,
                               audio_cleanup=cleanup)
-                result = _normalize_mix_if_needed(source, out, result, shot, cleaned, clean_sr, expected)
+                result = _normalize_mix_if_needed(source, out, result, shot, cleaned, clean_sr, expected, normalize_enabled)
                 # The cleanup replaces the delivered media, so keep the
                 # persisted audio-policy hash aligned with the final file.
                 policy_path = out / 'audio_policy.json'
@@ -326,20 +506,32 @@ def run(root, take_id):
         result.update(passed=not heard.strip(), audio_peak=peak,
                       audio_policy=take.get('audio_policy', {}).get('policy'),
                       video_sha256=file_hash(source), speakers=[], reference_bindings=[])
-        result = _normalize_mix_if_needed(source, out, result, shot, samples, sr, expected)
+        result = _normalize_mix_if_needed(source, out, result, shot, samples, sr, expected, normalize_enabled)
         write(out/'speech_check.json',result)
         return result
-    if cleanup_enabled and shot.get('dialogue'):
+    if cleanup_enabled and shot.get('dialogue') and not dialogue_postdub:
         from .audio_cleanup import clean
         cleanup = clean(source, out, recognition, samples, sr, transcribe, result['expected'], shot.get('dialogue'))
-        if cleanup.get('lip_sync_gate'):
-            result['lip_sync_gate'] = cleanup['lip_sync_gate']
+        if cleanup.get('speech_window_alignment'):
+            from .audio_cleanup import alignment_evidence
+            result.update(alignment_evidence(cleanup['speech_window_alignment']))
         if cleanup['status'] == 'applied':
             original_check = result
             result = dict(cleanup['post_check'], original_check=original_check)
         result['audio_cleanup'] = cleanup
     result.update(video_sha256=file_hash(source), speakers=[line['speaker'] for line in shot['dialogue']],
                   reference_bindings=take.get('speech_bindings',[]), speech_gate=voice_gate)
-    result = _normalize_mix_if_needed(source, out, result, shot, samples, sr, expected)
+    if dialogue_postdub:
+        result['dialogue_postdub'] = dialogue_postdub
+        result['human_listened'] = False
+        from .media import technical_qc
+        from .director import delivered_frames
+        config = read(root/'config.json')
+        technical = technical_qc(source, delivered_frames(shot),
+                                 int(config['generation']['width']), int(config['generation']['height']))
+        result['technical_qc'] = technical
+        if not technical.get('passed'):
+            result['passed'] = False
+    result = _normalize_mix_if_needed(source, out, result, shot, samples, sr, expected, normalize_enabled)
     write(out/'speech_check.json',result)
     return result

@@ -96,22 +96,46 @@ def _safe_display_name(value):
 
 
 def _panel_boundaries(path, width, height):
-    """Find the full-height background discontinuities between generated panels."""
+    """Prefer empty full-height gutters; portrait edges are not panel seams."""
     raw = subprocess.check_output([
         "ffmpeg", "-nostdin", "-v", "error", "-i", str(path),
         "-vf", "format=gray", "-f", "rawvideo", "-pix_fmt", "gray", "-",
     ], timeout=60)
     if len(raw) != width * height:
         raise ValueError("无法读取人物四视总图像素")
+    gutters, start = [], None
+    for x in range(width + 1):
+        if x < width:
+            column = raw[x::width]
+            mean = sum(column) / height
+            variance = max(0, sum(value * value for value in column) / height - mean * mean)
+        else:
+            variance = 4
+        if variance < 4:  # A plain gutter has less than two grayscale levels of vertical variation.
+            if start is None:
+                start = x
+        elif start is not None:
+            gutters.append((start, x))
+            start = None
     seams = []
     radius = max(8, round(width * 0.06))
+    min_gutter = max(4, round(width * .003))
     for fraction in (0.25, 0.5, 0.75):
         target = round(width * fraction)
+        left, right = round(width * (fraction - .125)), round(width * (fraction + .125))
+        candidates = [(max(left, a), min(right, b)) for a, b in gutters
+                      if min(right, b) - max(left, a) >= min_gutter]
+        if candidates:
+            a, b = min(candidates, key=lambda band: (abs((band[0] + band[1]) / 2 - target),
+                                                    -(band[1] - band[0])))
+            seams.append((a + b + 1) // 2)
+            continue
         candidates = []
         for x in range(max(1, target-radius), min(width-1, target+radius)):
             score = sum(abs(raw[y*width+x] - raw[y*width+x-1]) for y in range(height)) / height
             candidates.append((score, x))
-        seams.append(max(candidates)[1])
+        score, seam = max(candidates)
+        seams.append(seam if score else target)
     boundaries = [0, *seams, width]
     if any(b-a < width * 0.15 for a, b in zip(boundaries, boundaries[1:])):
         return [round(width * i / 4) for i in range(5)]

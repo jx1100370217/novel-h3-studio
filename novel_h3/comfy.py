@@ -1,6 +1,7 @@
 import json
 import copy
 import hashlib
+import math
 from pathlib import Path
 import re
 import shutil
@@ -36,6 +37,7 @@ _VISUAL_SPEAKER_RETAKE_TERMS = (
     "说话人", "人物不匹配", "角色不匹配", "画面错", "嘴型", "嘴动",
     "无极在说话", "盘古在说话", "女娲在说话", "人物错", "脸错",
     "说了对白", "说了对话", "误说", "错用对白", "对白错",
+    "听者不入镜", "画面只保留说话者", "单人近景",
 )
 
 
@@ -48,6 +50,9 @@ def _speaker_review_correction(note, dialogue=()):
     speakers = [str(line.get("speaker", "")).strip() for line in dialogue or []
                 if line.get("kind") != "voiceover" and str(line.get("speaker", "")).strip()]
     correct = speakers[0] if len(set(speakers)) == 1 else None
+    if correct and any(term in text for term in ("听者不入镜", "画面只保留说话者", "单人近景")):
+        return {"wrong_visual_speaker": None, "correct_speaker": correct,
+                "reason": "reviewed_single_speaker_composition", "single_subject_frame": True}
     wrong = None
     match = re.search(r"([\u4e00-\u9fff]{1,8})说了([\u4e00-\u9fff]{1,8})(?:的)?(?:对白|对话)", text)
     if match:
@@ -72,7 +77,7 @@ def _speaker_visual_retake(note, dialogue=()):
     return _speaker_review_correction(note, dialogue) is not None
 
 
-def _retake_shot_contract(shot, rework_item):
+def _retake_shot_contract(shot, rework_item, root=None):
     """Apply a repeatable speaker-dominant composition for identity retakes.
 
     A review note alone is too weak for H3: the old rework path could submit
@@ -82,22 +87,289 @@ def _retake_shot_contract(shot, rework_item):
     face behind one bound shoulder/back-of-head.
     """
     dialogue = shot.get("dialogue") or []
-    correction = _speaker_review_correction(rework_item.get("note"), dialogue) if rework_item else None
-    if not rework_item or not correction:
-        return copy.deepcopy(shot)
+    note = str(rework_item.get("note", "")) if rework_item else ""
+    result = copy.deepcopy(shot)
+    compact_note = re.sub(r"\s+", "", note)
+    exact_cast = (not dialogue and rework_item and any(
+        term in compact_note for term in (
+            "画面只能出现宋焘和张生", "只允许宋焘和张生出镜", "不得出现第三人",
+        )))
+    blank_paper = (not dialogue and rework_item and any(
+        term in note for term in ("纸面完全空白", "纸面必须完全空白")))
+    if exact_cast:
+        plan = copy.deepcopy(result.get("blocking_plan") or {})
+        actors = [actor for actor in plan.get("actors", []) if actor.get("asset_id")]
+        character_ids = list(dict.fromkeys(actor["asset_id"] for actor in actors))
+        if len(character_ids) < 2:
+            raise ValueError("精确双人重拍要求 blocking_plan 中至少绑定两位角色")
+        total_frames = max(1, int(result.get("frames", 1)) -
+                           (22 if result.get("continuity") == "continue" else 0))
+        end_frame = total_frames - 1
+        camera = dict(result.get("camera") or {})
+        camera.update(
+            size="balanced eye-level two-shot, both scholars chest-up and equally readable",
+            lens_mm=50,
+            movement="locked tripod",
+            motivation="Keep both registered scholars fully visible and unobstructed; leave no foreground space for another person.",
+            position={"x": 0.0, "y": -6.0, "z": 1.7},
+            look_at={"x": 0.0, "y": -1.0, "z": 1.3},
+        )
+        camera["path"] = [
+            {"frame": 0, "position": copy.deepcopy(camera["position"]),
+             "look_at": copy.deepcopy(camera["look_at"])},
+            {"frame": end_frame, "position": copy.deepcopy(camera["position"]),
+             "look_at": copy.deepcopy(camera["look_at"])},
+        ]
+        result["camera"] = camera
+        plan.update(expected_actor_count=len(character_ids),
+                    expected_body_count=len(character_ids),
+                    environment_only_allowed=False,
+                    actors=actors,
+                    offscreen_listeners=[])
+        result["blocking_plan"] = plan
+        names = [actor.get("mark", actor["asset_id"]).split(";", 1)[0] for actor in actors]
+        cast_label = "、".join(names)
+        first_action = f"仅出现已绑定的{cast_label}两人，两人分别坐在自己的考桌前继续书写；同一机位同时看清两人面部和上半身。不得有第三个人、监考者、差役、前景身体或遮挡张生的人。"
+        second_action = f"{cast_label}仍分别坐在原位；宋焘短暂举起自己的纸，张生留在画面中。没有人走入、站到两人之间或接收纸张。全片只有这两个人。"
+        if blank_paper:
+            second_action = f"{cast_label}仍分别坐在原位；宋焘短暂举起完全空白的纸，张生留在画面中。纸上没有字迹、笔画、印章或标记。没有人走入、站到两人之间或接收纸张。全片只有这两个人。"
+        result["action"] = first_action + " " + second_action
+        split_frame = min(96, total_frames)
+        result["timeline"] = [{"start_frame": 0, "end_frame": split_frame,
+                                "description": first_action}]
+        if split_frame < total_frames:
+            result["timeline"].append({"start_frame": split_frame, "end_frame": total_frames,
+                                       "description": second_action})
+        result["action_beats"] = [
+            {"start_frame": beat["start_frame"], "end_frame": beat["end_frame"],
+             "action": beat["description"]}
+            for beat in result["timeline"]
+        ]
+        result["handoff_out"] = "宋焘与张生仍分别坐在原考桌旁；仅二人入镜，无人接近或遮挡。"
+        composition = copy.deepcopy(result.get("composition") or {})
+        composition["primary_subject"] = "、".join(character_ids)
+        composition["actor_readability"] = "Exactly the two registered scholars remain chest-up and unobstructed in every frame; no third body enters or stands in the foreground."
+        result["composition"] = composition
+        contract = {
+            "mode": "exact_cast",
+            "visible_character_ids": character_ids,
+            "visible_body_count": len(character_ids),
+            "no_unbound_people": True,
+            "no_foreground_occlusion": True,
+        }
+        if blank_paper:
+            contract["blank_paper"] = True
+        result["retake_visual_contract"] = contract
+        if root:
+            assets = read(Path(root) / "bible" / "assets.json")
+            scene_and_props = {item.get("id") for section in ("scenes", "props")
+                               for item in assets.get(section, {}).values()}
+            keep_ids = set(character_ids) | scene_and_props | {result.get("scene_id")}
+            if blank_paper:
+                essay_ids = {item.get("id") for name, item in assets.get("props", {}).items()
+                             if any(word in str(name).lower() for word in ("essay", "试文"))
+                             or any(word in str(item.get("name", "")) for word in ("试文", "考卷"))}
+                keep_ids -= essay_ids
+            result["references"] = [ref for ref in result.get("references", [])
+                                     if ref.get("asset_id") in keep_ids]
+            result["required_assets"] = [asset_id for asset_id in result.get("required_assets", [])
+                                         if asset_id in keep_ids]
+        return result
+    if (not dialogue and ("纸面完全空白" in note or "纸面必须完全空白" in note)) and rework_item:
+        contract = {
+            "mode": "blank_paper",
+            "blank_paper": True,
+            "instruction": "Every manuscript page is featureless blank cream paper, with no strokes, glyphs, seals, headings or subtitles; show pages face down or turned away from camera.",
+        }
+        result["retake_visual_contract"] = contract
+        result["action"] = (str(result.get("action", "")) +
+                            " Retake visual correction: keep both manuscript pages face down or turned away; "
+                            "every page surface is completely blank, with no visible ink marks, letters, seals or captions.")
+        if root:
+            assets = read(Path(root) / "bible" / "assets.json")
+            essay_ids = {item.get("id") for name, item in assets.get("props", {}).items()
+                         if any(word in str(name).lower() for word in ("essay", "试文"))
+                         or any(word in str(item.get("name", "")) for word in ("试文", "考卷"))}
+            result["references"] = [ref for ref in result.get("references", [])
+                                     if ref.get("asset_id") not in essay_ids]
+            result["required_assets"] = [asset_id for asset_id in result.get("required_assets", [])
+                                         if asset_id not in essay_ids]
+        return result
+    correction = _speaker_review_correction(note, dialogue) if rework_item else None
+    if not correction:
+        return result
     result = copy.deepcopy(shot)
     speaker = correction.get("correct_speaker") or (dialogue[0].get("speaker") if dialogue else "")
-    result["speaker_focus_mode"] = "speaker_dominant"
+    solo = correction.get("single_subject_frame") is True
+    speaker_frame_prop = solo and "寿籍" in note and any(term in note for term in (
+        "寿籍必须清晰入镜", "双手持寿籍", "双手持同一本寿籍", "手中寿籍可见",
+        "寿籍持续显示", "册子持续显示",
+    ))
+    result["speaker_focus_mode"] = "speaker_only" if solo else "speaker_dominant"
     result["speaker_focus_name"] = speaker
+    if speaker_frame_prop:
+        result["speaker_frame_prop"] = True
     camera = dict(result.get("camera") or {})
-    camera["size"] = "speaker-dominant medium close-up with listener rear shoulder"
-    camera["motivation"] = "Correct the reviewed speaker-face mismatch; keep the assigned speaker as the visual focus."
+    if solo:
+        camera["size"] = (
+            "medium close-up from chest to head, both hands and blank longevity register visible"
+            if speaker_frame_prop else
+            "tight single-speaker close-up, head and shoulders fill frame"
+        )
+        camera["lens_mm"] = 70
+        camera["movement"] = "locked tripod"
+        camera["motivation"] = (
+            "Keep the only assigned speaking face large and readable while both hands and the held blank longevity register remain visible from frame zero through the line."
+            if speaker_frame_prop else
+            "Keep the only assigned speaking face readable from the first frame through the last dialogue window."
+        )
+        plan = copy.deepcopy(result.get("blocking_plan") or {})
+        actors = plan.get("actors", [])
+        voices = read(Path(root) / "bible" / "voices.json") if root else {}
+        speaker_asset = voices.get(speaker, {}).get("asset_id")
+        speaker_actor = next((actor for actor in actors
+                              if actor.get("asset_id") == speaker_asset
+                              or speaker in str(actor.get("mark", ""))), None)
+        if speaker_actor:
+            target = speaker_actor.get("start_position")
+            if not target:
+                path = speaker_actor.get("path") or []
+                target = next((point.get("position") for point in path
+                               if point.get("position") is not None), None)
+            if target:
+                heading = float(speaker_actor.get("heading", 0.0))
+                camera_distance = 3.2 if speaker_frame_prop else 2.8
+                camera["position"] = {
+                    "x": float(target["x"]) + math.sin(heading) * camera_distance,
+                    "y": float(target["y"]) - math.cos(heading) * camera_distance,
+                    "z": float(target["z"]) + (1.5 if speaker_frame_prop else 1.65),
+                }
+                camera["look_at"] = {
+                    "x": float(target["x"]), "y": float(target["y"]),
+                    "z": float(target["z"]) + (1.05 if speaker_frame_prop else 1.35),
+                }
+        position, look_at = camera.get("position"), camera.get("look_at")
+        if position and look_at:
+            end_frame = max(0, int(result.get("frames", 1)) - 1)
+            camera["path"] = [
+                {"frame": 0, "position": copy.deepcopy(position), "look_at": copy.deepcopy(look_at)},
+                {"frame": end_frame, "position": copy.deepcopy(position), "look_at": copy.deepcopy(look_at)},
+            ]
+        if plan:
+            plan["offscreen_listeners"] = []
+            plan["expected_actor_count"] = 1
+            plan["expected_body_count"] = 1
+            plan["actors"] = ([speaker_actor] if speaker_actor else actors[:1])
+            result["blocking_plan"] = plan
+        result["action"] = (str(result.get("action", "")) +
+                            f" Retake correction: start on {speaker}'s head-and-shoulders close-up in frame zero and hold that single face throughout every line and pause; "
+                            "all listeners and every other person stay fully offscreen. No empty room or court, no wide view, reverse shot, audience shoulder, silhouette, reflection or cutaway.")
+        if solo:
+            result["sequence_id"] = "single_speaker_closeup_retake"
+            result["beat_function"] = "hold one uninterrupted close-up through the assigned line"
+            result["axis_id"] = "single_speaker_camera_axis"
+            result["screen_direction"] = "Keep one front-facing close-up on the assigned speaker; no interlocutor axis or shot-reverse-shot."
+            result["transition"] = "No cut, reverse angle or internal reframing."
+            result["action"] = (
+                "One uninterrupted medium close-up of the assigned speaker from chest to head. At frame zero, the speaker is alone, facing camera; both hands hold the same aged longevity register clearly in the lower part of frame. Keep the face large, eyes and moving mouth unobstructed throughout the complete line and pauses. The register pages are blank and unreadable; no page turn, extra writing or added person. Keep every listener outside the image."
+                if speaker_frame_prop else
+                "One uninterrupted dialogue close-up. At frame zero, the assigned speaker is already alone in a tight head-and-shoulders frame; "
+                "the face fills the composition and the eyes and mouth stay clear through the complete assigned line and pauses. "
+                "Use only subtle natural facial and mouth movement; keep the speaker at the authored mark and preserve the same identity. "
+                "Keep the courtroom and all other people outside the frame; no listener, foreground body, empty-room opening, wide shot, reverse shot or cutaway."
+            )
+            frame_count = delivered_frames(result)
+            result["timeline"] = [{
+                "start_frame": 0, "end_frame": frame_count,
+                "description": (
+                    "The assigned speaker remains alone in a steady chest-up medium close-up, both hands holding the same blank longevity register in frame while speaking the assigned line."
+                    if speaker_frame_prop else
+                    "The assigned speaker remains alone in a steady head-and-shoulders close-up, speaking the assigned line with subtle natural facial movement."
+                ),
+            }]
+            result["action_beats"] = [{
+                "start_frame": 0, "end_frame": frame_count,
+                "action": result["timeline"][0]["description"],
+            }]
+            result["state_in"] = (
+                "The assigned speaker stands alone, already framed chest-up with both hands holding the same blank register."
+                if speaker_frame_prop else
+                "The assigned speaker holds the authored mark alone before the line, already framed in close-up."
+            )
+            result["state_out"] = (
+                "The same speaker remains alone with the register visible and closes the mouth after the line."
+                if speaker_frame_prop else
+                "The same speaker remains alone at the mark and closes the mouth after the line."
+            )
+            result["handoff_in"] = result["state_in"]
+            result["handoff_out"] = result["state_out"]
+            result["composition"] = {
+                "primary_subject": speaker_asset or speaker,
+                "actor_readability": (
+                    "Exactly one assigned speaker; face and mouth remain large and unobstructed while both hands and the same blank longevity register remain visible in the lower frame throughout."
+                    if speaker_frame_prop else
+                    "Exactly one assigned speaker; head and shoulders fill frame from frame zero through the last dialogue beat, with eyes and mouth unobstructed."
+                ),
+                "scene_anchors": "The scene remains an indistinct background only and never becomes a framing target.",
+                "screen_side": "preserve the authored speaker axis",
+            }
+        if root:
+            cfg_assets = read(Path(root) / "bible" / "assets.json")
+            voices = read(Path(root) / "bible" / "voices.json")
+            speaker_asset = voices.get(speaker, {}).get("asset_id")
+            scene_id = result.get("scene_id")
+            prop_ids = {item.get("id") for item in cfg_assets.get("props", {}).values()}
+            keep_ids = {speaker_asset, scene_id} | prop_ids
+            if result.get("blocking_plan"):
+                plan = copy.deepcopy(result["blocking_plan"])
+                plan["actors"] = [actor for actor in plan.get("actors", [])
+                                  if actor.get("asset_id") == speaker_asset
+                                  or actor.get("name") == speaker]
+                plan["offscreen_listeners"] = []
+                plan["expected_actor_count"] = 1
+                plan["expected_body_count"] = 1
+                result["blocking_plan"] = plan
+            result["references"] = [ref for ref in result.get("references", [])
+                                     if ref.get("asset_id") in keep_ids]
+            result["required_assets"] = [asset_id for asset_id in result.get("required_assets", [])
+                                         if asset_id in keep_ids]
+        frame_asset_id = rework_item.get("first_frame_asset_id") if rework_item else None
+        if frame_asset_id:
+            if not root:
+                raise ValueError("H3 视频帧首帧必须由当前项目登记并校验来源")
+            asset_for(root, frame_asset_id)
+            last_frame_asset_id = (rework_item.get("last_frame_asset_id") or frame_asset_id)
+            asset_for(root, last_frame_asset_id)
+            result["mode"] = "fl2va"
+            result["first_frame"] = frame_asset_id
+            result["last_frame"] = last_frame_asset_id
+            result["h3_visual_only"] = True
+            result["soundscape"] = "Quiet courtroom air and subtle clothing movement only; no human voice or music."
+            result["action"] = (
+                "One uninterrupted silent visual performance. The registered speaker starts on the supplied close-up frame and remains alone in the same "
+                "head-and-shoulders composition. Use subtle natural facial expression and mouth articulation without any written words, captions or titles; "
+                "spoken dialogue is added in post-production. No other person, empty-room opening, wide shot, reverse shot or cutaway."
+            )
+            frame_count = delivered_frames(result)
+            visual_beat = (
+                "Hold the supplied close-up framing on the single speaker; animate restrained natural facial expression and mouth articulation only, "
+                "without written words or captions."
+            )
+            result["timeline"] = [{"start_frame": 0, "end_frame": frame_count,
+                                   "description": visual_beat}]
+            result["action_beats"] = [{"start_frame": 0, "end_frame": frame_count,
+                                       "action": visual_beat}]
+    else:
+        camera["size"] = "speaker-dominant medium close-up with listener rear shoulder"
+        camera["motivation"] = "Correct the reviewed speaker-face mismatch; keep the assigned speaker as the visual focus."
     result["camera"] = camera
     result["retake_visual_contract"] = {
-        "mode": "speaker_dominant",
+        "mode": "single_speaker_closeup" if solo else "speaker_dominant",
         "speaker": speaker,
-        "listener_face": "hidden",
-        "listener": "one bound rear shoulder or back-of-head only",
+        "listener_face": "offscreen" if solo else "hidden",
+        "listener": "fully offscreen; no shoulder, silhouette or reflection" if solo
+                     else "one bound rear shoulder or back-of-head only",
+        "visible_body_count": 1,
         "reason": correction["reason"],
         "wrong_visual_speaker": correction.get("wrong_visual_speaker"),
     }
@@ -175,11 +447,23 @@ def asset_for(root, asset_id, _seen=None, require_approval=True):
     item = state["assets"].get(asset_id)
     if not item or (require_approval and not item["approved"]):
         raise ValueError(f"图片 {asset_id} 尚未生成或尚未验收")
-    job = read(Path(root) / "jobs" / f"image_{asset_id}.json")
+    receipt = item["receipt"]
+    extracted_h3_frame = receipt.get("tool") == "h3_video_frame_extract"
+    job_name = f"frame_{asset_id}.json" if extracted_h3_frame else f"image_{asset_id}.json"
+    job = read(Path(root) / "jobs" / job_name)
     path = inside(root, item["path"])
     if digest(job) != item["job_sha256"] or file_hash(path) != item["sha256"]:
         raise ValueError(f"图片 {asset_id} 或提示词已变化，需要重新验收")
-    receipt = item["receipt"]
+    if extracted_h3_frame:
+        source_take = state.get("takes", {}).get(receipt.get("source_take_id"))
+        if (not source_take or source_take.get("video_sha256") != receipt.get("source_video_sha256")
+                or source_take.get("qc", {}).get("passed") is not True
+                or job.get("source_take_id") != receipt.get("source_take_id")
+                or job.get("source_video_sha256") != receipt.get("source_video_sha256")
+                or job.get("frame_index") != receipt.get("frame_index")
+                or job.get("frame_sha256") != item["sha256"]):
+            raise ValueError(f"H3 首帧 {asset_id} 的来源镜头或帧哈希不匹配")
+        return path, item["sha256"]
     verified_model = receipt.get("model_verified") is True and receipt.get("actual_model", "").startswith("gpt-image-2.5")
     # Older image work orders use the immutable ``asset_id`` shape and do not
     # carry the newer provider field.  They are still valid managed Codex
@@ -202,6 +486,57 @@ def asset_for(root, asset_id, _seen=None, require_approval=True):
     return path, item["sha256"]
 
 
+def register_h3_video_frame(root, asset_id, source_take_id, frame_index, frame_path, note):
+    """Register a frame extracted from a technically checked H3 take as a keyframe.
+
+    This preserves video-frame provenance and never labels the frame as an
+    Images 2.5 generation or a standalone approved character/scene image.
+    """
+    root = Path(root).resolve()
+    asset_id = safe_id(asset_id)
+    state = load_state(root)
+    source_take = state.get("takes", {}).get(source_take_id)
+    if (not source_take or source_take.get("qc", {}).get("passed") is not True
+            or not source_take.get("video_sha256") or type(frame_index) is not int
+            or frame_index < 0 or frame_index >= source_take.get("qc", {}).get("frames", 0)):
+        raise ValueError("H3 首帧必须来自一条已通过媒体技术检查的有效源镜头")
+    source_video = inside(root, source_take["video"])
+    if file_hash(source_video) != source_take["video_sha256"]:
+        raise ValueError("H3 首帧源视频已变化，不能登记")
+    image_path = inside(root, frame_path)
+    if not image_path.is_file() or image_path.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp"):
+        raise ValueError("H3 首帧文件缺失或格式不受支持")
+    frame_sha = file_hash(image_path)
+    receipt = {
+        "tool": "h3_video_frame_extract",
+        "source_take_id": source_take_id,
+        "source_video_sha256": source_take["video_sha256"],
+        "frame_index": frame_index,
+        "frame_sha256": frame_sha,
+        "extracted_at": time.time(),
+    }
+    job = {"schema": "h3_video_frame_extraction_v1", "asset_id": asset_id,
+           "source_take_id": source_take_id, "source_video_sha256": source_take["video_sha256"],
+           "frame_index": frame_index, "frame_path": str(image_path.relative_to(root)),
+           "frame_sha256": frame_sha, "note": str(note).strip()}
+    job_path = root / "jobs" / f"frame_{asset_id}.json"
+    if asset_id in state.get("assets", {}):
+        existing = state["assets"][asset_id]
+        if (existing.get("sha256") == frame_sha
+                and existing.get("receipt", {}).get("source_take_id") == source_take_id
+                and existing.get("receipt", {}).get("frame_index") == frame_index):
+            return {"asset_id": asset_id, "sha256": frame_sha, "reused": True}
+        raise ValueError(f"首帧资产 {asset_id} 已存在且来源不同")
+    write(job_path, job)
+    update_state(root, lambda current: current.setdefault("assets", {}).__setitem__(asset_id, {
+        "path": str(image_path.relative_to(root)), "sha256": frame_sha,
+        "job_sha256": digest(job), "receipt": receipt, "approved": True,
+        "reference_hashes": {}, "reviewer": "Codex H3 帧抽取视觉检查",
+        "note": str(note).strip(),
+    }))
+    return {"asset_id": asset_id, "sha256": frame_sha, "reused": False}
+
+
 def generation_reference(root, reference, camera=None, shot=None, speech_bindings=None):
     """Return one model-safe subject view while preserving the approved source asset."""
     root = Path(root).resolve()
@@ -217,6 +552,11 @@ def generation_reference(root, reference, camera=None, shot=None, speech_binding
             resolved["selected_view_reason"] = reason
             return resolved
     source, source_sha = asset_for(root, asset_id)
+    from .character_views import character_asset_ids
+    if asset_id not in character_asset_ids(root):
+        return {"asset_id": asset_id, "source_sha256": source_sha,
+                "generation_path": str(source.relative_to(root)),
+                "generation_sha256": source_sha, "variant": "approved_source"}
     job_path = root / "jobs" / f"image_{asset_id}.json"
     prompt = read(job_path).get("prompt", "") if job_path.exists() else ""
     split_sheet = re.search(r"(?:separated|clearly separated).*?(?:face|head|close)", prompt, re.I | re.S)
@@ -254,11 +594,10 @@ def generation_reference(root, reference, camera=None, shot=None, speech_binding
 def bound_shot(root, shot):
     """Resolve visual and voice assets into the package that is sent to H3."""
     from .voices import bindings
-    # H3 presents reference images in ordinal order and does not expose a
-    # separate background channel.  Put the declared scene plate in Picture 1
-    # so the environment is the primary spatial anchor; character and prop
-    # references remain explicit subjects after it.  The source shot is never
-    # mutated, and speaker picture ordinals are recomputed on the ordered copy.
+    # H3 presents reference images in ordinal order and has no separate
+    # background channel. Ordinary shots lead with their scene plate; a
+    # reviewed single-speaker retake leads with the bound face so the set
+    # cannot take over the first frames. Picture ordinals are recomputed below.
     inventory_path = Path(root) / "bible" / "assets.json"
     inventory = {}
     if inventory_path.exists():
@@ -278,9 +617,22 @@ def bound_shot(root, shot):
         declared = [ref for ref in scene_refs if ref.get("asset_id") == scene_id]
         if len(declared) != 1 or len(scene_refs) != 1:
             raise ValueError(f"{shot['id']}: 场景参考必须且只能绑定 scene_id={scene_id}")
-        refs = declared + [ref for ref in refs if ref not in declared]
+        if shot.get("speaker_focus_mode") == "speaker_only":
+            speaker_names = {str(line.get("speaker", "")) for line in shot.get("dialogue", [])}
+            voice_bank = read(Path(root) / "bible" / "voices.json")
+            speaker_ids = {voice_bank[name].get("asset_id") for name in speaker_names
+                           if name in voice_bank and voice_bank[name].get("asset_id")}
+            speaker_refs = [ref for ref in refs if ref.get("asset_id") in speaker_ids]
+            refs = speaker_refs + declared + [ref for ref in refs
+                                              if ref not in speaker_refs and ref not in declared]
+        else:
+            refs = declared + [ref for ref in refs if ref not in declared]
     ordered_shot = copy.deepcopy(shot)
     ordered_shot["references"] = refs
+    subject_by_asset = {ref["asset_id"]: f"Subject {index}" for index, ref in enumerate(refs, 1)}
+    for actor in ordered_shot.get("blocking_plan", {}).get("actors", []):
+        if actor.get("asset_id") in subject_by_asset:
+            actor["subject_label"] = subject_by_asset[actor["asset_id"]]
     from .scene_continuity import contract
     ordered_shot["scene_continuity_contract"] = contract(root, ordered_shot)
     speech_bindings = bindings(root, ordered_shot)
@@ -346,7 +698,7 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
         labels = ", ".join(event.get("event_id", "D?") for event in unresolved_events)
         raise ValueError(f"对白事件缺少完整角色图片/参考音频绑定：{labels}")
     correction = _speaker_review_correction(shot.get("review_note"), shot.get("dialogue", []))
-    if correction and shot.get("speaker_focus_mode") != "speaker_dominant":
+    if correction and shot.get("speaker_focus_mode") not in ("speaker_dominant", "speaker_only"):
         raise ValueError("说话人纠错重拍必须启用 speaker-dominant 构图，禁止沿用双人正面镜头")
     execution_sheet = {
         **asset_package,
@@ -374,9 +726,10 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
                 "visible_body_count", len(asset_package.get("visible_characters", []))),
             "over_shoulder_listener_is_partial_bound_body_only": bool(
                 asset_package.get("interaction_contract", {}).get("over_shoulder_foreground_listener_only")),
-            "unregistered_humans_forbidden_in_dialogue": bool(shot.get("dialogue")),
+            "unregistered_humans_forbidden_in_dialogue": True,
+            "unregistered_humans_forbidden": True,
             "dialogue_character_whitelist": bool(shot.get("dialogue")),
-            "non_dialogue_extras_must_be_silent_and_background_only": True,
+            "non_dialogue_extras_must_be_silent_and_background_only": False,
             "speaker_audio_one_to_one": True,
             "speaker_picture_binding_exact": True,
             "speaker_dominant_retake_contract": shot.get("speaker_focus_mode") == "speaker_dominant",
@@ -812,7 +1165,7 @@ def submit_next(root, episode_id, preview=False, independent_cuts=False, check_p
                 continue
             if rework_item and shot["id"] == target_shot:
                 target_found = True
-                retake_shot = _retake_shot_contract(shot, rework_item)
+                retake_shot = _retake_shot_contract(shot, rework_item, root)
                 fp = fingerprint(root, episode, retake_shot, None if shot["continuity"] == "cut" else
                                  (digest({"take": previous["id"], "video": previous.get("video_sha256"),
                                          "observed_handoff": previous.get("observed_handoff_out")}) if previous else None),
@@ -850,7 +1203,7 @@ def submit_next(root, episode_id, preview=False, independent_cuts=False, check_p
             generation_shot = copy.deepcopy(shot)
             generation_shot["seed"] = (shot["seed"] + retries) % (2**64)
             if rework_item:
-                generation_shot = _retake_shot_contract(generation_shot, rework_item)
+                generation_shot = _retake_shot_contract(generation_shot, rework_item, root)
                 # A user-requested retake must not silently repeat the
                 # rejected sample. Review identity fixes also receive a
                 # structural speaker-focused composition above.
@@ -1010,7 +1363,7 @@ def sync(root):
     return updates
 
 
-REVIEW_ITEMS = ("story", "identity", "performance", "camera", "continuity", "dialogue", "sound", "no_artifacts")
+REVIEW_ITEMS = ("story", "identity", "performance", "camera", "continuity", "dialogue", "sound", "no_artifacts", "av_sync")
 
 
 def review_visual(root, take_id, note, closing_state, evidence_path):
@@ -1027,21 +1380,44 @@ def review_visual(root, take_id, note, closing_state, evidence_path):
                        "audio_listening": "pending", "release_approved": False}, observed_handoff_out=closing_state))
 
 
-def review_take(root, take_id, approved, note, reviewer, checks):
-    state = load_state(root)
-    take = state["takes"][take_id]
-    if take["status"] not in ("rendered", "approved", "rejected"):
-        raise ValueError("只有已经完成技术检查的视频可以审片")
-    if not note or not reviewer:
+def _human_approval(root, take, review):
+    from .delivery_policy import require_final_reviews
+    checks, reviewer, note = review['checks'], review['reviewer'], review['note']
+    if not str(note).strip() or not str(reviewer).strip():
         raise ValueError("请记录审阅意见及实际审阅人")
-    if approved:
-        if not take.get("qc", {}).get("passed") or not all(checks.get(k) is True for k in REVIEW_ITEMS):
-            raise ValueError("通过审片需完成八项实际观看/听音检查，不能只凭文件存在")
-        if file_hash(inside(root, take["video"])) != take["video_sha256"]:
-            raise ValueError("视频已变化，原检查结果失效")
+    if checks.get("av_sync") is not True and checks.get("av_sync") != "not_applicable":
+        raise ValueError("请实际观看并听音后勾选音画同步检查（av_sync）；无可见说话时须明确选不适用并说明，旧八项检查或 ASR 不能代替口型审核")
+    if re.match(r"^(codex|assistant|agent|automatic|auto)(?:\b|[_ -])", str(reviewer).strip(), re.I):
+        raise ValueError("最终批准需要实际人工审核人；Codex 或自动检查不能冒充人工观看和听音")
+    if not all(checks.get(k) is True for k in REVIEW_ITEMS if k != 'av_sync'):
+        raise ValueError("通过审片需完成九项实际观看/听音检查，不能只凭文件存在")
+    if take.get("retired"):
+        raise ValueError("该候选已列入重拍并失效，请审核当前候选视频")
+    if not take.get("video") or not inside(root, take['video']).is_file() or file_hash(inside(root, take["video"])) != take.get("video_sha256"):
+        raise ValueError("视频已变化或缺失，原检查结果失效")
+    av_sync = {"status": "not_applicable" if checks['av_sync'] == 'not_applicable' else "passed",
+               "method": "human", "reviewer": reviewer, "note": note, "video_examined": True,
+               "measurement": "human_viewing_and_listening", "video_sha256": take["video_sha256"],
+               "reviewed_at": review["reviewed_at"]}
+    gates = require_final_reviews(dict(take, review=review, av_sync_review=av_sync))
+    return dict(status="approved", review=review, av_sync_review=av_sync, review_gates=gates,
+                approval_method="human_viewing_and_listening", pending_reviews=[],
+                review_required=None, retake_review_required=False, release_approved=False)
+
+
+def review_take(root, take_id, approved, note, reviewer, checks):
+    if not str(note).strip() or not str(reviewer).strip():
+        raise ValueError("请记录审阅意见及实际审阅人")
+
     def apply(s):
-        s["takes"][take_id].update(status="approved" if approved else "rejected",
-                                  review={"reviewer": reviewer, "note": note, "checks": checks})
+        take = s["takes"][take_id]
+        if take["status"] not in ("rendered", "approved", "rejected"):
+            raise ValueError("只有已经完成技术检查的视频可以审片")
+        review = {"reviewer": reviewer, "note": note, "checks": dict(checks), "reviewed_at": time.time()}
+        if approved:
+            take.update(_human_approval(root, take, review))
+        else:
+            take.update(status="rejected", review=review)
         # Descendants of a rejected latent must not retain acceptance.
         if not approved:
             stale = {take_id}
@@ -1053,7 +1429,8 @@ def review_take(root, take_id, approved, note, reviewer, checks):
                         stale.add(tid)
                         other["status"] = "stale"
                         changed = True
-    update_state(root, apply)
+    state = update_state(root, apply)
+    take = state["takes"][take_id]
     from .rework_queue import enqueue as enqueue_rework, resolve_shot
     if approved:
         resolve_shot(root, take["episode"], take["shot"])
@@ -1072,60 +1449,51 @@ def review_chapter(root, episode_id, approved, note, reviewer, checks):
 
     The chapter action is deliberately stricter than a convenience bulk update:
     it resolves the newest take for every shot, requires a complete set of
-    rendered videos, re-checks QC and media hashes, and records the same eight
+    rendered videos, re-checks QC and media hashes, and records the same nine
     real viewing/listening checks used by :func:`review_take`.
     """
     if not approved:
         raise ValueError("章节一键验收只支持通过；需重拍请逐条标记")
-    if not note or not reviewer:
+    if not str(note).strip() or not str(reviewer).strip():
         raise ValueError("请记录章节审阅意见及实际审阅人")
-    if not all(checks.get(key) is True for key in REVIEW_ITEMS):
-        raise ValueError("章节一键验收需完成八项实际观看/听音检查")
     episode_id = safe_id(episode_id)
     episode = read(episode_path(root, episode_id))
     shot_ids = [shot["id"] for shot in episode.get("shots", [])]
     if not shot_ids:
         raise ValueError("章节没有可验收的镜头")
 
-    state = load_state(root)
-    latest = {}
-    for take in state["takes"].values():
-        if (take.get("retired") or take.get("episode") != episode_id
-                or take.get("shot") not in shot_ids):
-            continue
-        current = latest.get(take["shot"])
-        if current is None or (take.get("created_at", 0), take.get("id", "")) > (current.get("created_at", 0), current.get("id", "")):
-            latest[take["shot"]] = take
-
-    missing = [shot_id for shot_id in shot_ids
-               if latest.get(shot_id, {}).get("status") not in ("rendered", "approved")]
-    if missing:
-        raise ValueError("本章仍有镜头未完成技术检查或待重拍：" + ", ".join(missing))
-
-    for shot_id in shot_ids:
-        take = latest[shot_id]
-        if not take.get("qc", {}).get("passed"):
-            raise ValueError(f"{shot_id} 尚未通过技术检查")
-        video = take.get("video")
-        if not video:
-            raise ValueError(f"{shot_id} 缺少视频文件")
-        path = inside(root, video)
-        if not path.is_file() or file_hash(path) != take.get("video_sha256"):
-            raise ValueError(f"{shot_id} 视频已变化或文件缺失，需重新检查")
-
-    review = {"reviewer": reviewer, "note": note, "checks": checks,
+    review = {"reviewer": reviewer, "note": note, "checks": dict(checks),
               "scope": "chapter", "episode": episode_id, "shot_count": len(shot_ids),
               "reviewed_at": time.time()}
 
     def apply(s):
+        latest = {}
+        for take in s["takes"].values():
+            if (take.get("retired") or take.get("episode") != episode_id
+                    or take.get("shot") not in shot_ids):
+                continue
+            current = latest.get(take["shot"])
+            if current is None or (take.get("created_at", 0), take.get("id", "")) > (current.get("created_at", 0), current.get("id", "")):
+                latest[take["shot"]] = take
+        missing = [shot_id for shot_id in shot_ids
+                   if latest.get(shot_id, {}).get("status") not in ("rendered", "approved")]
+        if missing:
+            raise ValueError("本章仍有镜头未完成技术检查或待重拍：" + ", ".join(missing))
+        updates = {}
         for shot_id in shot_ids:
-            s["takes"][latest[shot_id]["id"]].update(status="approved", review=review)
+            take = latest[shot_id]
+            updates[take['id']] = _human_approval(root, take, review)
+        # Every candidate is validated before any approval is applied.
+        for take_id, fields in updates.items():
+            s['takes'][take_id].update(fields)
         s.setdefault("approvals", {})[f"chapter:{episode_id}"] = review
 
     update_state(root, apply)
     from .rework_queue import resolve_shot
     for shot_id in shot_ids:
         resolve_shot(root, episode_id, shot_id)
+    from .delivery_policy import maybe_assemble
+    maybe_assemble(root, episode_id)
     return {"episode": episode_id, "approved_shots": len(shot_ids), "status": "approved"}
 
 

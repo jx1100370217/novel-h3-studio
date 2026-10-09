@@ -244,14 +244,16 @@ class WorkflowTests(unittest.TestCase):
             video.write_bytes(f'video-{index}'.encode())
             takes[f'take_{index}'] = {'id': f'take_{index}', 'episode': episode['id'], 'shot': shot['id'],
                                      'status': 'rendered', 'video': str(video.relative_to(self.root)),
-                                     'video_sha256': file_hash(video), 'qc': {'passed': True}, 'created_at': index}
+                                     'video_sha256': file_hash(video), 'qc': {'passed': True}, 'created_at': index,
+                                     'speech_check': {'passed': True, 'video_sha256': file_hash(video)}}
         update_state(self.root, lambda s: s['takes'].update(takes))
-        checks = {key: True for key in ('story','identity','performance','camera','continuity','dialogue','sound','no_artifacts')}
-        result = review_chapter(self.root, episode['id'], True, '已完整观看并听音确认', 'tester', checks)
+        checks = {key: True for key in ('story','identity','performance','camera','continuity','dialogue','sound','no_artifacts','av_sync')}
+        with patch('novel_h3.delivery_policy.maybe_assemble'):
+            result = review_chapter(self.root, episode['id'], True, '已完整观看并听音确认', 'tester', checks)
         self.assertEqual(result['approved_shots'], len(episode['shots']))
         self.assertTrue(all(load_state(self.root)['takes'][f'take_{i}']['status'] == 'approved' for i in range(1, len(episode['shots']) + 1)))
         self.assertEqual(load_state(self.root)['takes']['take_1']['review']['scope'], 'chapter')
-        with self.assertRaisesRegex(ValueError, '八项'):
+        with self.assertRaisesRegex(ValueError, 'av_sync'):
             review_chapter(self.root, episode['id'], True, '再次确认', 'tester', {})
 
     def test_scene_prop_precheck_and_explicit_batch_confirmation_excludes_characters(self):

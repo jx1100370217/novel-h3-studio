@@ -1,4 +1,5 @@
-"""Conservative speech-only track with a dialogue timing/lip-sync gate."""
+"""Audio processing on the production master, with audio-only timing checks."""
+import json
 import math
 import os
 import re
@@ -6,6 +7,53 @@ import subprocess
 import zlib
 from difflib import SequenceMatcher
 from pathlib import Path
+
+
+def decode_audio_master(source):
+    """Decode production audio from media, never from the ASR mono proxy."""
+    import numpy as np
+    from .project import file_hash
+    source = Path(source)
+    meta = json.loads(subprocess.check_output([
+        'ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_streams', '-of', 'json', str(source)]))
+    if not meta.get('streams'):
+        raise ValueError('制作母带没有音轨')
+    stream = meta['streams'][0]
+    rate = int(stream['sample_rate'])
+    raw = subprocess.check_output([
+        'ffmpeg', '-nostdin', '-v', 'error', '-i', str(source), '-map', '0:a:0',
+        '-vn', '-ac', '2', '-ar', str(rate), '-c:a', 'pcm_f32le', '-f', 'f32le', 'pipe:1'], timeout=90)
+    data = np.frombuffer(raw, dtype='<f4').reshape(-1, 2).astype(np.float64)
+    if not data.size or not np.isfinite(data).all():
+        raise ValueError('制作母带没有有限的有效音频样本')
+    return data, rate, {'source_video_sha256': file_hash(source),
+                        'input_sample_rate': rate, 'input_channels': stream['channels'],
+                        'processing_sample_rate': rate, 'processing_channels': 2,
+                        'measurement': 'decoded_production_master', 'uses_asr_proxy': False}
+
+
+def preserve_audio_master(source, out):
+    """Keep the original encoded audio stream without a lossy re-encode."""
+    from .project import file_hash
+    source_hash = file_hash(source)
+    backup = Path(out) / f'audio_master_{source_hash[:16]}.mka'
+    if not backup.exists():
+        subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-y', '-i', str(source),
+                        '-map', '0:a:0', '-vn', '-c:a', 'copy', str(backup)],
+                       check=True, timeout=90, capture_output=True)
+    return {'path': backup.name, 'sha256': file_hash(backup),
+            'source_video_sha256': source_hash, 'codec_policy': 'stream_copy'}
+
+
+def alignment_evidence(alignment):
+    """A legacy timing field must never be usable as visual lip-sync proof."""
+    return {'speech_window_alignment': alignment,
+            'av_sync_review': {'status': 'not_evaluated', 'measurement': 'audio_only',
+                               'video_examined': False, 'can_approve_av_sync': False},
+            'lip_sync_gate': {'status': 'blocked' if alignment.get('status') == 'blocked' else 'not_evaluated',
+                              'measurement': 'speech_window_alignment', 'legacy_alias': True,
+                              'speech_window_status': alignment.get('status'),
+                              'video_examined': False, 'can_approve_av_sync': False}}
 
 
 def speech_windows(chunks, duration, padding=.25):
@@ -173,7 +221,7 @@ def dialogue_windows(dialogue, fps=24):
 
 
 def lip_sync_overlap(speech, dialogue):
-    """Return speech windows that overlap a locked mouth-movement window."""
+    """Find overlap with authored dialogue windows; no mouth motion is read."""
     planned = dialogue_windows(dialogue)
     unsafe = []
     for start, end in speech:
@@ -181,6 +229,7 @@ def lip_sync_overlap(speech, dialogue):
                for left, right in planned):
             unsafe.append([start, end])
     return {'status': 'blocked' if unsafe else 'passed',
+            'measurement': 'speech_window_overlap', 'video_examined': False, 'can_approve_av_sync': False,
             'planned_windows': planned,
             'speech_windows': speech,
             'unsafe_windows': unsafe,
@@ -198,9 +247,12 @@ def normalize_diegetic_mix(source, out, samples, sr, target_db=-18.0, peak_db=-1
     import numpy as np
     import soundfile as sf
     from .project import file_hash
-    from audio_review import decode_audio
 
-    data = np.asarray(samples, dtype=np.float64)
+    # samples/sr are a compatibility-only analysis input. Re-read the master.
+    try:
+        data, sr, master = decode_audio_master(source)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        return {'status': 'blocked', 'reason': '制作母带解码失败，保留原视频：' + str(exc)}
     if data.size == 0:
         return {'status': 'not_applied', 'reason': '音轨为空'}
     if data.ndim == 1:
@@ -231,9 +283,9 @@ def normalize_diegetic_mix(source, out, samples, sr, target_db=-18.0, peak_db=-1
                             '-c:a', 'flac', str(before_audio)], check=True, timeout=60)
         subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-y', '-i', str(source), '-i', str(wav),
                         '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
-                        '-shortest', str(candidate)], check=True, timeout=90)
-        decode_audio(candidate, Path(out) / 'audio_mix_check.wav')
-        checked, _ = sf.read(Path(out) / 'audio_mix_check.wav', dtype='float32')
+                        str(candidate)], check=True, timeout=90)
+        checked, _, _ = decode_audio_master(candidate)
+        backup = preserve_audio_master(source, out)
         before = file_hash(source)
         os.replace(candidate, source)
         final_peak = float(np.max(np.abs(checked))) if checked.size else 0.0
@@ -243,6 +295,7 @@ def normalize_diegetic_mix(source, out, samples, sr, target_db=-18.0, peak_db=-1
                 'rms_db_before': round(rms_db, 3), 'rms_db_after': round(20 * math.log10(max(final_rms, 1e-9)), 3),
                 'peak_db_before': round(peak_dbfs, 3), 'peak_db_after': round(20 * math.log10(max(final_peak, 1e-9)), 3),
                 'original_video_sha256': before, 'video_sha256': file_hash(source),
+                'production_audio': master, 'original_audio_master': backup,
                 'audio_peak': final_peak}
         policy_path = Path(out) / 'audio_policy.json'
         if policy_path.exists():
@@ -251,7 +304,7 @@ def normalize_diegetic_mix(source, out, samples, sr, target_db=-18.0, peak_db=-1
             policy.update(video_sha256=result['video_sha256'], audio_normalization=result)
             write(policy_path, policy)
         return result
-    except (OSError, subprocess.SubprocessError) as exc:
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
         return {'status': 'blocked', 'reason': '音量补偿未完成，保留原视频：' + str(exc)}
     finally:
         candidate.unlink(missing_ok=True)
@@ -260,16 +313,15 @@ def normalize_diegetic_mix(source, out, samples, sr, target_db=-18.0, peak_db=-1
 
 
 def timing_alignment(speech, dialogue, tolerance=.45):
-    """Check that generated speech starts/ends near the locked mouth window.
-
-    Audio-only muting is unsafe when H3 has shifted the utterance in time: the
-    video mouth motion follows the original generated audio, not the post-QC
-    muted track. In that case the caller must keep the original audio or
-    request a dedicated lip-sync retake.
-    """
+    """Compare audio activity to authored windows; never inspect mouth motion."""
     expected = dialogue_windows(dialogue)
     if not expected:
-        return {'status': 'not_applicable', 'planned_windows': [], 'speech_windows': speech}
+        return {'status': 'not_applicable', 'planned_windows': [], 'speech_windows': speech,
+                'measurement': 'speech_window_alignment', 'video_examined': False, 'can_approve_av_sync': False}
+    if not speech:
+        return {'status': 'blocked', 'planned_windows': expected, 'speech_windows': [],
+                'measurement': 'speech_window_alignment', 'video_examined': False,
+                'can_approve_av_sync': False, 'reason': '没有可测量的语音时间段'}
     planned_start, planned_end = expected[0][0], expected[-1][1]
     actual_start, actual_end = speech[0][0], speech[-1][1]
     overlap = any(max(a, c) < min(b, d) for a, b in speech for c, d in expected)
@@ -278,14 +330,57 @@ def timing_alignment(speech, dialogue, tolerance=.45):
     passed = overlap and abs(start_delta) <= tolerance and abs(end_delta) <= tolerance
     return {
         'status': 'passed' if passed else 'blocked',
+        'measurement': 'speech_window_alignment', 'video_examined': False, 'can_approve_av_sync': False,
         'planned_windows': expected,
         'speech_windows': speech,
         'start_delta_seconds': start_delta,
         'end_delta_seconds': end_delta,
         'tolerance_seconds': tolerance,
         'reason': (None if passed else
-                   '生成语音与锁定对白时段偏移，不能只清理音频；否则会出现嘴动无声'),
+                   '生成语音与计划对白时段偏移；只清理音频可能出现嘴动无声，需另行检查画面'),
     }
+
+
+def mute_unbound_speech_windows(source, out, recognition, duration):
+    """Mute only verified ASR speech windows after conservative masking failed.
+
+    This fallback is reserved for no-dialogue shots: there is no mouth motion
+    to protect, and removing a brief localized voice span is safer than
+    retaining an unbound line or discarding the full diegetic sound bed.
+    """
+    from .project import file_hash
+
+    source, out = Path(source), Path(out)
+    try:
+        windows = speech_windows(recognition.get('chunks', []), duration, padding=.08)
+    except ValueError as exc:
+        return {'status': 'blocked', 'reason': str(exc)}
+    expression = '+'.join(f'between(t,{start:.6f},{end:.6f})' for start, end in windows)
+    candidate = out / 'audio_unbound_window_mute_candidate.mp4'
+    before_audio = out / 'audio_before_cleanup.flac'
+    try:
+        if not before_audio.exists():
+            subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-y', '-i', str(source),
+                            '-map', '0:a:0', '-vn', '-c:a', 'flac', str(before_audio)],
+                           check=True, timeout=60)
+        before = file_hash(source)
+        subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-y', '-i', str(source),
+                        '-map', '0:v:0', '-map', '0:a:0', '-c:v', 'copy',
+                        '-af', f"volume=0:enable='{expression}'", '-c:a', 'aac',
+                        '-b:a', '192k', str(candidate)], check=True, timeout=90)
+        backup = preserve_audio_master(source, out)
+        os.replace(candidate, source)
+        return {'status': 'applied', 'policy': 'unbound_speech_window_mute',
+                'windows': [[round(start, 3), round(end, 3)] for start, end in windows],
+                'muted_seconds': round(sum(end - start for start, end in windows), 3),
+                'transcript': ' '.join(chunk.get('text', '').strip()
+                                       for chunk in recognition.get('chunks', [])),
+                'original_video_sha256': before, 'video_sha256': file_hash(source),
+                'audio_before_cleanup': before_audio.name, 'original_audio_master': backup}
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {'status': 'blocked', 'reason': '定位语音静音未完成：' + str(exc)}
+    finally:
+        candidate.unlink(missing_ok=True)
 
 
 def _diegetic_layers(shot, duration):
@@ -434,7 +529,11 @@ def clean_non_dialogue(source, out, shot, samples, sr):
     from audio_review import decode_audio
     import soundfile as sf
 
-    duration = len(samples) / sr
+    try:
+        master_samples, master_rate, master = decode_audio_master(source)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        return {'status': 'blocked', 'reason': '制作母带解码失败，保留原视频：' + str(exc)}
+    duration = len(master_samples) / master_rate
     result = {
         "status": "not_applied",
         "scope": "无对白镜头仅移除可识别语言声，保留或补入与画面动作对应的拟音；不生成旁白、配乐或台词。",
@@ -443,21 +542,23 @@ def clean_non_dialogue(source, out, shot, samples, sr):
     wav = out / "audio_clean_check.wav"
     fallback_wav = out / "diegetic_fallback.wav"
     before_audio = out / "audio_before_cleanup.flac"
-    layers = _render_diegetic_wav(fallback_wav, shot, duration)
+    layers = _render_diegetic_wav(fallback_wav, shot, duration, sample_rate=max(32000, master_rate))
     try:
         subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-i", str(fallback_wav),
                         "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-                        "-shortest", str(candidate)],
+                        str(candidate)],
                        check=True, timeout=90)
         subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(source), "-vn",
                         "-c:a", "flac", str(before_audio)], check=True, timeout=60)
         decode_audio(candidate, wav)
         cleaned, rate = sf.read(wav, dtype="float32")
+        backup = preserve_audio_master(source, out)
         before = file_hash(source)
         os.replace(candidate, source)
         return dict(result, status="applied", policy="diegetic_fallback",
                     effect_layers=layers,
                     original_video_sha256=before,
+                    video_sha256=file_hash(source), production_audio=master, original_audio_master=backup,
                     audio_peak=float(abs(cleaned).max()) if cleaned.size else 0.0,
                     duration_seconds=round(duration, 3),
                     audio_before_cleanup=str(before_audio.name))
@@ -481,11 +582,15 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
     drives the centre speech band close to silence.
     """
     from .project import file_hash
-    from audio_review import decode_audio
     import numpy as np
     import soundfile as sf
     from scipy.signal import istft, stft
 
+    # ASR supplies timestamps only. All destructive DSP uses fresh stereo media.
+    try:
+        samples, sr, master = decode_audio_master(source)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        return {'status': 'blocked', 'reason': '制作母带解码失败，保留原视频：' + str(exc)}
     duration = len(samples) / sr
     chunks = recognition.get('chunks', []) or []
     extras = []
@@ -587,7 +692,7 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
             return {'status': 'blocked',
                     'policy': 'lip_sync_safe_no_audio_only_cleanup',
                     'reason': gate['reason'],
-                    'lip_sync_gate': gate,
+                    **alignment_evidence(gate),
                     'unverified_dialogue': bool(unverified_dialogue),
                     'dialogue_near_match': near_match if 'near_match' in locals() else None,
                     'unbound_chunks': [
@@ -704,14 +809,14 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
         sf.write(cleaned_wav, cleaned.astype(np.float32), sr, subtype='PCM_24')
         subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-y', '-i', str(source), '-i', str(cleaned_wav),
                         '-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
-                        '-shortest', str(candidate)], check=True, timeout=90)
+                        str(candidate)], check=True, timeout=90)
         # Preserve the first source as the audit reference when a second pass
         # is applied to the already-cleaned video.
         if not before_audio.exists():
             subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-y', '-i', str(source), '-vn',
                             '-c:a', 'flac', str(before_audio)], check=True, timeout=60)
-        decode_audio(candidate, wav)
-        checked, rate = sf.read(wav, dtype='float32')
+        checked, rate, _ = decode_audio_master(candidate)
+        backup = preserve_audio_master(source, out)
         before = file_hash(source)
         os.replace(candidate, source)
         result = {'status': 'applied', 'policy': 'unbound_speech_center_attenuation',
@@ -722,6 +827,8 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
                 'transcript': ' '.join(chunk.get('text', '').strip() for chunk in extras),
                 'unverified_dialogue': bool(unverified_dialogue),
                 'original_video_sha256': before,
+                'video_sha256': file_hash(source),
+                'production_audio': master, 'original_audio_master': backup,
                 'audio_peak': float(np.max(np.abs(checked))) if checked.size else 0.0,
                 'duration_seconds': round(duration, 3),
                 'audio_before_cleanup': before_audio.name}
@@ -738,7 +845,7 @@ def clean_unbound_speech(source, out, recognition, samples, sr, expected='', dia
                  'total_characters': item.get('total_characters')}
                 for item in extras]
         return result
-    except (OSError, subprocess.SubprocessError) as exc:
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
         return {'status': 'blocked', 'reason': '脚本外人声清理未完成，保留原视频：' + str(exc)}
     finally:
         candidate.unlink(missing_ok=True)
@@ -778,12 +885,12 @@ def clean(source, out, recognition, samples, sr, transcribe, expected, dialogue=
                     'reason': '对白外存在额外可识别语音；静音会造成嘴动无声，保留原始音频待重拍',
                     'extra_transcript': ' '.join(extras),
                 }
-                result['lip_sync_gate'] = blocked
+                result.update(alignment_evidence(blocked))
                 return dict(result, reason=blocked['reason'])
             chunks = chunks[span[0]:span[1]]
         raw_windows = speech_windows(chunks, len(samples)/sr, padding=0)
         alignment = timing_alignment(raw_windows, dialogue)
-        result['lip_sync_gate'] = alignment
+        result.update(alignment_evidence(alignment))
         if alignment['status'] == 'blocked':
             return dict(result, reason=alignment['reason'])
         windows = speech_windows(chunks, len(samples)/sr)
@@ -805,10 +912,12 @@ def clean(source, out, recognition, samples, sr, transcribe, expected, dialogue=
             return dict(result, reason='清理后严格转写复核未通过，保留原视频', post_check=check)
         # Preserve original audio for review; only the audio of the delivered take changes.
         subprocess.run(['ffmpeg','-nostdin','-v','error','-y','-i',str(source),'-vn','-c:a','flac',str(out/'audio_before_cleanup.flac')],check=True,timeout=60)
+        backup = preserve_audio_master(source, out)
         before=file_hash(source)
         os.replace(candidate,source)
         return dict(result,status='applied',keep_windows=windows,muted_seconds=round(muted,3),
-                    original_video_sha256=before,post_check=check)
+                    original_video_sha256=before, original_audio_master=backup,
+                    video_sha256=file_hash(source), post_check=check)
     except (OSError, subprocess.SubprocessError) as exc:
         return dict(result, reason='音频处理未完成，保留原视频：' + str(exc))
     finally:

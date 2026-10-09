@@ -40,7 +40,11 @@ def model_path(kind):
 
 
 def decode_audio(source, target):
+    """Create a lossy analysis proxy; never use this output as a media master."""
     source = Path(source).expanduser().resolve(strict=True)
+    target = Path(target).expanduser().resolve()
+    if source == target:
+        raise ValueError("识别代理不能覆盖源媒体")
     if not source.is_file():
         raise ValueError("请输入本地音频或视频文件")
     meta = json.loads(subprocess.check_output([
@@ -51,7 +55,9 @@ def decode_audio(source, target):
         raise ValueError("文件没有音轨，不能进行声音识别")
     subprocess.run(["ffmpeg", "-nostdin", "-v", "error", "-protocol_whitelist", "file,pipe", "-i", str(source),
                     "-map", "0:a:0", "-vn", "-ac", "1", "-ar", str(SAMPLE_RATE), "-c:a", "pcm_s16le", "-y", str(target)], check=True)
-    return {"path": str(source), "sha256": file_hash(source), "audio_stream": streams[0], "selected_track": "0:a:0"}
+    return {"path": str(source), "sha256": file_hash(source), "audio_stream": streams[0], "selected_track": "0:a:0",
+            "purpose": "analysis_proxy_only", "proxy_sample_rate": SAMPLE_RATE,
+            "proxy_channels": 1, "eligible_for_master": False}
 
 
 def windows(sample_count, seconds=20):

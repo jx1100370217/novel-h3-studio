@@ -12,14 +12,17 @@ from .director import FPS, CONTEXT, frames_for, delivered_frames
 # long dialogue remains in the same shot, while its speech is emitted as
 # several explicit, semantically complete events.
 MAX_CONTINUOUS_SPEECH_SECONDS = 4.5
+CHINESE_CHARACTERS_PER_SECOND = 3.0
 
 
 def speech_seconds(text):
-    # Editorial estimate, not measured speech: 4 Chinese characters/s, 2.5 words/s.
+    # H3 Ref2VA dialogue filled windows authored at 4 Chinese characters/s.
+    # Use 3 characters/s so each locked mouth interval covers the slower
+    # speech duration observed in the chapter audit.
     chinese = len(re.findall(r'[\u4e00-\u9fff]', text))
     words = len(re.findall(r'[A-Za-z0-9]+', text))
     pauses = len(re.findall(r'[，,；;：:。.!！?？]', text)) * .18
-    return max(.6, chinese / 4 + words / 2.5 + pauses)
+    return max(.6, chinese / CHINESE_CHARACTERS_PER_SECOND + words / 2.5 + pauses)
 
 
 def retime(shot):
@@ -155,12 +158,12 @@ def split_dialogue(text, max_seconds=MAX_CONTINUOUS_SPEECH_SECONDS):
         if speech_seconds(part) <= max_seconds:
             result.append(part)
             continue
-        # Four Chinese characters per second is the same conservative timing
+        # The same conservative timing
         # estimate used by speech_seconds(); keep punctuation in the preceding
         # piece whenever possible, then continue with the remaining text.
         remaining = part
         while remaining and speech_seconds(remaining) > max_seconds:
-            limit = max(1, int(max_seconds * 4))
+            limit = max(1, int(max_seconds * CHINESE_CHARACTERS_PER_SECOND))
             cut = min(limit, len(remaining))
             for index in range(cut, 0, -1):
                 if remaining[index - 1] in '，,；;：:。.!！?？':

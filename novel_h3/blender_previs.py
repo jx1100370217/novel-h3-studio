@@ -114,9 +114,12 @@ def _scene_kind(scene_id, scene):
         return "water"
     if any(x in name for x in ("灾变", "山崩", "地裂", "废墟", "damaged", "disaster", "ruins")):
         return "disaster"
-    if any(x in name for x in ("云路", "天外", "高空", "云海", "宫外", "exterior", "cloud", "celestial platform")):
+    if any(x in name for x in ("云路", "天外", "高空", "云海", "宫外", "celestial platform", "cloud road", "cloud platform")):
         return "celestial_exterior"
-    if any(x in name for x in ("宫", "殿", "厅", "府", "庙", "hall", "palace", "temple", "court")):
+    if any(x in canonical_name for x in ("城郭", "街巷", "来路", "郊野", "墓地")):
+        return "landscape"
+    if (any(x in name for x in ("宫", "殿", "厅", "府", "庙"))
+            or re.search(r"\b(?:hall|palace|temple|court)\b", canonical_name.lower())):
         return "hall"
 
     description = " ".join((scene.get("design_description", ""), scene.get("source_facts", ""),
@@ -131,9 +134,10 @@ def _scene_kind(scene_id, scene):
         return "water"
     if any(x in description for x in ("灾变", "山崩", "地裂", "废墟", "damaged", "disaster", "ruins")):
         return "disaster"
-    if any(x in description for x in ("云路", "天外", "高空", "云海", "宫外", "exterior", "cloud", "celestial platform")):
+    if any(x in description for x in ("云路", "天外", "高空", "云海", "宫外", "celestial platform", "cloud road", "cloud platform")):
         return "celestial_exterior"
-    if any(x in description for x in ("宫", "殿", "厅", "府", "庙", "hall", "palace", "temple", "court")):
+    if (any(x in description for x in ("宫", "殿", "厅", "府", "庙"))
+            or re.search(r"\b(?:hall|palace|temple|court)\b", description)):
         return "hall"
     if any(x in description for x in ("室", "房", "屋", "洞府", "interior", "room", "chamber", "cave")):
         return "interior"
@@ -183,7 +187,9 @@ def _blocking(location, cast, scene_kind, shot=None):
         result.append({"id": item["id"], "name": item["name"], "x": x, "y": y, "z": z,
                        "pose": pose, "path": path, "instances": int(plan.get("instances", 1)),
                        "visible_throughout": bool(plan.get("visible_throughout", True)),
-                       "blocking_source": plan.get("mark", mark or "shot-level neutral blocking")})
+                       "blocking_source": plan.get("mark", mark or "shot-level neutral blocking"),
+                       **{key: plan[key] for key in ("pose_out", "pose_transition", "pose_keyframes", "heading",
+                                                   "heading_keyframes", "instance_layout") if key in plan}})
     return result
 
 
@@ -225,7 +231,9 @@ def render_spec(root, episode, shot, cfg):
         "scene_facts": scene.get("source_facts", ""),
         "layout": location.get("layout", ""),
         "cast": _blocking(location, cast, _scene_kind(shot["scene_id"], scene), shot),
-        "props": [{"id": p["id"], "name": p["name"]} for p in props],
+        "props": [{"id": p["id"], "name": p["name"],
+                   **shot.get("blocking_plan", {}).get("prop_state", {}).get(p["id"], {})} for p in props],
+        "set_support_geometry": shot.get("blocking_plan", {}).get("set_support_geometry", []),
         "dialogue_events": dialogue,
         "action": shot.get("action", ""),
         "blocking_plan": shot.get("blocking_plan", {}),

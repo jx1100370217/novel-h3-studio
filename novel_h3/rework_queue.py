@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 import time
 
-from .project import inside, load_state, update_state, locked, read
+from .project import inside, load_state, update_state, locked, read, write
 
 
 ACTIVE = {"queued", "running"}
@@ -13,17 +13,24 @@ def _entry_id(take_id):
     return "take:" + str(take_id)
 
 
-def _remove_file(path):
-    """Remove a generated media file without ever following a symlink."""
-    path = Path(path)
-    if path.is_symlink():
-        raise ValueError(f"拒绝删除符号链接视频：{path}")
-    path.unlink(missing_ok=True)
+def _invalidate_receipt(receipt, manifest, take_id, now):
+    """Preserve the edit and its receipt while revoking delivery eligibility."""
+    review = manifest.get("chapter_review")
+    if review and review.get("approved"):
+        manifest.setdefault("previous_chapter_reviews", []).append(dict(review))
+        manifest["chapter_review"] = {**review, "approved": False, "invalidated_at": now}
+    manifest.update(invalidated=True, invalidated_at=now, release_approved=False,
+                    invalidation_reason="包含待重拍镜头；保留此版本供比较")
+    ids = manifest.setdefault("invalidated_take_ids", [])
+    if take_id not in ids:
+        ids.append(take_id)
+    write(receipt, manifest)
 
 
 def _invalidate_deliverables(root, take_id):
-    """Remove assembled outputs whose receipt still contains the rejected take."""
+    """Invalidate, but never delete, edits containing the rejected take."""
     root = Path(root)
+    now = time.time()
     invalidated_chapter = False
     for folder in (root / "chapter_videos", root / "final", root / "previews"):
         for receipt in folder.glob("*.json"):
@@ -36,9 +43,7 @@ def _invalidate_deliverables(root, take_id):
             if folder.name == "chapter_videos":
                 section = manifest.get("section", receipt.stem.removeprefix("chapter_"))
                 update_state(root, lambda state: state.setdefault("invalidated_chapters", {}).__setitem__(section, "重拍待验收及重新合成"))
-            _remove_file(receipt)
-            _remove_file(receipt.with_suffix(".mp4"))
-            _remove_file(receipt.with_suffix(".srt"))
+            _invalidate_receipt(receipt, manifest, take_id, now)
             invalidated_chapter |= folder.name == "chapter_videos"
     # The cumulative file records chapter names rather than individual take IDs.
     # Once a chapter receipt is invalidated, the cumulative delivery is stale too.
@@ -49,17 +54,14 @@ def _invalidate_deliverables(root, take_id):
             except (OSError, ValueError, json.JSONDecodeError):
                 continue
             if manifest.get("kind") == "latest_cumulative_video":
-                _remove_file(receipt)
-                _remove_file(receipt.with_suffix(".mp4"))
-                _remove_file(receipt.with_suffix(".srt"))
+                _invalidate_receipt(receipt, manifest, take_id, now)
 
 
 def _retire_source_media(root, take, note, now):
-    """Delete the rejected shot from delivery and keep an auditable tombstone."""
+    """Retire a candidate from delivery while preserving its source media."""
     root = Path(root)
     video = take.get("video")
-    if video:
-        _remove_file(inside(root, video))
+    media_retained = bool(video and inside(root, video).is_file())
     _invalidate_deliverables(root, take.get("id", ""))
 
     def apply(state):
@@ -67,9 +69,12 @@ def _retire_source_media(root, take, note, now):
         if source is not None:
             source.update(
                 retired=True,
-                video_deleted=True,
-                video_deleted_at=now,
-                deletion_reason="用户标记重拍，旧问题视频已删除；保留审片记录和诊断文件",
+                retired_at=now,
+                status="rejected",
+                release_approved=False,
+                approval_method=None,
+                media_retained=media_retained,
+                retirement_reason="用户标记重拍；保留原视频、剪辑和审片记录供比较",
                 review_required="retake_queued",
                 retention_note=str(note).strip(),
             )
@@ -90,7 +95,7 @@ def _enqueue(root, take, note, reviewer):
     key = _entry_id(take["id"])
 
     # Retakes must never leave the rejected media visible as if it were the
-    # current shot. Keep the state entry as an audit tombstone, then queue the
+    # current shot. Preserve the source media and its review, then queue the
     # replacement using its immutable source_take_id.
     _retire_source_media(root, take, note, now)
 

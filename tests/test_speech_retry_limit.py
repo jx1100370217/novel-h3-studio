@@ -24,7 +24,7 @@ class SpeechRetryLimitTests(unittest.TestCase):
             self.assertFalse(take['retired'])
             self.assertTrue(take['speech_retry_exhausted'])
             self.assertEqual(take['speech_retry_failures'], 3)
-            self.assertEqual(take['review_required'], 'speech_qc_failed_after_3_retries')
+            self.assertEqual(take['review_required'], 'speech_qc_failed_after_3_attempts')
 
     def test_retained_take_survives_prompt_only_fingerprint_change(self):
         with tempfile.TemporaryDirectory() as tmp:

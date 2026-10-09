@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 import bpy
-from mathutils import Vector
+from mathutils import Quaternion, Vector
 from bpy_extras.object_utils import world_to_camera_view
 
 
@@ -66,7 +66,24 @@ def beam(name, start, end, radius, mat):
     return obj
 
 
-def chair(prefix, x, y, z, mat):
+def chair(prefix, x, y, z, mat, dimensions=None, seat_height=None):
+    if dimensions is not None:
+        width, depth, height = dimensions
+        if seat_height is None or not 0 < seat_height < height:
+            raise ValueError(f"{prefix}: chair requires a seat_height within its dimensions")
+        thickness = min(.08, height / 10)
+        cube(prefix + " seat", (x, y, z + seat_height - thickness / 2),
+             (width * .84, depth, thickness), mat, .03)
+        cube(prefix + " back", (x, y + depth * .4, z + (seat_height + height) / 2),
+             (width * .84, depth * .15, height - seat_height), mat, .03)
+        for dx in (-width * .35, width * .35):
+            for dy in (-depth * .33, depth * .33):
+                cube(prefix + " leg", (x + dx, y + dy, z + (seat_height - thickness) / 2),
+                     (width * .1, depth * .1, seat_height - thickness), mat, .02)
+        for dx in (-width * .44, width * .44):
+            cube(prefix + " arm", (x + dx, y, z + seat_height + .22),
+                 (width * .12, depth * .85, .12), mat, .025)
+        return
     cube(prefix + " seat", (x, y, z + 0.82), (1.35, 1.15, 0.28), mat, 0.08)
     cube(prefix + " back", (x, y + 0.42, z + 1.48), (1.35, 0.25, 1.15), mat, 0.08)
     for dx in (-0.55, 0.55):
@@ -76,7 +93,7 @@ def chair(prefix, x, y, z, mat):
         cube(prefix + " arm", (x + dx, y, z + 1.08), (0.18, 0.9, 0.18), mat, 0.04)
 
 
-def create_hall(floor, architectural, accent):
+def create_hall(floor, architectural, accent, spec=None):
     cube("single uninterrupted hall floor", (0, 0, -0.2), (26, 42, 0.4), floor)
     cube("rear hall wall", (0, 18.5, 7), (26, 0.6, 14), architectural)
     for side in (-1, 1):
@@ -87,10 +104,11 @@ def create_hall(floor, architectural, accent):
             cube("side bay lintel", (side * 11.2, y, 8), (3, 0.25, 0.35), accent, 0.04)
     for y, width, height in ((13, 18, 0.55), (14.1, 13, 0.48), (15.0, 8, 0.38)):
         cube("central raised dais", (0, y, height * 0.5), (width, 3, height), accent, 0.08)
-    chair("one elevated jade throne", 0, 14.2, 1.4, accent)
-    for side in (-1, 1):
-        for index, y in enumerate((-8, -3.5, 1, 5.5), 1):
-            chair(f"registered council seat {side} {index}", side * 5.2, y, 0, architectural)
+    if not any(item.get("kind") == "chair" for item in (spec or {}).get("set_support_geometry", [])):
+        chair("one elevated jade throne", 0, 14.2, 1.4, accent)
+        for side in (-1, 1):
+            for index, y in enumerate((-8, -3.5, 1, 5.5), 1):
+                chair(f"registered council seat {side} {index}", side * 5.2, y, 0, architectural)
     # Circular relief and roof ribs establish the same rear-wall and ceiling anchors in every view.
     bpy.ops.mesh.primitive_torus_add(major_radius=3.0, minor_radius=0.12, major_segments=32,
                                      minor_segments=8, location=(0, 18.05, 9.2), rotation=(math.pi / 2, 0, 0))
@@ -245,75 +263,288 @@ def create_interior(floor, architectural):
         cube("side wall", (side * 11.8, 0, 4), (0.4, 28, 8), architectural)
 
 
+def linear_keyframes(obj):
+    action = obj.animation_data.action if obj.animation_data else None
+    if not action:
+        return
+    curves = getattr(action, "fcurves", None)
+    if curves is None:
+        curves = [curve for layer in action.layers for strip in layer.strips
+                  for bag in strip.channelbags for curve in bag.fcurves]
+    for curve in curves:
+        for key in curve.keyframe_points:
+            key.interpolation = "LINEAR"
+
+
+# Local pelvis, shoulders, head, then elbow/hand/knee/foot (y, z).
+# These are pose silhouettes, not an appearance or character animation rig.
+POSE_POINTS = {
+    "standing": ((0, 0, .95), (0, 0, 1.75), (0, 0, 2.2), (0, 1.25), (-.03, .9), (0, .5), (-.03, .12)),
+    "seated": ((0, 0, .62), (0, 0, 1.3), (0, -.03, 1.73), (-.25, 1.03), (-.42, .73), (-.5, .57), (-.55, .12)),
+    "kneeling": ((0, 0, .45), (0, 0, 1.1), (0, -.03, 1.53), (-.12, .83), (-.3, .55), (-.23, .15), (.35, .12)),
+    "reclining": ((0, .22, .78), (0, -.27, .84), (0, -.7, .95), (.08, .8), (.4, .79), (.65, .76), (.94, .75)),
+    "propped": ((0, .22, .78), (0, -.25, 1.18), (0, -.55, 1.58), (.05, .93), (.32, .8), (.65, .76), (.94, .75)),
+    "mounted": ((0, 0, .18), (0, 0, .76), (0, -.03, 1.18), (-.2, .55), (-.5, .52), (-.25, -.25), (-.3, -.68)),
+}
+
+
+def set_proxy_pose(parts, pose, origin, frame, heading=0):
+    if pose == "flying":
+        pose = "standing"
+    if pose not in POSE_POINTS:
+        raise ValueError(f"Unsupported authored actor pose: {pose}")
+    pelvis, shoulder, head, elbow, hand, knee, foot = POSE_POINTS[pose]
+    pelvis, shoulder, head = Vector(pelvis), Vector(shoulder), Vector(head)
+    orientation = Quaternion((0, 0, 1), heading)
+    direction = shoulder - pelvis
+    torso = parts["torso"]
+    torso.location = origin + orientation @ ((pelvis + shoulder) / 2)
+    torso.scale = (.43, .28, direction.length / 2 + .15)
+    torso.rotation_euler = (orientation @ direction.to_track_quat("Z", "Y")).to_euler()
+    parts["head"].location = origin + orientation @ head
+    parts["head"].rotation_euler = torso.rotation_euler
+    for side in (-1, 1):
+        points = [Vector((side * .34, shoulder.y, shoulder.z)),
+                  Vector((side * .43, *elbow)), Vector((side * .42, *hand)),
+                  Vector((side * .2, pelvis.y, pelvis.z)),
+                  Vector((side * (.38 if pose == "mounted" else .23), *knee)),
+                  Vector((side * (.38 if pose == "mounted" else .23), *foot))]
+        for name, first, last in (("upper arm", 0, 1), ("forearm", 1, 2),
+                                  ("thigh", 3, 4), ("shin", 4, 5)):
+            obj = parts[f"{side} {name}"]
+            start, end = points[first], points[last]
+            delta = end - start
+            obj.location = origin + orientation @ ((start + end) / 2)
+            obj.rotation_euler = (orientation @ delta.to_track_quat("Z", "Y")).to_euler()
+            obj.scale.z = delta.length
+        parts[f"{side} foot"].location = origin + orientation @ points[5]
+        parts[f"{side} foot"].rotation_euler = orientation.to_euler()
+    for obj in parts.values():
+        for field in ("location", "rotation_euler", "scale"):
+            obj.keyframe_insert(data_path=field, frame=frame)
+
+
 def character_proxy(prefix, actor, floor_mat, accent_mat, end_frame):
-    x, y = actor["x"], actor["y"]
-    z = float(actor.get("z", 0.0))
-    seated = actor.get("pose") == "seated"
-    created = set(bpy.data.objects)
-    if seated:
-        pelvis_z, shoulder_z, head_z = z + 1.13, z + 1.72, z + 2.28
-        sphere(prefix + " torso proxy", (x, y, shoulder_z), (0.48, 0.31, 0.68), floor_mat)
-        # Keep the human silhouette brighter than the throne/backdrop so a
-        # seated speaker cannot visually disappear into the set blockout.
-        sphere(prefix + " head proxy", (x, y - 0.03, head_z), (0.27, 0.27, 0.34), floor_mat)
-        beam(prefix + " left arm proxy", (x - 0.35, y - 0.04, z + 2.05), (x - 0.5, y - 0.48, z + 1.42), 0.14, floor_mat)
-        beam(prefix + " right arm proxy", (x + 0.35, y - 0.04, z + 2.05), (x + 0.5, y - 0.48, z + 1.42), 0.14, floor_mat)
-        beam(prefix + " bent leg proxy", (x - 0.2, y - 0.1, pelvis_z), (x - 0.2, y - 0.65, z + 0.55), 0.16, floor_mat)
-        beam(prefix + " bent leg proxy", (x + 0.2, y - 0.1, pelvis_z), (x + 0.2, y - 0.65, z + 0.55), 0.16, floor_mat)
-    else:
-        sphere(prefix + " torso proxy", (x, y, z + 1.28), (0.5, 0.32, 0.78), floor_mat)
-        sphere(prefix + " head proxy", (x, y, z + 2.2), (0.29, 0.29, 0.36), floor_mat)
-        for side in (-1, 1):
-            beam(prefix + " arm proxy", (x + side * 0.34, y, z + 1.75), (x + side * 0.42, y - 0.03, z + 0.9), 0.14, floor_mat)
-            beam(prefix + " leg proxy", (x + side * 0.2, y, z + 0.85), (x + side * 0.23, y - 0.03, z + 0.12), 0.17, floor_mat)
-    if actor.get("pose") == "flying" or actor.get("path"):
-        for idx, (dx, dy, sx) in enumerate(((-0.62, 0.18, 0.68), (0, 0.36, 0.88), (0.62, 0.18, 0.68))):
-            sphere(prefix + f" cloud proxy {idx + 1}", (x + dx, y + dy, z + 0.22),
-                   (sx, 0.42, 0.2), accent_mat)
-    obj = bpy.data.objects.get(prefix + " torso proxy")
-    if obj:
-        # The proxy faces the center aisle in the council hall; elsewhere it faces the camera.
-        if x < -1:
-            obj.rotation_euler[2] = math.pi / 2
-        elif x > 1:
-            obj.rotation_euler[2] = -math.pi / 2
-    created = [obj for obj in bpy.data.objects if obj not in created]
+    start = Vector((actor["x"], actor["y"], float(actor.get("z", 0))))
     root = bpy.data.objects.new(prefix + " blocking root", None)
     bpy.context.collection.objects.link(root)
-    for obj in created:
-        obj.parent = root
-        obj.matrix_parent_inverse = root.matrix_world.inverted()
-    start = Vector((x, y, z))
+    pose, pose_out = actor.get("pose", "standing"), actor.get("pose_out", actor.get("pose", "standing"))
+    transition = actor.get("pose_transition")
+    pose_keys = actor.get("pose_keyframes")
+    if pose_keys is not None:
+        frames = [point["frame"] for point in pose_keys]
+        if (len(pose_keys) < 2 or any(type(frame) is not int for frame in frames)
+                or frames != sorted(set(frames)) or frames[0] != 0 or frames[-1] != end_frame - 1
+                or pose_keys[0]["pose"] != pose or pose_keys[-1]["pose"] != pose_out):
+            raise ValueError(f"{actor['id']}: pose_keyframes must cover ordered frames and declared first/last poses")
+    elif pose != pose_out:
+        if not transition:
+            raise ValueError(f"{actor['id']}: pose transition requires authored start_frame/end_frame")
+        if not 0 <= transition["start_frame"] < transition["end_frame"] < end_frame:
+            raise ValueError(f"{actor['id']}: pose transition is outside the delivered frames")
+    heading_keys = actor.get("heading_keyframes")
+    if heading_keys is not None:
+        frames = [point["frame"] for point in heading_keys]
+        if (len(heading_keys) < 2 or any(type(frame) is not int for frame in frames)
+                or frames != sorted(set(frames)) or frames[0] != 0 or frames[-1] != end_frame - 1
+                or any(type(point["heading"]) not in (int, float) or not math.isfinite(point["heading"])
+                       for point in heading_keys)):
+            raise ValueError(f"{actor['id']}: heading_keyframes require ordered full-range frames and finite radians")
+    count = max(1, int(actor.get("instances", 1)))
+    layout = actor.get("instance_layout") or [
+        {"offset": {"x": (i - (count - 1) / 2) * .9, "y": .25 if count > 1 else 0, "z": 0}}
+        for i in range(count)]
+    if len(layout) != count:
+        raise ValueError(f"{actor['id']}: instance_layout count does not match instances")
+    centers = []
+    for index, member in enumerate(layout, 1):
+        offset = member.get("offset", {})
+        origin = start + Vector(tuple(float(offset.get(axis, 0)) for axis in ("x", "y", "z")))
+        member_prefix = prefix + f" member {index}"
+        parts = {"torso": sphere(member_prefix + " torso proxy", origin, (1, 1, 1), floor_mat),
+                 "head": sphere(member_prefix + " head proxy", origin, (.29, .29, .34), floor_mat)}
+        for side in (-1, 1):
+            for limb in ("upper arm", "forearm", "thigh", "shin"):
+                parts[f"{side} {limb}"] = cylinder(member_prefix + f" {side} {limb} proxy", origin,
+                                                  .12 if "arm" in limb else .15, 1, floor_mat)
+            parts[f"{side} foot"] = sphere(member_prefix + f" {side} foot proxy", origin,
+                                           (.16, .23, .12), floor_mat)
+        for kind, obj in parts.items():
+            obj.parent = root
+            obj["member_prefix"] = member_prefix
+            if kind in ("head", "torso"):
+                obj["projection_anchor"] = kind
+        member_pose = member.get("pose", pose)
+        heading = float(member.get("heading", actor.get("heading", 0)))
+        pose_origin = origin
+        if heading_keys is not None:
+            pivot = bpy.data.objects.new(member_prefix + " heading root", None)
+            bpy.context.collection.objects.link(pivot)
+            pivot.parent = root
+            pivot.location = origin
+            pivot["heading_root"] = True
+            yaw = heading_keys[0]["heading"]
+            for point in heading_keys:
+                yaw += (point["heading"] - yaw + math.pi) % math.tau - math.pi
+                pivot.rotation_euler.z = yaw
+                pivot.keyframe_insert(data_path="rotation_euler", frame=point["frame"] + 1)
+            linear_keyframes(pivot)
+            for obj in parts.values():
+                obj.parent = pivot
+            pose_origin, heading = Vector((0, 0, 0)), 0
+        set_proxy_pose(parts, member_pose, pose_origin, 1, heading)
+        centers.append(origin + Quaternion((0, 0, 1), heading_keys[0]["heading"]) @ parts["torso"].location
+                       if heading_keys is not None else parts["torso"].location.copy())
+        if pose_keys is not None:
+            for point in pose_keys:
+                set_proxy_pose(parts, point["pose"], pose_origin, point["frame"] + 1, heading)
+        elif pose != pose_out:
+            set_proxy_pose(parts, member_pose, pose_origin, transition["start_frame"] + 1, heading)
+            set_proxy_pose(parts, pose_out, pose_origin, transition["end_frame"] + 1, heading)
+        set_proxy_pose(parts, pose_out if pose != pose_out else member_pose, pose_origin, end_frame, heading)
+        for obj in parts.values():
+            linear_keyframes(obj)
+        if member_pose == "flying":
+            for idx, (dx, dy, sx) in enumerate(((-.62, .18, .68), (0, .36, .88), (.62, .18, .68))):
+                cloud = sphere(member_prefix + f" cloud proxy {idx + 1}", pose_origin + Vector((dx, dy, .22)),
+                               (sx, .42, .2), accent_mat)
+                cloud.parent = pivot if heading_keys is not None else root
     root.location = (0, 0, 0)
     root.keyframe_insert(data_path="location", frame=1)
     for point in actor.get("path", []):
-        destination = Vector((point["x"], point["y"], point["z"]))
-        root.location = destination - start
-        root.keyframe_insert(data_path="location", frame=max(1, int(point["frame"])))
-    if actor.get("path"):
-        root.location = Vector((actor["path"][-1]["x"], actor["path"][-1]["y"], actor["path"][-1]["z"])) - start
-        root.keyframe_insert(data_path="location", frame=end_frame)
-    instances = max(1, int(actor.get("instances", 1)))
-    if instances > 1:
-        # The group remains one bound asset; its silhouettes are a compact proxy cluster.
-        for idx, offset in enumerate(range(1, instances)):
-            group = bpy.data.objects.new(prefix + f" group member {idx + 2}", None)
-            bpy.context.collection.objects.link(group)
-            group.location = (0, 0, 0)
-            group.parent = root
-            group.location = ((idx - (instances - 2) / 2) * 0.9, 0.25, 0)
-            # Keep a readable group outline with lightweight torso/head stand-ins.
-            sphere(prefix + f" group torso {idx + 2}", (x + (idx - (instances - 2) / 2) * 0.9, y + 0.25, z + 1.25),
-                   (0.36, 0.27, 0.64), floor_mat).parent = root
-            sphere(prefix + f" group head {idx + 2}", (x + (idx - (instances - 2) / 2) * 0.9, y + 0.25, z + 2.15),
-                   (0.23, 0.23, 0.3), floor_mat).parent = root
-    return (x, y, z + 1.55), root
+        root.location = Vector((point["x"], point["y"], point["z"])) - start
+        root.keyframe_insert(data_path="location", frame=min(end_frame, max(1, int(point["frame"]) + 1)))
+    root.keyframe_insert(data_path="location", frame=end_frame)
+    linear_keyframes(root)
+    return tuple(sum(p[axis] for p in centers) / len(centers) for axis in range(3)), root
+
+
+def prop_proxy(prefix, prop, mat, end_frame, actors):
+    """Render authored numeric geometry; components already use world coordinates."""
+    kind = prop.get("kind")
+    components = prop.get("components", [])
+    roots = []
+    if components and not prop.get("render_components_in_addition_to_base"):
+        for component in components:
+            roots.extend(prop_proxy(prefix + " " + component["component_id"], component, mat, end_frame, actors))
+        return roots
+    if not kind or not prop.get("position") or not prop.get("dimensions"):
+        raise ValueError(f"{prefix}: prop requires authored kind, position and dimensions")
+    if prop.get("coordinate_space", "world") != "world":
+        raise ValueError(f"{prefix}: prop coordinates must be world coordinates")
+    dimensions = tuple(float(prop["dimensions"][axis]) for axis in ("x", "y", "z"))
+    if min(dimensions) <= 0:
+        raise ValueError(f"{prefix}: prop dimensions must be positive")
+    dx, dy, dz = dimensions
+    root = bpy.data.objects.new(prefix + " prop root", None)
+    root["prop_kind"] = kind
+    root["asset_id"] = prop.get("asset_id", prop.get("id", ""))
+    bpy.context.collection.objects.link(root)
+    before = set(bpy.data.objects)
+    if kind in {"paper", "book_cover", "paper_stack", "coffin_lid", "inkstone", "tack", "marking", "water_surface"}:
+        cube(prefix + " " + kind, (0, 0, 0), dimensions, mat)
+    elif kind == "earth_mound":
+        sphere(prefix + " earth mound", (0, 0, 0), (dx / 2, dy / 2, dz / 2), mat)
+    elif kind == "brush":
+        cylinder(prefix + " brush shaft", (0, 0, 0), min(dx, dy) / 2, dz, mat)
+    elif kind in {"exam_desk", "stool"}:
+        thickness = min(.08, dz / 4)
+        cube(prefix + " top", (0, 0, dz / 2 - thickness / 2), (dx, dy, thickness), mat)
+        for x in (-dx * .38, dx * .38):
+            for y in (-dy * .38, dy * .38):
+                cube(prefix + " leg", (x, y, -thickness / 2),
+                     (min(.09, dx / 5), min(.09, dy / 5), dz - thickness), mat)
+    elif kind == "chair":
+        floor = 0 if prop.get("position_anchor") == "ground_root" else -dz / 2
+        chair(prefix, 0, 0, floor, mat, dimensions, prop.get("seat_height"))
+    elif kind == "coffin_body":
+        wall = float(prop.get("wall_thickness", .055))
+        base = float(prop.get("base_thickness", .08))
+        cube(prefix + " bottom", (0, 0, -dz / 2 + base / 2), (dx, dy, base), mat)
+        for side in (-1, 1):
+            cube(prefix + " side wall", (side * (dx - wall) / 2, 0, 0), (wall, dy, dz), mat)
+            cube(prefix + " end wall", (0, side * (dy - wall) / 2, 0), (dx - 2 * wall, wall, dz), mat)
+    elif kind == "basin":
+        wall = float(prop.get("wall_thickness", .035))
+        vertices, faces = [], []
+        for rx, ry, height in ((dx / 2, dy / 2, -dz / 2), (dx / 2, dy / 2, dz / 2),
+                               (dx / 2 - wall, dy / 2 - wall, dz / 2),
+                               (dx / 2 - wall, dy / 2 - wall, -dz / 2 + wall)):
+            vertices.extend((rx * math.cos(i * math.tau / 12), ry * math.sin(i * math.tau / 12), height)
+                            for i in range(12))
+        for ring in range(3):
+            for i in range(12):
+                faces.append((ring * 12 + i, ring * 12 + (i + 1) % 12,
+                              (ring + 1) * 12 + (i + 1) % 12, (ring + 1) * 12 + i))
+        faces.extend((tuple(range(11, -1, -1)), tuple(range(36, 48))))
+        mesh = bpy.data.meshes.new(prefix + " basin mesh")
+        mesh.from_pydata(vertices, [], faces)
+        mesh.materials.append(mat)
+        obj = bpy.data.objects.new(prefix + " open basin shell", mesh)
+        bpy.context.collection.objects.link(obj)
+    elif kind == "horse":
+        sphere(prefix + " equine torso", (-dx * .08, 0, dz * .59), (dx * .32, dy * .44, dz * .23), mat)
+        beam(prefix + " equine neck", (dx * .25, 0, dz * .65), (dx * .37, 0, dz * .84), dy * .17, mat)
+        sphere(prefix + " equine head", (dx * .37, 0, dz * .85), (dx * .15, dy * .23, dz * .13), mat)
+        for x in (-dx * .23, dx * .23):
+            for y in (-dy * .3, dy * .3):
+                beam(prefix + " equine leg", (x, y, dz * .57), (x, y, .08), dy * .1, mat)
+                cube(prefix + " equine hoof", (x, y, .04), (dy * .2, dy * .24, .08), mat)
+        beam(prefix + " equine tail", (-dx * .4, 0, dz * .62), (-dx * .48, 0, dz * .35), dy * .07, mat)
+    elif kind == "carriage":
+        radius = float(prop.get("wheel_radius", min(.34, dz / 3)))
+        cube(prefix + " carriage platform", (0, 0, -dz / 2 + radius), (dx, dy, .12), mat)
+        cube(prefix + " carriage box", (0, 0, radius / 2), (dx * .85, dy * .85, dz - radius), mat)
+        for side in (-1, 1):
+            wheel = cylinder(prefix + " carriage wheel", (0, side * dy / 2, -dz / 2 + radius),
+                             radius, .1, mat, 16)
+            wheel.rotation_euler.x = math.pi / 2
+    else:
+        raise ValueError(f"{prefix}: unsupported authored prop kind {kind}")
+    for obj in bpy.data.objects:
+        if obj not in before:
+            obj.parent = root
+    position = prop["position"]
+    rotation = prop.get("rotation", {})
+    path = prop.get("path") or [{"frame": 0, "position": position, "rotation": rotation},
+                                 {"frame": end_frame - 1, "position": position, "rotation": rotation}]
+    if not prop.get("path") and prop.get("held_by"):
+        owner = actors.get(prop["held_by"])
+        if owner is None:
+            raise ValueError(f"{prefix}: held_by actor is not registered in this shot")
+        root.parent = owner
+    for point in path:
+        root.location = tuple(float(point["position"][axis]) for axis in ("x", "y", "z"))
+        root.rotation_euler = tuple(float(point.get("rotation", rotation).get(axis, 0)) for axis in ("x", "y", "z"))
+        frame = min(end_frame, max(1, int(point["frame"]) + 1))
+        root.keyframe_insert(data_path="location", frame=frame)
+        root.keyframe_insert(data_path="rotation_euler", frame=frame)
+    root.keyframe_insert(data_path="location", frame=end_frame)
+    root.keyframe_insert(data_path="rotation_euler", frame=end_frame)
+    linear_keyframes(root)
+    roots.append(root)
+    for component in components:
+        roots.extend(prop_proxy(prefix + " " + component["component_id"], component, mat, end_frame, actors))
+    return roots
 
 
 def camera_path(scene, camera, spec, actor_centers):
     shot_camera = spec.get("camera", {})
     lens = max(24.0, min(100.0, float(shot_camera.get("lens_mm", 50))))
     camera.data.lens = lens
+    if shot_camera.get("position") and shot_camera.get("look_at"):
+        points = shot_camera.get("path") or [{"frame": 0, "position": shot_camera["position"]},
+                                             {"frame": spec["frames"] - 1, "position": shot_camera["position"]}]
+        for point in points:
+            location = Vector(tuple(float(point["position"][axis]) for axis in ("x", "y", "z")))
+            target = Vector(tuple(float(point.get("look_at", shot_camera["look_at"])[axis]) for axis in ("x", "y", "z")))
+            camera.location = location
+            camera.rotation_euler = (target - location).to_track_quat("-Z", "Y").to_euler()
+            frame = min(int(spec["frames"]), max(1, int(point["frame"]) + 1))
+            camera.keyframe_insert(data_path="location", frame=frame)
+            camera.keyframe_insert(data_path="rotation_euler", frame=frame)
+        linear_keyframes(camera)
+        return
     cast = spec.get("cast", [])
     by_id = {actor["id"]: actor_centers[i] for i, actor in enumerate(cast)}
     dialogue = sorted(spec.get("dialogue_events", []), key=lambda x: x.get("start_frame", 0))
@@ -572,26 +803,35 @@ def validate_cast_projection(scene, camera, actor_roots, centers, frames):
         depsgraph = bpy.context.evaluated_depsgraph_get()
         evaluated_camera = camera.evaluated_get(depsgraph)
         camera_origin = evaluated_camera.matrix_world.translation
-        for index, root in enumerate(actor_roots):
-            evaluated = root.evaluated_get(depsgraph)
-            delta = evaluated.matrix_world.translation
-            center = Vector(centers[index]) + delta
-            head_world = center + Vector((0, 0, 0.7))
+        anchors = {obj.get("member_prefix"): {} for root in actor_roots for obj in root.children_recursive
+                   if obj.get("projection_anchor")}
+        for root in actor_roots:
+            for obj in root.children_recursive:
+                if obj.get("projection_anchor"):
+                    anchors[obj["member_prefix"]][obj["projection_anchor"]] = obj
+        for member, parts in anchors.items():
+            torso_obj = parts["torso"].evaluated_get(depsgraph)
+            head_obj = parts["head"].evaluated_get(depsgraph)
+            center = torso_obj.matrix_world.translation
+            head_world = head_obj.matrix_world.translation
             projected = world_to_camera_view(scene, camera, center)
             head = world_to_camera_view(scene, camera, head_world)
             if (projected.z <= 0 or head.z <= 0
                     or not (0.015 <= projected.x <= 0.985 and 0.015 <= projected.y <= 0.985)
                     or not (0.015 <= head.x <= 0.985 and 0.015 <= head.y <= 0.985)):
                 raise RuntimeError(
-                    f"Registered actor proxy {index + 1} or its head leaves the camera frame at frame {frame} "
+                    f"{member} or its head leaves the camera frame at frame {frame} "
                     f"(body=({projected.x:.3f},{projected.y:.3f},{projected.z:.2f}), "
                     f"head=({head.x:.3f},{head.y:.3f},{head.z:.2f}), "
                     f"camera={tuple(round(float(v), 2) for v in camera_origin)}); "
                     "revise blocking or framing before sending this guide to H3."
                 )
-            if abs(head.y - projected.y) < 0.012:
+            head_bounds = [world_to_camera_view(scene, camera, head_obj.matrix_world @ Vector(corner))
+                           for corner in head_obj.bound_box]
+            if max(max(p.x for p in head_bounds) - min(p.x for p in head_bounds),
+                   max(p.y for p in head_bounds) - min(p.y for p in head_bounds)) < 0.012:
                 raise RuntimeError(
-                    f"Registered actor proxy {index + 1} is too small to read at frame {frame}; "
+                    f"{member} is too small to read at frame {frame}; "
                     "revise camera distance or blocking."
                 )
             ray = head_world - camera_origin
@@ -599,11 +839,10 @@ def validate_cast_projection(scene, camera, actor_roots, centers, frames):
             hit, _location, _normal, _face, hit_object, _matrix = scene.ray_cast(
                 depsgraph, camera_origin, ray.normalized(), distance=distance + 0.05
             )
-            actor_prefix = root.name.removesuffix(" blocking root")
-            if not hit or not hit_object.name.startswith(actor_prefix):
+            if not hit or hit_object.get("member_prefix") != member:
                 obstacle = hit_object.name if hit else "no visible registered body"
                 raise RuntimeError(
-                    f"Registered actor proxy {index + 1} is occluded by {obstacle} at frame {frame}; "
+                    f"{member} is occluded by {obstacle} at frame {frame}; "
                     "the scene geometry or blocking hides a required person."
                 )
 
@@ -624,7 +863,7 @@ def main():
     accent = material("light gray staging anchors", (0.5, 0.5, 0.5))
     proxy = material("neutral gray character proxies", (0.9, 0.9, 0.9))
     if spec["scene_kind"] == "hall":
-        create_hall(floor, architecture, accent)
+        create_hall(floor, architecture, accent, spec)
     elif spec["scene_kind"] == "celestial_exterior":
         create_celestial_exterior(floor, architecture, accent)
     elif spec["scene_kind"] == "water":
@@ -644,10 +883,11 @@ def main():
         center, root = character_proxy(f"registered proxy {i}", actor, proxy, accent, spec["frames"])
         centers.append(center)
         actor_roots.append(root)
-    for i, _prop in enumerate(spec.get("props", []), 1):
-        actor = cast[0] if cast else {"x": 0, "y": 0}
-        cube(f"registered prop blockout {i}", (actor["x"] + 0.55, actor["y"] - 0.4, 1.18),
-             (0.25, 0.12, 0.62), accent, 0.025)
+    actors_by_id = {actor["id"]: root for actor, root in zip(cast, actor_roots)}
+    for i, prop in enumerate(spec.get("props", []), 1):
+        prop_proxy(f"registered prop {i}", prop, accent, spec["frames"], actors_by_id)
+    for i, support in enumerate(spec.get("set_support_geometry", []), 1):
+        prop_proxy(f"authored set support {i}", support, accent, spec["frames"], actors_by_id)
 
     bpy.ops.object.camera_add(location=(0, -20, 8))
     camera = bpy.context.object

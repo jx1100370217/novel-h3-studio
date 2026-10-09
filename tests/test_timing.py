@@ -24,7 +24,7 @@ class TimingTests(unittest.TestCase):
         self.assertLess(result['frames'],124)
 
     def test_content_target_uses_dialogue_length(self):
-        self.assertEqual(dialogue_duration_seconds(['你是谁？']), 2)
+        self.assertEqual(dialogue_duration_seconds(['你是谁？']), 3)
 
     def test_content_plan_migration_preserves_silent_scene(self):
         plan={'script': {'scenes': [
@@ -34,7 +34,7 @@ class TimingTests(unittest.TestCase):
         ]}}
         result, changes, blocked=retime_content_plan(plan)
         self.assertEqual(result['script']['scenes'][0]['duration_seconds'], 5)
-        self.assertEqual(result['script']['scenes'][1]['duration_seconds'], 2)
+        self.assertEqual(result['script']['scenes'][1]['duration_seconds'], 3)
         self.assertEqual(len(changes), 1)
         self.assertFalse(blocked)
 
@@ -57,7 +57,7 @@ class TimingTests(unittest.TestCase):
         self.assertTrue(all(speech_seconds(part) <= MAX_CONTINUOUS_SPEECH_SECONDS for part in parts))
 
     def test_content_plan_migration_splits_audited_dialogue_together(self):
-        text = '我走了，我将同时幻化成十个状态，同时在六界经正邪的磨灭，让无极从新悟道，从新定神伦，再次创世。'
+        text = '我走了，我将同时幻化成十个状态，让无极从新悟道。'
         plan = {'script': {'scenes': [{'scene_id': 'D1', 'duration_seconds': 5,
                                        'utterances': [{'kind': 'dialogue', 'speaker': '盘古', 'text': text}]}]},
                 'speaker_audit': {'scenes': {'D1': [{'kind': 'dialogue', 'speaker': '盘古', 'text': text,
@@ -70,3 +70,13 @@ class TimingTests(unittest.TestCase):
         self.assertEqual([row['text'] for row in utterances], [row['text'] for row in audits])
         self.assertTrue(all('按语义停顿拆分连续发声段' in row['reason'] for row in audits))
         self.assertFalse(blocked)
+
+    def test_splitting_speech_events_does_not_bypass_whole_clip_duration(self):
+        text = '我走了，我将同时幻化成十个状态，同时在六界经正邪的磨灭，让无极从新悟道，从新定神伦，再次创世。'
+        plan = {'script': {'scenes': [{'scene_id': 'D1', 'duration_seconds': 5,
+                'utterances': [{'kind': 'dialogue', 'speaker': '甲', 'text': text}]}]}}
+        result, _, blocked = retime_content_plan(plan)
+        self.assertEqual(blocked[0]['scene_id'], 'D1')
+        self.assertIn('超过约15秒', blocked[0]['reason'])
+        self.assertEqual(''.join(u['text'] for u in result['script']['scenes'][0]['utterances']), text)
+        self.assertEqual(result['script']['scenes'][0]['duration_seconds'], 5)

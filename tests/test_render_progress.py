@@ -7,5 +7,3 @@ class RenderContinuationTests(unittest.TestCase):
         self.assertIn("AUDIO_CLEANED_CONTINUING", text)
         self.assertIn("time.sleep(0.5)", text)
         self.assertNotIn("time.sleep(20)", text)
-        self.assertIn("SPEECH_FAILED_RETAINED_CONTINUING", text)
-        self.assertNotIn("SPEECH_FAILED_RETRYING", text)

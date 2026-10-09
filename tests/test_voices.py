@@ -36,9 +36,24 @@ class VoiceBindingTests(unittest.TestCase):
         self.bank = {'无极': dict(asset_id='wuji', path='voice.wav', sha256=file_hash(wave), approved=True),
                      '旁白': dict(asset_id=None, path='voice.wav', sha256=file_hash(wave), approved=True)}
         write(self.root/'bible/voices.json', self.bank)
-        self.shot = copy.deepcopy(read(REPO/'projects/rendao-wuji/episodes/chapter_s0003.json')['shots'][0])
+        # The test contract must survive a clean clone without private projects.
+        self.template = {
+            'id': 'voice_fixture', 'mode': 'ref2va', 'scene_id': 'outer_heaven',
+            'continuity': 'cut', 'frames': 124, 'seed': 123, 'source_ids': [],
+            'dialogue': [], 'references': [], 'visual_narration': '角色观察远处。',
+            'action': 'A young man looks toward his listener and waits.',
+            'camera': {'size': 'medium close-up', 'lens_mm': 50, 'movement': 'static',
+                       'motivation': 'Observe the reaction.'},
+            'soundscape': 'Soft wind and clothing movement.',
+            'handoff_in': 'The man faces his listener.',
+            'handoff_out': 'The man holds the same eyeline.',
+            'timeline': [{'start_frame': 0, 'end_frame': 124,
+                          'description': 'Maintain the eyeline and restrained reaction.'}],
+        }
+        self.shot = copy.deepcopy(self.template)
         self.shot['references'] = [dict(asset_id='outer_heaven',description='empty environment',lock='environment'),
                                    dict(asset_id='wuji',description='young man',lock='face')]
+        self.template['references'] = copy.deepcopy(self.shot['references'])
         self.shot['dialogue'] = [dict(speaker='无极',kind='dialogue',text='这是哪里？',start_frame=6,end_frame=118)]
 
     def test_subject_follows_asset_not_picture_or_speaker_position(self):
@@ -68,7 +83,7 @@ class VoiceBindingTests(unittest.TestCase):
         self.assertNotIn('男性角色设计说明', prompt)
 
     def test_c3p01_03_closes_incomplete_voiceover_clause(self):
-        shot = copy.deepcopy(read(REPO/'projects/rendao-wuji/episodes/chapter_s0003.json')['shots'][2])
+        shot = copy.deepcopy(self.template)
         shot['id'] = 'C3P01_03'
         shot['dialogue'] = [{'kind':'voiceover','speaker':'旁白','text':'是因为天外天处处都是光，','start_frame':6,'end_frame':100}]
         prompt = h3_prompt(shot, 'cinema')
@@ -77,7 +92,7 @@ class VoiceBindingTests(unittest.TestCase):
         self.assertNotIn('<d>[Chinese] 是因为天外天处处都是光，</d>', prompt)
 
     def test_homophone_alternatives_are_not_sent_to_h3(self):
-        shot = copy.deepcopy(read(REPO/'projects/rendao-wuji/episodes/chapter_s0003.json')['shots'][0])
+        shot = copy.deepcopy(self.template)
         shot['id'] = 'C3R018'
         shot['dialogue'] = [dict(text='混沌初生，先生盘古，后生女娲，最后生无极。', speaker='盘古', kind='dialogue',start_frame=6,end_frame=120)]
         shot['speech_bindings'] = [{'speaker':'盘古','picture':1,'audio':1,'speaker_label':'S1'}]
@@ -105,8 +120,8 @@ class VoiceBindingTests(unittest.TestCase):
             {'kind': 'scene', 'subject_label': 'Subject 2'}]}
         prompt = h3_prompt(shot, 'cinema')
         self.assertIn('Dialogue shot character lock', prompt)
-        self.assertIn('unbound or unregistered person', prompt)
-        self.assertIn('Character reference pictures are the sole identity source', prompt)
+        self.assertIn('Do not add any unbound person', prompt)
+        self.assertIn('Character references supply identity only', prompt)
 
     def test_dialogue_shot_locks_speaker_visibility_and_blocks_empty_plate_cutaways(self):
         shot = copy.deepcopy(self.shot)
@@ -214,7 +229,7 @@ class VoiceBindingTests(unittest.TestCase):
         self.assertIn("never a frontal face", prompt)
 
     def test_silent_visual_narration_is_omitted_from_model_prompt(self):
-        shot=copy.deepcopy(read(REPO/'projects/rendao-wuji/episodes/chapter_s0003.json')['shots'][0])
+        shot=copy.deepcopy(self.template)
         forbidden=shot['visual_narration']
         prompt=h3_prompt(shot,'cinema')
         self.assertNotIn(forbidden,prompt)
@@ -249,7 +264,7 @@ class VoiceBindingTests(unittest.TestCase):
         self.assertIn('private review note is not a script', prompt)
 
     def test_speaker_review_note_compiles_to_structural_correction(self):
-        shot = copy.deepcopy(read(REPO/'projects/rendao-wuji/episodes/chapter_s0003.json')['shots'][3])
+        shot = copy.deepcopy(self.template)
         shot['dialogue'] = [dict(speaker='盘古', kind='dialogue', text='回到六界。', start_frame=6, end_frame=48)]
         correction = _speaker_review_correction('视频中无极说了盘古的对白', shot['dialogue'])
         self.assertEqual(correction['wrong_visual_speaker'], '无极')
@@ -309,7 +324,11 @@ class VoiceBindingTests(unittest.TestCase):
             bindings(self.root,self.shot)
 
     def test_graph_really_connects_audio_and_pins_voice_fingerprint(self):
-        cfg=read(REPO/'projects/rendao-wuji/config.json')
+        cfg = {'generation': {'width': 1024, 'height': 576, 'steps': 20},
+               'models': {'fl2va': 'fl.safetensors', 'ref2va': 'ref.safetensors',
+                          'clip': 'clip.safetensors', 'video_vae': 'video.safetensors',
+                          'audio_vae': 'audio.safetensors'},
+               'style': 'Real cinema.', 'upstream_commit': 'fixture'}
         cfg.setdefault('blender_previs',{})['enabled']=False
         cfg['input_dir']=str(self.root/'input')
         write(self.root/'config.json',cfg)

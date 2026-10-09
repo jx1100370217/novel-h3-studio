@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from novel_h3.project import write, load_state, file_hash, sync_speech_reports
+from novel_h3.project import write, read, load_state, file_hash, sync_speech_reports
 from novel_h3.rework_queue import enqueue, claim, complete, snapshot
 
 
@@ -28,7 +28,7 @@ class ReworkQueueTests(unittest.TestCase):
         self.assertEqual(snapshot(self.root)["total"], 0)
         self.assertEqual(load_state(self.root)["rework_queue"][item["id"]]["generated_take_id"], "t_new")
 
-    def test_enqueue_removes_rejected_video_and_invalidates_delivery(self):
+    def test_enqueue_preserves_rejected_video_and_invalidates_delivery(self):
         video = self.root / "renders" / "t_old" / "video.mp4"
         video.parent.mkdir(parents=True)
         video.write_bytes(b"old problematic video")
@@ -37,7 +37,14 @@ class ReworkQueueTests(unittest.TestCase):
         chapter.write_bytes(b"chapter containing old video")
         write(chapter.with_suffix(".json"), {
             "kind": "chapter_video", "take_ids": ["t_old"],
+            "release_approved": True,
+            "chapter_review": {"approved": True, "reviewer": "user", "sha256": file_hash(chapter)},
         })
+        chapter.with_suffix(".srt").write_text("old subtitles")
+        preview = self.root / "previews" / "rough.mp4"
+        preview.parent.mkdir(parents=True)
+        preview.write_bytes(b"old preview")
+        write(preview.with_suffix(".json"), {"take_ids": ["t_old"]})
         write(self.root / "final" / "latest_full_video.json", {
             "kind": "latest_cumulative_video", "chapters": [{"id": "s0003"}],
         })
@@ -52,12 +59,27 @@ class ReworkQueueTests(unittest.TestCase):
 
         state = load_state(self.root)
         self.assertTrue(state["takes"]["t_old"]["retired"])
-        self.assertTrue(state["takes"]["t_old"]["video_deleted"])
-        self.assertFalse(video.exists())
-        self.assertFalse(chapter.exists())
-        self.assertFalse((chapter.with_suffix(".json")).exists())
-        self.assertFalse(cumulative.exists())
-        self.assertFalse((self.root / "final" / "latest_full_video.json").exists())
+        self.assertTrue(state["takes"]["t_old"]["media_retained"])
+        self.assertNotIn("video_deleted", state["takes"]["t_old"])
+        self.assertEqual(video.read_bytes(), b"old problematic video")
+        self.assertEqual(file_hash(video), take["video_sha256"])
+        self.assertEqual(chapter.read_bytes(), b"chapter containing old video")
+        self.assertEqual(chapter.with_suffix(".srt").read_text(), "old subtitles")
+        self.assertEqual(cumulative.read_bytes(), b"stale cumulative")
+        self.assertEqual(preview.read_bytes(), b"old preview")
+        for media in [chapter, cumulative, preview]:
+            receipt = read(media.with_suffix(".json"))
+            self.assertTrue(receipt["invalidated"])
+            self.assertFalse(receipt["release_approved"])
+            self.assertEqual(receipt["invalidated_take_ids"], ["t_old"])
+        receipt = read(chapter.with_suffix(".json"))
+        self.assertFalse(receipt["chapter_review"]["approved"])
+        self.assertTrue(receipt["previous_chapter_reviews"][0]["approved"])
+        self.assertIn("s0003", state["invalidated_chapters"])
+        enqueue(self.root, take, "再次确认重拍", "user")
+        receipt = read(chapter.with_suffix(".json"))
+        self.assertEqual(len(receipt["previous_chapter_reviews"]), 1)
+        self.assertEqual(receipt["invalidated_take_ids"], ["t_old"])
 
     def test_speech_report_replaces_stale_state_transcript(self):
         take = {**self.take, "speech_check": {

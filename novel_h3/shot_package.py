@@ -59,7 +59,7 @@ def _camera_execution(shot, cast, audio):
 
     size = str(camera.get("size", "medium shot"))
     close = "close" in size.lower()
-    multi = len(cast) > 1
+    multi = sum(int(item.get("expected_instances") or 1) for item in cast) > 1
     has_dialogue = bool(shot.get("dialogue"))
     action_text = str(shot.get("action", ""))
     action_lower = action_text.lower()
@@ -70,6 +70,14 @@ def _camera_execution(shot, cast, audio):
         if cast else
         "establish depth with foreground, midground and background anchors"
     )
+    if shot.get("speaker_focus_mode") == "speaker_only":
+        start_composition = (
+            "frame zero is a chest-up medium close-up of the assigned speaker; the face remains large with clear eyes and mouth, "
+            "and both hands hold the same blank longevity register visibly in the lower frame"
+            if shot.get("speaker_frame_prop") is True else
+            "frame zero is already a tight head-and-shoulders close-up of the assigned speaker; "
+            "the speaker's face fills the composition, eyes and mouth remain clear, and no empty room or court is visible"
+        )
     if "speaker-dominant" in size.lower():
         start_composition = ("the assigned speaker is the only fully visible face and mouth, centered in the focal plane; "
                              "the bound listener contributes one partial rear shoulder or back-of-head at the edge of frame, "
@@ -87,7 +95,7 @@ def _camera_execution(shot, cast, audio):
         if multi:
             start_composition = (
                 "keep every bound character in one shared physical space, at a stable human scale, "
-                "with both bodies visible from the first frame"
+                "with all declared individual or group-member bodies visible from the first frame"
             )
         elif not has_dialogue:
             start_composition = (
@@ -122,6 +130,12 @@ def _camera_execution(shot, cast, audio):
             )
     else:
         staging_lock = "No bound character is present; do not invent a foreground human identity."
+    if (shot.get("speaker_focus_mode") == "speaker_only"
+            and shot.get("speaker_frame_prop") is True):
+        staging_lock = (
+            "The speaker remains alone in the declared mark; both hands and the same blank longevity register stay inside the lower frame. "
+            "The register never covers the face or moving mouth, and its pages show no readable writing."
+        )
     speakers = [item["speaker"] for item in audio]
     focus = (f"focus on the assigned speaker ({', '.join(speakers)}); rack focus only when the speaking turn changes"
              if speakers else "hold focus on the dramatic visual subject; do not hunt or pulse")
@@ -300,9 +314,10 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "gender": item.get("gender", "未知"),
             "gender_prompt": item.get("gender_prompt"),
             "design_description": item.get("design_description", ""),
+            "expected_instances": item.get("expected_instances") or 1,
         })
     camera_execution = _camera_execution(shot, cast, audio)
-    character_policy = character_visibility_policy(len(cast), bool(shot.get("dialogue")))
+    character_policy = character_visibility_policy(visible_body_count, bool(shot.get("dialogue")))
     visible_dialogue = any(
         line.get("kind") != "voiceover" and str(line.get("text", "")).strip()
         for line in shot.get("dialogue", [])
@@ -347,7 +362,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "may_fill_frame_during_dialogue": False if cast else True,
             "may_replace_bound_characters": False if cast else True,
             "presence_rule": (
-                "At least one bound character must remain visible in every frame; the scene plate is background only."
+                f"Exactly {visible_body_count} declared individual or group-member bodies remain visible in every frame; the scene plate is background only."
                 if cast else "Environment-only framing is allowed because no character is bound."
             ),
         } if len(scenes) == 1 else None),
@@ -357,12 +372,16 @@ def compile_package(root, shot, visual_assets, speech_bindings):
         "character_identity_lock": {
             "present_time_only": bool(shot.get("dialogue")),
             "no_flashback_or_apparition": bool(shot.get("dialogue")),
-            "no_duplicate_or_third_body": bool(shot.get("dialogue")),
+            "no_duplicate_or_third_body": visible_body_count <= 2,
+            "no_unbound_or_duplicate_bodies": True,
             "instruction": (
+                "Only registered individuals or declared group members may be visible, once each, at any depth. "
                 "Dialogue is performed in the declared present-time blocking. "
                 "Recounted events remain visual reference only: never create a flashback, memory, apparition, "
                 "vision, insert portrait, symbolic duplicate or additional human body unless that asset is explicitly bound."
-                if shot.get("dialogue") else ""
+                if shot.get("dialogue") else
+                "Only registered individuals or declared group members may be visible, once each, at any depth; "
+                "no unbound person, foreground shoulder, human silhouette, reflection, clone or background extra."
             ),
         },
         "visible_character_count": len(cast),
@@ -376,8 +395,8 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             for item in cast
         ],
         "interaction_contract": {
-            "mode": "multi_character" if len(cast) > 1 else "single_character" if cast else "environment_only",
-            "all_bound_characters_visible_in_same_physical_space": len(cast) > 1,
+            "mode": "multi_character" if visible_body_count > 1 else "single_character" if cast else "environment_only",
+            "all_bound_characters_visible_in_same_physical_space": visible_body_count > 1,
             "speakers": sorted(speaking_names),
             "visible_listeners": listeners,
             "speaker_visual_bindings": [
@@ -391,7 +410,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "listener_reacts_with_closed_lips": bool(listeners),
             "allowed_character_asset_ids": [item["asset_id"] for item in cast],
             "max_visible_human_bodies": visible_body_count,
-            "unregistered_humans_allowed": False if cast else True,
+            "unregistered_humans_allowed": False,
             "over_shoulder_foreground_listener_only": over_shoulder,
             "blocking_source": shot.get("action"),
             "dialogue_event_bindings": dialogue_events,
@@ -445,7 +464,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "Preserve screen direction, eyeline, pose, prop state and environment anchors across the declared handoff.",
             "Do not add an unbound character, prop, readable text, line of dialogue or sound source.",
             "A multi-character interaction stays in one physical composition; do not replace it with isolated solo portraits.",
-            "The total visible human-body count equals the bound cast count; a foreground shoulder is part of its bound listener, never a new subject.",
+            f"The total visible character-body count is exactly {visible_body_count}, including all declared group members; a foreground shoulder belongs to its bound listener, never a new subject.",
             "Every dialogue event has exactly one visual mouth owner and one matching reference audio; never infer a mouth owner from the voice alone.",
             "During a speaking event, the assigned picture is the only fully visible moving mouth; listener faces are rear-facing, occluded or closed-lipped.",
             "The scene anchor is the exclusive background plate and has highest visual priority; never import a character-reference background.",
@@ -489,7 +508,22 @@ def compile_package(root, shot, visual_assets, speech_bindings):
         ])
     # Do not change ordinary-shot fingerprints when the retake-only contract
     # is absent. These fields are emitted only for a structural speaker fix.
-    if shot.get("speaker_focus_mode") == "speaker_dominant":
+    if shot.get("speaker_focus_mode") == "speaker_only":
+        package["interaction_contract"].update(
+            speaker_focus_mode="speaker_only",
+            speaker_focus_name=shot.get("speaker_focus_name"),
+            listener_face="offscreen",
+            visible_listeners=[],
+            max_visible_human_bodies=1,
+        )
+        package["constraints"].append(
+            "For this single-speaker retake, frame only the assigned speaker from the first frame through the last dialogue window; "
+            "all listeners and other people remain fully offscreen, with no shoulder, back-of-head, silhouette or reflection. "
+            + ("Keep both hands and the same blank longevity register visibly in the lower frame while the face and mouth stay clear. "
+               if shot.get("speaker_frame_prop") is True else "")
+            + "Use a locked close-up and no empty-room, empty-court, wide or reverse shot."
+        )
+    elif shot.get("speaker_focus_mode") == "speaker_dominant":
         package["interaction_contract"].update(
             speaker_focus_mode="speaker_dominant",
             speaker_focus_name=shot.get("speaker_focus_name"),
@@ -498,6 +532,32 @@ def compile_package(root, shot, visual_assets, speech_bindings):
         package["constraints"].append(
             "For a speaker-dominant retake, the assigned speaker is the only fully visible face and moving mouth; "
             "the bound listener's face remains hidden behind one partial rear shoulder or back-of-head."
+        )
+    retake_contract = shot.get("retake_visual_contract") or {}
+    if retake_contract.get("mode") == "exact_cast":
+        allowed_ids = list(retake_contract.get("visible_character_ids", []))
+        labels = {item["asset_id"]: item["subject_label"] for item in visuals
+                  if item.get("kind") == "character"}
+        bound_labels = [labels.get(asset_id, asset_id) for asset_id in allowed_ids]
+        package["interaction_contract"].update(
+            mode="exact_registered_cast",
+            allowed_character_asset_ids=allowed_ids,
+            visible_listeners=[],
+            max_visible_human_bodies=retake_contract.get("visible_body_count", len(allowed_ids)),
+            unregistered_humans_allowed=False,
+        )
+        package["retake_visual_contract"] = retake_contract
+        package["constraints"].append(
+            f"EXACT REGISTERED CAST RETAKE: only {', '.join(bound_labels)} may appear; "
+            f"exactly {len(allowed_ids)} human bodies remain fully visible and unobstructed in every frame. "
+            "No examiner, clerk, servant, crowd, extra face, foreground body, silhouette or reflection may appear. "
+            "No one may enter, cross between the registered characters, receive a prop, or obscure either face."
+        )
+    if retake_contract.get("blank_paper") or retake_contract.get("mode") == "blank_paper":
+        package["retake_visual_contract"] = retake_contract
+        package["constraints"].append(
+            "BLANK PAPER RETAKE: every manuscript surface is featureless blank cream paper with no ink strokes, glyphs, numbers, seals or captions; "
+            "keep pages face down or turned away from the camera."
         )
     # Do not alter the fingerprint of existing ordinary takes. A review note
     # is added only for an actual retake request.
