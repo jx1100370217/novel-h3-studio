@@ -340,6 +340,8 @@ def cinema_progress(root):
                 model=('MiniMax H3 · 对白驱动表演' if data.get('audio_route') == 'h3_audio_conditioned'
                        else 'MiniMax H3 · 原生音画'), release_approved=False)
     data['stage'] = {'generating': '正在生成原生音画', 'speech_screening': '正在核对台词',
+                     'cinematization': '正在编排影视剧本与场景承接',
+                     'cinematization_ready': '影视化稿已准备，等待对白制作与拍摄',
                      'narrative_rework': '正在修正故事完整性，后续章节尚未启动',
                      'candidates_ready': '候选完成，待审片', 'failed': '本次任务已停止',
                      'quality_review': '质量复核与对白方案验证',

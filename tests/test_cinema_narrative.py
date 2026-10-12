@@ -133,6 +133,7 @@ class NarrativeTests(unittest.TestCase):
         manifest=source.parent/'runs/seed_123.json';write(manifest,{'takes':selected})
         review={'video':'review_exports/revised/review.mp4'}
         with ExitStack() as stack:
+            stack.enter_context(patch('novel_h3.v2.cinematization.require', return_value={'passed': True}))
             for name,value in [('config',{'comfy_url':'test'}),('compile_shot',{}),
                                ('freeze_plan',self.plan),('run',manifest),('job',0)]:
                 stack.enter_context(patch('novel_h3.v2.production.'+name,return_value=value))

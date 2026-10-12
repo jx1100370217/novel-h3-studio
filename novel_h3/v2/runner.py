@@ -91,7 +91,10 @@ def reuse_candidate(root, relative, request):
 def complete_screening(take_dir, receipt):
     report_path = take_dir / 'analysis/speech.json'
     previous = read(report_path) if report_path.exists() else {}
-    if previous.get('video_sha256') == receipt['video_sha256'] and isinstance(previous.get('passed'), bool):
+    if (previous.get('video_sha256') == receipt['video_sha256']
+            and previous.get('schema') == 'native_av_screening_v2'
+            and previous.get('analysis_audio_sha256') == receipt['native_audio_sha256']
+            and isinstance(previous.get('passed'), bool)):
         receipt['speech_screening'] = previous
     else:
         qc_returncode = screen(take_dir)
@@ -140,6 +143,9 @@ def run(root, plan_path, shot_ids, seed):
     if plan.get('narrative_contract_required'):
         from .narrative import preflight
         preflight(root, plan_path)
+    if plan.get('narrative_contract_required') or plan.get('cinematization_required'):
+        from .cinematization import require
+        require(root, plan)
     selected = [s for s in plan['shots'] if not shot_ids or s['id'] in shot_ids]
     if not selected or (shot_ids and set(shot_ids) != {s['id'] for s in selected}):
         raise ValueError('Unknown or empty shot selection')

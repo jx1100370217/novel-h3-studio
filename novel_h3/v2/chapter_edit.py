@@ -8,6 +8,9 @@ from ..project import file_hash, inside, read
 def chapter_timeline(root, plan_path, selected, blueprint_path):
     root = Path(root).resolve()
     plan, blueprint = read(plan_path), read(blueprint_path)
+    if plan.get('cinematization_required'):
+        from .cinematization import require
+        require(root, plan)
     entries = {e['shot_id']: e for e in blueprint['entries']}
     segments, typography, subtitles, pending, cursor = [], [], [], [], 0
     for shot in plan['shots']:
@@ -38,6 +41,24 @@ def chapter_timeline(root, plan_path, selected, blueprint_path):
         for protected in authored.get('hard_retain_source_intervals', []):
             start = min(start, max(0, math.floor(protected['start_seconds'] * 24)))
             end = max(end, math.ceil(protected['end_seconds'] * 24))
+        observed = authored.get('observed_source_window')
+        if observed:
+            if lines:
+                raise ValueError('Observed source windows require a silent shot: ' + sid)
+            if (observed['take_id'] != selected[sid] or
+                    observed['video_sha256'] != receipt.get('video_sha256') or
+                    file_hash(folder / 'native.mp4') != observed['video_sha256']):
+                raise ValueError('Observed cut marks belong to different media: ' + sid)
+            evidence = inside(root, observed['evidence_path'])
+            if file_hash(evidence) != observed['evidence_sha256']:
+                raise ValueError('Observed cut evidence changed: ' + sid)
+            start, end = observed['source_in_frame'], observed['source_out_frame']
+            if type(start) is not int or type(end) is not int:
+                raise ValueError('Observed cut marks must use integer frames: ' + sid)
+            for protected in authored.get('hard_retain_source_intervals', []):
+                if not (start <= math.floor(protected['start_seconds'] * 24) <
+                        math.ceil(protected['end_seconds'] * 24) <= end):
+                    raise ValueError('Observed cut loses a protected interval: ' + sid)
         if authored.get('speech_start_constraint') and vad:
             constraint = authored['speech_start_constraint']
             cue = next(c for c in plan['typography_cues'] if c['id'] == constraint['must_follow_cue_id'])
@@ -47,6 +68,8 @@ def chapter_timeline(root, plan_path, selected, blueprint_path):
             raise ValueError('Authored protected interval does not fit the rendered source: ' + sid)
         segments.append({'shot_id': sid, 'take_dir': str(folder.relative_to(root)),
                          'source_in_frame': start, 'source_out_frame': end})
+        if observed:
+            segments[-1]['observed_cut'] = observed
         for cue in [c for c in plan.get('typography_cues', []) if c['shot_id'] == sid]:
             if cue.get('must_follow_speech') and (not speech or
                     max(b for _, b in speech) + cue.get('minimum_gap_seconds', .4) > cue['start_seconds']):
@@ -56,7 +79,16 @@ def chapter_timeline(root, plan_path, selected, blueprint_path):
                 raise ValueError('The cut loses required readable text: ' + cue['id'])
             typography.append(dict(cue, start_frame=cursor + a - start, end_frame=cursor + b - start))
         if lines and speech:
-            a = max(start, math.floor(min(a for a, _ in speech) * 24))
+            first = min(a for a, _ in speech)
+            if authored.get('speech_start_constraint') and vad:
+                constraint = authored['speech_start_constraint']
+                cue = next(c for c in plan['typography_cues'] if c['id'] == constraint['must_follow_cue_id'])
+                if first < cue['end_seconds'] + constraint['minimum_gap_seconds']:
+                    # A coarse ASR chunk may include the whole caption's silent lead-in.
+                    if first != 0:
+                        raise ValueError('ASR onset conflicts with the protected time caption: ' + sid)
+                    first = min(v['start'] for v in vad)
+            a = max(start, math.floor(first * 24))
             b = min(end, math.ceil(max(b for _, b in speech) * 24))
             subtitles.append({'start_frame': cursor + a - start, 'end_frame': cursor + b - start,
                               'text': ''.join(line['text'] for line in lines)})

@@ -170,6 +170,8 @@ def produce(root, source_plan, seed):
     with locked(root, 'cinema_production'):
         from .narrative import preflight
         preflight(root, source_plan)
+        from .cinematization import require
+        require(root, read(source_plan))
         write(state_path, state)
         try:
             check_paused()
@@ -219,6 +221,7 @@ def produce(root, source_plan, seed):
             if plan_path.exists() and read(plan_path) != plan:
                 raise ValueError('Frozen production plan changed; start an explicit new revision')
             write(plan_path, plan)
+            require(root, plan)
             preflight(root, plan_path)
             # Validate every actual reference/model input before the first expensive shot.
             for index, shot in enumerate(plan['shots']):

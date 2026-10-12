@@ -85,15 +85,16 @@ def enrich(root, progress_path, active_plan, data):
         video = folder / 'native.mp4' if folder else None
         saved = bool(video and video.is_file() and receipt.get('technical_qc', {}).get('passed') is True)
         checked = receipt.get('speech_screening', {}).get('passed') if saved else None
+        visual_rework = saved and receipt.get('visual_review', {}).get('status') == 'needs_rework'
         active = data.get('status') in ('generating', 'speech_screening') and data.get('shot') == sid
         row_status = ('generating' if active and data['status'] == 'generating' else
-                      'screening' if active else 'needs_rework' if saved and checked is False else
+                      'screening' if active else 'needs_rework' if saved and (checked is False or visual_rework) else
                       'checked' if saved and checked is True else 'saved' if saved else
                       'failed' if receipt.get('status') == 'failed' else 'pending')
         scene_id = shot.get('narrative_scene_id', shot.get('scene_id'))
         title = descriptions.get(sid, {}).get('title') or shot.get('title') or shot.get('beat') or sid
         rows.append({'shot': sid, 'order': order, 'title': title, 'scene': scenes.get(scene_id, scene_id),
-            'status': row_status, 'saved': saved, 'speech_passed': checked,
+            'status': row_status, 'saved': saved, 'speech_passed': checked, 'visual_rework': visual_rework,
             'take_id': tid, 'attempts': attempts.get(sid, 0),
             'video': str(video.relative_to(root)) if saved else None,
             'contact': str((folder / 'analysis/contact.jpg').relative_to(root))
@@ -107,7 +108,7 @@ def enrich(root, progress_path, active_plan, data):
             'human_approved': receipt.get('release_approved') is True and receipt.get('human_listened') is True})
     counts = {'planned': len(rows), 'saved': sum(r['saved'] for r in rows),
         'sound_passed': sum(r['speech_passed'] is True for r in rows),
-        'needs_rework': sum(r['speech_passed'] is False for r in rows),
+        'needs_rework': sum(r['speech_passed'] is False or r['visual_rework'] for r in rows),
         'sound_pending': sum(r['saved'] and r['speech_passed'] is None for r in rows),
         'human_approved': sum(r['human_approved'] for r in rows)}
     review = state.get('review', {})
@@ -123,6 +124,8 @@ def enrich(root, progress_path, active_plan, data):
              'review_pending' if review_ready and not review_approved else
              'delivery' if review_approved else data['status'])
     phase_label = {'narrative_rework': '故事完整性返修 · 后续章节暂停', 'shot_repair': '定点重拍', 'review_pending': '整章待人工审片',
+                  'cinematization': '剧本影视化 · 场景与动作承接',
+                  'cinematization_ready': '影视化稿已准备 · 等待拍摄',
                   'delivery': '整章已验收', 'generating': '镜头拍摄', 'speech_screening': '声音核对',
                   'editing': '剪辑与文字合成', 'failed': '制作已停止', 'interrupted': '制作进程已停止',
                   'dialogue_preparation': '对白制作', 'dialogue_screening': '对白核对',
@@ -132,8 +135,16 @@ def enrich(root, progress_path, active_plan, data):
     audio_prepared = sum(bool(e.get('target', {}).get('path')) for e in audio.get('entries', []))
     audio_total = audio.get('dialogue_shots', sum(bool(s.get('spoken_lines')) for s in canonical['shots']))
     audio_passed = data.get('audio_passed', 0)
+    film_check = {}
+    if canonical.get('cinematization_required'):
+        from .v2.cinematization import require
+        try:
+            film_check = require(root, canonical)
+        except (ValueError, OSError, KeyError) as exc:
+            film_check = {'passed': False, 'error': str(exc)}
     stages = [
         {'id': 'script', 'title': '改编与故事完整性', 'status': 'active' if rejected else 'done', 'current': 0 if rejected else 1, 'total': 1, 'detail': '开场、关键因果与结尾需落实到观众交付；资料齐全不等于故事合格'},
+        {'id': 'cinematization', 'title': '剧本影视化', 'status': 'done' if film_check.get('passed') else 'active' if data['status'] == 'cinematization' else 'failed' if film_check else 'pending', 'current': int(film_check.get('passed', False)), 'total': 1, 'detail': '场景目标、动作首尾、空间轴线和转场承接；生成使用绑定后的影视剧本'},
         {'id': 'dialogue', 'title': '角色与对白准备', 'status': 'done' if audio_passed == audio_total and audio_total else 'active', 'current': audio_passed, 'total': audio_total, 'detail': '对白目标与H3重建自动核对'},
         {'id': 'shots', 'title': '镜头拍摄', 'status': 'done' if counts['saved'] == len(rows) else 'active', 'current': counts['saved'], 'total': len(rows), 'detail': '保存候选，不等同影视验收'},
         {'id': 'checks', 'title': '声音复核与重拍', 'status': 'done' if counts['sound_passed'] == len(rows) else 'active', 'current': counts['sound_passed'], 'total': len(rows), 'detail': '仅针对问题镜头重拍，保留全部素材'},
@@ -164,11 +175,14 @@ def enrich(root, progress_path, active_plan, data):
         source_files={key: str(path.relative_to(root)) for key,path in {
             'script':base/'screenplay.md','story':base/'story.json','plan':canonical_path,
             'edit':base/'editorial_blueprint.json','timeline':base/'chapter_review_timeline.json',
+            'cinematic_script':base/'cinematic_screenplay.md',
+            'cinematic_check':base/'cinematization_check.json',
             'narrative_audit':base/'narrative_audit.json',
             **({'revised_script': revised_script} if revised_script else {})}.items() if path.is_file()},
         recent=sorted([r for r in rows if r['saved']], key=lambda r:r['completed_at'] or 0, reverse=True)[:6],
         audio_prepared=audio_prepared, audio_total=audio_total, audio_passed=audio_passed, resources=resources,
         resources_stale=bool(resources and time.time()-resources['time'] > 30),
         worker_alive=worker_alive, edit_progress=_optional(root / 'review_exports/progress.json'),
+        cinematization=film_check,
         observed_at=time.time(), service_role='workbench', release_approved=review_approved)
     return data

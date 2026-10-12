@@ -26,10 +26,11 @@ function cinemaShell(panel,mode){
 function cinemaRows(panel,p){
  if(!p)return;const search=panel.querySelector('input'),filter=panel.querySelector('select'),body=panel.querySelector('tbody');
  const needle=search.value.trim().toLowerCase(),choice=filter.value;
- const rows=p.shots.filter(r=>(r.shot+' '+r.title+' '+r.scene+' '+r.dialogue).toLowerCase().includes(needle)&&(choice==='all'||choice==='active'&&r.active||choice==='pending'&&!r.saved||r.status===choice));
+ const rows=p.shots.filter(r=>(r.shot+' '+r.title+' '+r.scene+' '+r.dialogue).toLowerCase().includes(needle)&&(choice==='all'||choice==='active'&&r.active||choice==='pending'&&!r.saved||choice==='checked'&&r.speech_passed===true||choice!=='checked'&&r.status===choice));
  body.replaceChildren();panel.querySelector('[data-slot="rowcount"]').textContent=rows.length+' / '+p.counts.planned+' 镜';
  for(const r of rows){const tr=el('tr');tr.dataset.shot=r.shot;const title=el('td');title.append(el('b',r.shot),el('div',r.title));const scene=el('td');scene.append(el('div',r.scene||'—'),el('small',r.dialogue||'无对白 · 环境声 / 动作声','muted'));
- const status=el('td');status.append(el('span',cinemaLabels[r.status]||r.status,'cinema-badge '+r.status),el('small','候选 '+r.attempts+' 版 · '+(r.human_approved?'已人工审核':'影视质量待审核'),'muted'));
+ const statusLabel=r.status==='needs_rework'&&r.visual_rework?(r.speech_passed===true?'声音通过 · 画面需重拍':r.speech_passed===false?'声音与画面需重拍':'画面需重拍'):(cinemaLabels[r.status]||r.status);
+ const status=el('td');status.append(el('span',statusLabel,'cinema-badge '+r.status),el('small','候选 '+r.attempts+' 版 · '+(r.human_approved?'已人工审核':'影视质量待审核'),'muted'));
  if(r.active&&r.saved)status.append(el('small','链接为上一版已保存候选','muted'));if(r.error)status.append(el('small',r.error,'error'));
  const links=el('td',undefined,'cinema-links');if(r.video)links.append(cinemaLink('播放音画',r.video));if(r.contact)links.append(cinemaLink('画面抽检',r.contact));if(r.report)links.append(cinemaLink('声音报告',r.report));if(!r.video)links.append(el('span','尚无可播放候选','muted'));tr.append(title,scene,status,links);body.append(tr)}
 }
@@ -41,7 +42,7 @@ function renderCinemaDashboard(panel,p,mode='progress'){
  slot('freshness').className='muted';slot('freshness').textContent='实时连接 · 每 3 秒刷新 · 读取 '+cinemaTime(p.observed_at)+' · 制作记录 '+cinemaTime(p.updated_at);
  const connection=$('connectionLabel');if(connection)connection.textContent='工作台已连接';
  slot('kpis').replaceChildren();
- for(const [label,value,note] of [['镜头候选已保存',c.saved+' / '+c.planned,'全章计划，按镜头去重'],['声音自动检查',c.sound_passed+' / '+c.planned,'台词 / 无对白检查'],['待重拍 / 待声音检查',c.needs_rework+' / '+c.sound_pending,'检查失败与未检查分别统计'],['白话对白准备',p.audio_passed+' / '+p.audio_total,'已通过目标音频核对'],['镜头人工审核',c.human_approved+' / '+c.planned,'剧情、表演与真实音画同步'],['全章审片版',p.review.narrative_rejected?'原版已退回':p.review.ready?'可播放':['failed','interrupted'].includes(p.status)?'导出已停止':'尚未导出',p.review.narrative_rejected?'故事完整性返修中':p.review.approved?'已人工验收':'尚未人工验收']]){const box=card(label);box.append(el('div',value,'stat'),el('p',note,'muted'));slot('kpis').append(box)}
+ for(const [label,value,note] of [['镜头候选已保存',c.saved+' / '+c.planned,'全章计划，按镜头去重'],['声音自动检查',c.sound_passed+' / '+c.planned,'台词 / 无对白检查'],['待重拍 / 待声音检查',c.needs_rework+' / '+c.sound_pending,'声音或画面失败按镜头去重；未检查单列'],['白话对白准备',p.audio_passed+' / '+p.audio_total,'已通过目标音频核对'],['镜头人工审核',c.human_approved+' / '+c.planned,'剧情、表演与真实音画同步'],['全章审片版',p.review.narrative_rejected?'原版已退回':p.review.ready?'可播放':['failed','interrupted'].includes(p.status)?'导出已停止':'尚未导出',p.review.narrative_rejected?'故事完整性返修中':p.review.approved?'已人工验收':'尚未人工验收']]){const box=card(label);box.append(el('div',value,'stat'),el('p',note,'muted'));slot('kpis').append(box)}
  slot('stages').replaceChildren();p.stages.forEach((s,i)=>{const box=el('section',undefined,'cinema-stage '+s.status);box.append(el('span',String(i+1).padStart(2,'0'),'eyebrow'),el('h3',s.title),el('p',s.current+' / '+s.total+' · '+({done:'已完成',active:'当前节点',pending:'待开始',failed:'已停止'}[s.status]),'cinema-stage-state'));const bar=el('progress');bar.max=s.total||1;bar.value=s.current;box.append(bar,el('p',s.detail,'muted'));slot('stages').append(box)});
  const narrative=slot('narrative');const story=p.narrative||{};const signature=JSON.stringify([story,p.review.ready]);
  narrative.hidden=!(story.issues?.length);if(narrative.dataset.signature!==signature){narrative.dataset.signature=signature;narrative.replaceChildren(el('h3','故事完整性返修'));
@@ -56,7 +57,7 @@ function renderCinemaDashboard(panel,p,mode='progress'){
  if(p.note)activity.append(el('p',p.note,'muted'));if(['failed','interrupted'].includes(p.status)&&p.error)activity.append(el('p',p.error,'error'));
  if(p.resources){const r=p.resources,fmt=n=>Number.isFinite(n)?n.toFixed(1):'—';activity.append(el('p',(p.resources_stale?'最近一次资源采样':'实时资源采样')+' · '+cinemaTime(r.time),'muted'),el('p','显存 '+fmt(r.gpu_mib/1024)+' GiB · '+fmt(r.temperature_c??r.gpu_temp)+' °C · '+fmt(r.power_w??r.gpu_watts)+' W · 系统可用 '+fmt(r.available_gib)+' GiB','muted'))}
  activity.append(el('p',p.model+' · 原生画幅 1376 × 768 · 24 fps · 无背景音乐','muted'));
- const sourceNames={script:'白话剧本',story:'原文事实与故事结构',plan:'全章拍摄计划',edit:'导演剪辑方案',timeline:'实际剪辑时间线',narrative_audit:'故事断点与修复方案',revised_script:'修订后的完整白话剧本'};
+ const sourceNames={script:'白话剧本',cinematic_script:'影视化剧本与场景承接',cinematic_check:'影视化结构检查',story:'原文事实与故事结构',plan:'全章拍摄计划',edit:'导演剪辑方案',timeline:'实际剪辑时间线',narrative_audit:'故事断点与修复方案',revised_script:'修订后的完整白话剧本'};
  const sources=slot('sources');sources.replaceChildren(el('h3','制作资料'),el('p','当前章节独立制作计划与实际剪辑记录。','muted'));const links=el('div',undefined,'row');for(const [key,path] of Object.entries(p.source_files))links.append(cinemaLink(sourceNames[key]||key,path));sources.append(links);
  const review=slot('review');
  // Preserve the video element while polling so playback and seeking continue.

@@ -98,6 +98,12 @@ def audio_duration(path):
 
 
 def compile_shot(root, plan, shot, seed):
+    if plan.get('cinematization_required'):
+        from .cinematization import require, shot_content
+        require(root, plan)
+        bound = next((s for s in plan['shots'] if s['id'] == shot['id']), None)
+        if bound is None or shot_content(bound) != shot_content(shot):
+            raise ValueError('Requested shot differs from its film screenplay')
     root = Path(root).resolve()
     safe_id(plan['id'])
     assets = inventory(root)
@@ -133,7 +139,59 @@ def compile_shot(root, plan, shot, seed):
         camera_text = camera
     speaking = [line['speaker'] for line in shot.get('spoken_lines', [])]
     offscreen = bool(shot.get('spoken_lines')) and all(line.get('offscreen') is True for line in shot['spoken_lines'])
-    image_ids = list(dict.fromkeys(speaking + shot['cast'] + [shot['scene_id']] + shot.get('references', [])))
+    reference_scope = shot.get('visual_reference_scope')
+    prompt_focus = shot.get('generation_prompt_focus')
+    if prompt_focus is not None:
+        if prompt_focus == 'static_court':
+            if reference_scope != 'seated_court' or speaking or target:
+                raise ValueError('Static court focus requires the strict silent seated-court scope and no audio target')
+        elif prompt_focus == 'single_actor_tableau':
+            if (reference_scope != 'single_actor_props' or speaking or target
+                    or len(shot.get('references', [])) != 1 or not isinstance(camera, dict)
+                    or not any(word in camera.get('movement', '').lower() for word in ('fixed', 'locked', 'rigid'))):
+                raise ValueError('Single actor tableau focus requires the strict silent single-actor-props scope, one prop, fixed camera and no audio target')
+        elif (prompt_focus != 'static_prop' or reference_scope != 'props_only'
+                or shot['cast'] or speaking or target or len(shot.get('references', [])) != 1
+                or not isinstance(camera, dict) or 'insert' not in camera.get('size', '').lower()
+                or float(camera.get('lens_mm', 0)) < 75
+                or not any(word in camera.get('movement', '').lower() for word in ('fixed', 'locked', 'rigid'))):
+            raise ValueError('Static prop focus requires a silent person-free single-prop fixed insert with props-only references and no audio target')
+    setting_ids = [shot['scene_id']]
+    if reference_scope is not None:
+        references = shot.get('references', [])
+        if reference_scope == 'props_only':
+            if shot['cast'] or speaking or not references or any(assets[a]['kind'] != 'prop' for a in references):
+                raise ValueError('Props-only framing requires a silent, person-free prop insert')
+        elif reference_scope == 'speaker_portrait':
+            if (len(shot['cast']) != 1 or offscreen or set(speaking) != set(shot['cast'])
+                    or int(assets[shot['cast'][0]].get('instances', 1)) != 1
+                    or shot.get('views', {}).get(shot['cast'][0]) != 'face'
+                    or not isinstance(camera, dict) or 'close' not in camera.get('size', '').lower()
+                    or float(camera.get('lens_mm', 0)) < 75
+                    or any(assets[a]['kind'] != 'prop' for a in references)):
+                raise ValueError('Speaker portrait requires one visible speaker, an explicit face view, a close-up and only prop references')
+        elif reference_scope == 'single_actor_props':
+            if (len(shot['cast']) != 1 or speaking or target
+                    or int(assets[shot['cast'][0]].get('instances', 1)) != 1
+                    or shot.get('views', {}).get(shot['cast'][0]) != 'face'
+                    or not isinstance(camera, dict) or 'medium' not in camera.get('size', '').lower()
+                    or float(camera.get('lens_mm', 0)) < 50 or not references
+                    or any(assets[a]['kind'] != 'prop' for a in references)):
+                raise ValueError('Single actor props requires one silent individual, an explicit face view, a medium shot and prop references only')
+        elif reference_scope == 'seated_court':
+            if (speaking or target or references
+                    or sorted(int(assets[a].get('instances', 1)) for a in shot['cast']) != [1, 1, 1, 9]
+                    or any(shot.get('views', {}).get(a) != 'front' for a in shot['cast'])
+                    or not isinstance(camera, dict)
+                    or not all(word in camera.get('size', '').lower() for word in ('complete', 'seated', 'court'))
+                    or any(word in camera.get('size', '').lower() for word in ('close', 'portrait'))
+                    or float(camera.get('lens_mm', 0)) < 85
+                    or not any(word in camera.get('movement', '').lower() for word in ('fixed', 'locked', 'rigid'))):
+                raise ValueError('Seated court requires three silent individuals plus one nine-person ensemble, explicit front views, fixed court framing and character references only')
+        else:
+            raise ValueError('Unknown visual reference scope')
+        setting_ids = []
+    image_ids = list(dict.fromkeys(speaking + shot['cast'] + setting_ids + shot.get('references', [])))
     aliases = plan.get('subject_aliases', {})
     visuals, subjects = [], {}
     for i, asset_id in enumerate(image_ids, 1):
@@ -142,6 +200,10 @@ def compile_shot(root, plan, shot, seed):
             ref['view'] = shot.get('views', {}).get(asset_id, 'front')
         if assets[asset_id]['kind'] == 'character':
             resolved = generation_reference(root, ref, camera={'size': camera_text})
+            if reference_scope == 'single_actor_props' and resolved.get('selected_view') != 'face':
+                raise ValueError('Single actor props requires a resolved approved face view')
+            if reference_scope == 'seated_court' and resolved.get('selected_view') != 'front':
+                raise ValueError('Seated court requires resolved approved front views')
         else:
             path, sha = asset_for(root, asset_id)
             resolved = {'asset_id': asset_id, 'generation_path': str(path.relative_to(root)),
@@ -212,6 +274,8 @@ def compile_shot(root, plan, shot, seed):
             dialogue.append(f"At {timestamp}, the offscreen voice of {subjects[lines[0]['speaker']]} (S1) says: <d>[Chinese] {text}</d>. Performance: {intention}. The sound comes from the authored offscreen location, not any visible person's mouth. Speak the complete line once. All visible characters keep their lips at rest and react by listening; do not reveal the unseen voice source.")
         else:
             dialogue.append(f"At {timestamp}, {subjects[lines[0]['speaker']]} (S1) says: <d>[Chinese] {text}</d>. Performance: {intention}. Speak this complete line once with natural phrasing and synchronized visible articulation; finish with a motivated listening reaction. Other visible characters listen without speaking.")
+    elif target and target.get('kind') == 'nonverbal':
+        dialogue.append('No spoken dialogue; follow only the authored physical action or stillness and the verified complete nonverbal audio target.')
     else:
         dialogue.append('No spoken dialogue in this clip; play the authored reaction with natural breathing and physical sound.'
                         if shot['cast'] else 'No spoken dialogue; use only the authored room ambience and physical prop sounds.')
@@ -221,6 +285,16 @@ def compile_shot(root, plan, shot, seed):
                         if shot['cast'] else 'No people are visible in this insert; preserve the authored prop and setting.')
     if body_count:
         cast_instruction += f' The authored visible cast contains exactly {body_count} people in total.'
+    material_policy = ('Natural materials; follow the authored movement or stillness;'
+        if reference_scope in ('props_only', 'single_actor_props') else 'Natural materials and motivated movement;')
+    sound_policy = (' Use only the authored ambience and prop sounds; do not add an unrequested handling event or voices. No narration, unassigned words or music.'
+        if reference_scope == 'props_only' else ' Clear native dialogue when assigned, coherent room ambience and synchronous physical sound. No narration, unassigned words or music.')
+    execution = shot.get('cinematic_execution', {})
+    continuity = ''
+    if execution:
+        continuity = ('\nSpatial continuity: ' + bind(execution['axis_id']) + '; ' + bind(execution['screen_direction'])
+            + '. ' + bind(execution['transition']['audience_cue'])
+            + '\nComplete the authored action once. Preserve the opening and ending blocking; no pose reset, repeated entrance or internal cut.')
     prompt = '\n\n'.join([
         'subject_definitions:\n' + '\n'.join(definitions),
         'summary:\nOne continuous photorealistic Chinese period drama shot. ' + bind(shot['action']),
@@ -230,11 +304,45 @@ def compile_shot(root, plan, shot, seed):
         bind(camera_text) + '\nEyeline: ' + bind(shot.get('eyeline', 'Follow the established scene axis.')) + '\nOpening: ' + bind(shot['start_state']) +
         '\nAction: ' + bind(shot['action']) + '\n' + '\n'.join(dialogue) +
         '\nEnding: ' + bind(shot['end_state']) +
-        f'\n{cast_instruction} Natural materials and motivated movement; no unrequested cut, extra person, clone, subtitles or graphic overlay.',
-        'overall_soundscape:\n' + bind(shot['soundscape']) +
-        ' Clear native dialogue when assigned, coherent room ambience and synchronous physical sound. No narration, unassigned words or music.',
+        continuity +
+        f'\n{cast_instruction} {material_policy} no unrequested cut, extra person, clone, subtitles or graphic overlay.',
+        'overall_soundscape:\n' + bind(shot['soundscape']) + sound_policy,
         'non_diegetic_music:\nN/A',
     ])
+    if prompt_focus == 'static_prop':
+        ref = visuals[0]
+        prompt = '\n\n'.join([
+            f"subject_definitions:\n{ref['subject']} is the single stationary prop in {ref['picture']}; preserve its material, contour and texture in the authored resting pose.",
+            'summary:\nOne continuous photorealistic stationary material still life. ' + bind(shot['action']),
+            f"retention_analysis:\n{ref['subject']}: one stationary physical prop, continuously exposed in the same authored arrangement.",
+            f"detailed_description:\n[Shot 1] Duration approximately {shot['duration_seconds']} seconds. " + bind(camera_text) + '\nAction: ' + bind(shot['action']),
+            'overall_soundscape:\n' + bind(shot['soundscape']) + ' No speech or music.',
+            'non_diegetic_music:\nN/A',
+        ])
+    elif prompt_focus == 'static_court':
+        principals = [ref['subject'] for ref in visuals if ref['instances'] == 1]
+        ensemble = next(ref for ref in visuals if ref['instances'] == 9)
+        prompt = '\n\n'.join([
+            'subject_definitions:\n' + '\n'.join(definitions),
+            'summary:\nOne continuous photorealistic stationary seated court. ' + bind(shot['action']),
+            'retention_analysis:\n' + ', '.join(principals) + ': three separate principal individuals. '
+            + ensemble['subject'] + ': nine additional ordinary individuals, distinct from all three principals. '
+            + 'The twelve individuals occupy twelve separate chairs in the one authored row.',
+            f"detailed_description:\n[Shot 1] Duration approximately {shot['duration_seconds']} seconds. "
+            + bind(camera_text) + '\nAction: ' + bind(shot['action']),
+            'overall_soundscape:\n' + bind(shot['soundscape']),
+            'non_diegetic_music:\nN/A',
+        ])
+    elif prompt_focus == 'single_actor_tableau':
+        prompt = '\n\n'.join([
+            'subject_definitions:\n' + '\n'.join(definitions),
+            'summary:\nOne continuous photorealistic fixed medium tableau. ' + bind(shot['action']),
+            'retention_analysis:\n' + '\n'.join(retention),
+            f"detailed_description:\n[Shot 1] Duration approximately {shot['duration_seconds']} seconds. "
+            + bind(camera_text) + '\nAction: ' + bind(shot['action']),
+            'overall_soundscape:\n' + bind(shot['soundscape']),
+            'non_diegetic_music:\nN/A',
+        ])
     for label, count in (('Picture', len(visuals)), ('Audio', len(voices)), ('Subject', len(visuals)), ('Video', 0)):
         if any(not 1 <= int(i) <= count for i in re.findall(r'<' + label + r' (\d+)>', prompt)):
             raise ValueError(f'Unresolved {label} reference')
@@ -250,6 +358,10 @@ def compile_shot(root, plan, shot, seed):
                'prompt_sha256': digest(prompt), 'bgm': False}
     if target:
         request['audio_target'] = target
+    if reference_scope is not None:
+        request['visual_reference_scope'] = reference_scope
+    if prompt_focus is not None:
+        request['generation_prompt_focus'] = prompt_focus
     request['request_sha256'] = digest(request)
     return request
 

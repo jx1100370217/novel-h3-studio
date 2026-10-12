@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from novel_h3.cinema_dashboard import enrich
-from novel_h3.project import write
+from novel_h3.project import read, write
 
 
 class CinemaDashboardTests(unittest.TestCase):
@@ -71,6 +71,24 @@ class CinemaDashboardTests(unittest.TestCase):
         self.assertEqual(p['stages'][-1]['current'], 0)
         video.unlink()
         self.assertFalse(self.dashboard()['review']['ready'])
+
+    def test_visual_rework_is_reported_even_when_sound_passes_without_double_counting(self):
+        for sid, sound, visual in [('S000', True, True), ('S001', False, True), ('S002', False, False)]:
+            tid = self.take(sid, 'full', sound)
+            path = self.base / 'takes' / tid / 'take.json'
+            receipt = read(path)
+            if visual:
+                receipt['visual_review'] = {'status': 'needs_rework'}
+            write(path, receipt)
+        p = self.dashboard()
+        self.assertEqual(p['counts']['sound_passed'], 48)
+        self.assertEqual(p['counts']['needs_rework'], 3)
+        self.assertEqual(p['shots'][0]['status'], 'needs_rework')
+        self.assertTrue(p['shots'][0]['speech_passed'])
+        self.assertTrue(p['shots'][0]['visual_rework'])
+        self.assertEqual(p['shots'][1]['status'], 'needs_rework')
+        self.assertFalse(p['shots'][2]['visual_rework'])
+        self.assertEqual(p['counts']['human_approved'], 0)
 
     def test_missing_selected_media_does_not_count_as_saved(self):
         (self.base / 'takes/full_S000/native.mp4').unlink()

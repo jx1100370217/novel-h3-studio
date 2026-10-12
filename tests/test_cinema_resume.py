@@ -31,7 +31,8 @@ class CinemaResumeTests(unittest.TestCase):
 
     def test_interrupted_screening_is_resumed_without_generation(self):
         def inspect(folder):
-            write(folder / 'analysis/speech.json', {'passed': True, 'video_sha256': self.receipt['video_sha256']})
+            write(folder / 'analysis/speech.json', {'passed': True, 'video_sha256': self.receipt['video_sha256'],
+                'schema': 'native_av_screening_v2', 'analysis_audio_sha256': self.receipt['native_audio_sha256']})
             return 0
         with patch('novel_h3.v2.runner.screen', side_effect=inspect) as mock:
             complete_screening(self.root, self.receipt)
@@ -40,6 +41,13 @@ class CinemaResumeTests(unittest.TestCase):
             complete_screening(self.root, self.receipt)
             mock.assert_not_called()
         self.assertTrue(read(self.root / 'take.json')['speech_screening']['passed'])
+
+    def test_old_aac_analysis_is_not_reused_for_the_native_master(self):
+        write(self.root / 'analysis/speech.json', {'passed': True, 'video_sha256': self.receipt['video_sha256'],
+            'schema': 'native_av_screening_v1'})
+        with patch('novel_h3.v2.runner.screen', return_value=1) as inspect:
+            complete_screening(self.root, self.receipt)
+            inspect.assert_called_once()
 
     def test_reuse_preserves_original_and_rejects_changed_creative_input(self):
         original = {'schema': 'v2', 'shot_sha256': 'same-shot', 'prompt_sha256': 'same-prompt',
