@@ -151,6 +151,48 @@ class CinemaDashboardTests(unittest.TestCase):
         self.assertEqual(p['counts']['saved'], 1)
         self.assertFalse(p['active_batch']['is_repair'])
 
+    def test_dashboard_lists_bound_story_and_per_shot_model_artifacts(self):
+        self.canonical.update(chapter_id='chapter_s0003', cinematization={
+            'path': 'production_v2/chapter/cinematic_screenplay.json'})
+        write(self.plan_path, self.canonical)
+        request = self.base / 'cinematization_request.json'
+        source_plan = self.base / 'narrative/chapter_plan.json'
+        source_script = self.base / 'narrative/screenplay.md'
+        source_plan.parent.mkdir(parents=True)
+        source_plan.write_text('{}', encoding='utf-8')
+        source_script.write_text('# 白话剧本', encoding='utf-8')
+        write(request, {'source_plan_path': str(source_plan.relative_to(self.root)),
+                        'source_script_path': str(source_script.relative_to(self.root))})
+        (self.base / 'cinematic_screenplay.json').write_text('{}', encoding='utf-8')
+        (self.base / 'cinematic_screenplay.md').write_text('# 影视化剧本', encoding='utf-8')
+        (self.base / 'cinematization_check.json').write_text('{}', encoding='utf-8')
+        (self.base / 'narrative_contract.json').write_text('{}', encoding='utf-8')
+        (self.base / 'narrative_script_check.json').write_text('{}', encoding='utf-8')
+        (self.base / 'editorial_blueprint.json').write_text('{}', encoding='utf-8')
+        (self.base / 'model_profile.json').write_text('{}', encoding='utf-8')
+        (self.root / 'analysis').mkdir()
+        (self.root / 'analysis/s0003.json').write_text('{}', encoding='utf-8')
+        write(self.root / 'episodes/chapter_s0003.json', {'id': 'chapter_s0003', 'shots': self.canonical['shots']})
+        (self.root / 'execution_sheets/chapter_s0003').mkdir(parents=True)
+        (self.root / 'execution_sheets/chapter_s0003/S000.json').write_text('{}', encoding='utf-8')
+        take_path = self.root / 'renders/legacy_S000'
+        take_path.mkdir(parents=True)
+        (take_path / 'h3_execution_sheet.json').write_text('{}', encoding='utf-8')
+        (take_path / 'prompt.json').write_text('{}', encoding='utf-8')
+        write(self.root / 'state.json', {'takes': {
+            'legacy_S000': {'id': 'legacy_S000', 'episode': 'chapter_s0003', 'shot': 'S000',
+                            'created_at': 1, 'retired': False}}})
+
+        dashboard = self.dashboard()
+        groups = {group['title']: group for group in dashboard['artifact_groups']}
+        story_paths = {item['path'] for item in groups['原文与白话改编']['files']}
+        shot_files = groups['逐镜模型输入']['shots'][0]['files']
+        shot_paths = {item['path'] for item in shot_files}
+        self.assertIn('production_v2/chapter/narrative/screenplay.md', story_paths)
+        self.assertIn('production_v2/chapter/narrative/chapter_plan.json', story_paths)
+        self.assertIn('execution_sheets/chapter_s0003/S000.json', shot_paths)
+        self.assertIn('renders/legacy_S000/prompt.json', shot_paths)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -3,7 +3,8 @@ from pathlib import Path
 import re
 
 from .project import read
-from .director import character_visibility_policy, gender_prompt, bound_character_action_contract
+from .director import (character_visibility_policy, gender_prompt, bound_character_action_contract,
+                       has_visible_dialogue)
 
 
 CAMERA_SOURCES = [
@@ -60,7 +61,7 @@ def _camera_execution(shot, cast, audio):
     size = str(camera.get("size", "medium shot"))
     close = "close" in size.lower()
     multi = sum(int(item.get("expected_instances") or 1) for item in cast) > 1
-    has_dialogue = bool(shot.get("dialogue"))
+    has_dialogue = has_visible_dialogue(shot)
     action_text = str(shot.get("action", ""))
     action_lower = action_text.lower()
     start_composition = (
@@ -136,9 +137,12 @@ def _camera_execution(shot, cast, audio):
             "The speaker remains alone in the declared mark; both hands and the same blank longevity register stay inside the lower frame. "
             "The register never covers the face or moving mouth, and its pages show no readable writing."
         )
-    speakers = [item["speaker"] for item in audio]
+    speakers = [item["speaker"] for item in audio if not item.get("offscreen")]
+    has_offscreen_voice = any(item.get("offscreen") for item in audio)
     focus = (f"focus on the assigned speaker ({', '.join(speakers)}); rack focus only when the speaking turn changes"
-             if speakers else "hold focus on the dramatic visual subject; do not hunt or pulse")
+             if speakers else
+             "hold focus on the visible listener; keep the registered voice source offscreen" if has_offscreen_voice else
+             "hold focus on the dramatic visual subject; do not hunt or pulse")
     if close:
         focus += "; keep the near eye sharp and preserve natural facial depth"
     fps = 24
@@ -217,6 +221,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
     audio = [{
         "speaker": binding["speaker"],
         "asset_id": binding.get("asset_id"),
+        "offscreen": bool(binding.get("offscreen")),
         "collective": bool(binding.get("collective")),
         "audio_label": f"Audio {binding['audio']}",
         "speaker_label": binding["speaker_label"],
@@ -229,6 +234,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
     visible_body_count = sum(int(item.get("expected_instances") or 1) for item in cast)
     scenes = [item for item in visuals if item["kind"] == "scene"]
     speaking_names = {binding["speaker"] for binding in audio}
+    has_offscreen_voice = any(binding.get("offscreen") for binding in audio)
     listeners = [item["name"] for item in cast if item["name"] not in speaking_names]
     props = [item for item in visuals if item["kind"] == "prop"]
     picture_by_asset = {item["asset_id"]: item["picture_label"] for item in visuals}
@@ -244,6 +250,24 @@ def compile_package(root, shot, visual_assets, speech_bindings):
                 "text": line.get("text", ""), "start_frame": line.get("start_frame"),
                 "end_frame": line.get("end_frame"), "audio_label": binding.get("audio_label") if binding else None,
                 "visual_subject": "offscreen narrator", "visual_picture": None,
+                "mouth_owner": "none",
+            })
+            continue
+        if line.get("offscreen"):
+            if not binding or not binding.get("asset_id"):
+                dialogue_events.append({
+                    "event_id": f"D{index}", "kind": "offscreen_character", "speaker": speaker,
+                    "text": line.get("text", ""), "start_frame": line.get("start_frame"),
+                    "end_frame": line.get("end_frame"), "binding_status": "unresolved",
+                    "mouth_owner": "none",
+                })
+                continue
+            dialogue_events.append({
+                "event_id": f"D{index}", "kind": "offscreen_character", "speaker": speaker,
+                "asset_id": binding["asset_id"], "audio_label": binding["audio_label"],
+                "speaker_label": binding["speaker_label"], "text": line.get("text", ""),
+                "start_frame": line.get("start_frame"), "end_frame": line.get("end_frame"),
+                "visual_subject": "offscreen character", "visual_picture": None,
                 "mouth_owner": "none",
             })
             continue
@@ -317,11 +341,8 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "expected_instances": item.get("expected_instances") or 1,
         })
     camera_execution = _camera_execution(shot, cast, audio)
-    character_policy = character_visibility_policy(visible_body_count, bool(shot.get("dialogue")))
-    visible_dialogue = any(
-        line.get("kind") != "voiceover" and str(line.get("text", "")).strip()
-        for line in shot.get("dialogue", [])
-    )
+    visible_dialogue = has_visible_dialogue(shot)
+    character_policy = character_visibility_policy(visible_body_count, visible_dialogue)
     over_shoulder = len(cast) > 1 and ("over-the-shoulder" in str(shot.get("camera", {}).get("size", "")).lower()
                                        or "过肩" in str(shot.get("camera", {}).get("size", "")))
     package = {
@@ -404,9 +425,14 @@ def compile_package(root, shot, visual_assets, speech_bindings):
                  "picture_label": next((item["picture_label"] for item in identity_bindings
                                          if item["asset_id"] == entry.get("asset_id")), None),
                  "audio_label": entry["audio_label"]}
-                for entry in audio
+                for entry in audio if not entry.get("offscreen")
             ],
-            "speaker_only_moves_mouth_during_dialogue": True,
+            "offscreen_speaker_audio_bindings": [
+                {"speaker": entry["speaker"], "asset_id": entry.get("asset_id"),
+                 "audio_label": entry["audio_label"], "mouth_owner": "none"}
+                for entry in audio if entry.get("offscreen")
+            ],
+            "speaker_only_moves_mouth_during_dialogue": visible_dialogue,
             "listener_reacts_with_closed_lips": bool(listeners),
             "allowed_character_asset_ids": [item["asset_id"] for item in cast],
             "max_visible_human_bodies": visible_body_count,
@@ -414,11 +440,11 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "over_shoulder_foreground_listener_only": over_shoulder,
             "blocking_source": shot.get("action"),
             "dialogue_event_bindings": dialogue_events,
-            "speaker_face_ownership": "one_event_one_bound_picture",
+            "speaker_face_ownership": "visible_events_use_bound_picture; offscreen_events_have_no_mouth_owner",
             "listener_face_policy": ("rear_or_occluded; no full frontal listener face during a speaking event"
-                                      if shot.get("dialogue") and len(cast) > 1 else "closed_lips"),
-            "silent_bound_characters": not bool(shot.get("dialogue")),
-            "no_dialogue_mouth_movement": not bool(shot.get("dialogue")),
+                                      if visible_dialogue and len(cast) > 1 else "closed_lips"),
+            "silent_bound_characters": not visible_dialogue,
+            "no_dialogue_mouth_movement": not visible_dialogue,
             "human_voice_allowlist": sorted(speaking_names),
             "dialogue_framing": {
                 "enabled": visible_dialogue,
@@ -436,7 +462,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "assets": [item["name"] for item in props],
             "preserve_ownership_position_and_state": bool(props),
         },
-        "dialogue": [{key: line.get(key) for key in ("kind", "speaker", "text", "start_frame", "end_frame")}
+        "dialogue": [{key: line.get(key) for key in ("kind", "speaker", "text", "start_frame", "end_frame", "offscreen")}
                      for line in shot.get("dialogue", [])],
         "dialogue_event_bindings": dialogue_events,
         "audio_policy": "dialogue_and_diegetic_sfx" if shot.get("dialogue") else "diegetic_only",
@@ -445,9 +471,9 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "mode": "dialogue_and_diegetic_effects" if shot.get("dialogue") else "diegetic_effects_only",
             "human_voice_allowlist": sorted(speaking_names),
             "dialogue_source": "explicit_d_blocks" if shot.get("dialogue") else [],
-            "narration": "explicit_voiceover_only" if shot.get("dialogue") else "disabled",
+            "narration": "explicit_voiceover_only" if any(line.get("kind") == "voiceover" for line in shot.get("dialogue", [])) else "disabled",
             "reference_audio_input": "bound_speaker_only" if shot.get("dialogue") else "none",
-            "mouth_audio_link": "speaker_event_only" if shot.get("dialogue") else "off",
+            "mouth_audio_link": "speaker_event_only" if visible_dialogue else "offscreen_character_no_visible_mouth" if has_offscreen_voice else "off",
             "fallback": "silence_human_voice_channel" if not shot.get("dialogue") else "silence_unmatched_line",
         },
         "visual_narration_policy": {
@@ -465,8 +491,8 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "Do not add an unbound character, prop, readable text, line of dialogue or sound source.",
             "A multi-character interaction stays in one physical composition; do not replace it with isolated solo portraits.",
             f"The total visible character-body count is exactly {visible_body_count}, including all declared group members; a foreground shoulder belongs to its bound listener, never a new subject.",
-            "Every dialogue event has exactly one visual mouth owner and one matching reference audio; never infer a mouth owner from the voice alone.",
-            "During a speaking event, the assigned picture is the only fully visible moving mouth; listener faces are rear-facing, occluded or closed-lipped.",
+            "Every visible dialogue event has one bound picture and mouth owner; explicit offscreen character dialogue has a bound voice and no visible mouth owner.",
+            "During visible dialogue, only the assigned picture is the moving mouth; offscreen dialogue leaves every visible mouth closed.",
             "The scene anchor is the exclusive background plate and has highest visual priority; never import a character-reference background.",
             character_policy,
         ],

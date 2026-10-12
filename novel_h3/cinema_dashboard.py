@@ -10,6 +10,19 @@ def _optional(path):
     return read(path) if path.is_file() else {}
 
 
+def _artifact(root, label, path):
+    if path is None:
+        return None
+    path = Path(path)
+    if not path.is_file():
+        return None
+    try:
+        relative = path.resolve().relative_to(Path(root).resolve())
+    except ValueError:
+        return None
+    return {'label': label, 'path': relative.as_posix(), 'format': path.suffix.lower().lstrip('.')}
+
+
 def _last_resource(path):
     if not path.is_file():
         return None
@@ -160,6 +173,109 @@ def enrich(root, progress_path, active_plan, data):
     audit = _optional(base / 'narrative_audit.json')
     revised_script = inside(root, audit['revised_script']) if audit.get('revised_script') else None
     revised_check = _optional(inside(root, audit['revised_check'])) if audit.get('revised_check') else {}
+    chapter_id = canonical.get('chapter_id', data.get('chapter_id', ''))
+    episode_path = root / 'episodes' / f'{chapter_id}.json' if chapter_id else None
+    film_path = None
+    request_path = None
+    source_plan_path = None
+    source_script_path = None
+    film_binding = canonical.get('cinematization', {})
+    if film_binding.get('path'):
+        try:
+            film_path = inside(root, film_binding['path'])
+            request_path = film_path.parent / 'cinematization_request.json'
+            request = _optional(request_path)
+            if request.get('source_plan_path'):
+                source_plan_path = inside(root, request['source_plan_path'])
+            if request.get('source_script_path'):
+                source_script_path = inside(root, request['source_script_path'])
+        except (ValueError, OSError):
+            film_path = request_path = source_plan_path = source_script_path = None
+    section_id = chapter_id.removeprefix('chapter_') if chapter_id else ''
+    source_excerpt = base / 'source_text.md'
+    if not source_excerpt.is_file() and source_plan_path:
+        source_excerpt = source_plan_path.parent / 'source_text.md'
+    if not source_excerpt.is_file() and section_id:
+        source_excerpt = root / 'analysis' / f'{section_id}.md'
+    narrative_files = [
+        _artifact(root, '本章原文节选', source_excerpt),
+        _artifact(root, '完整白话剧本', source_script_path or base / 'screenplay.md'),
+        _artifact(root, '白话剧本故事结构', source_plan_path),
+        _artifact(root, '原文事实与故事结构', root / 'analysis' / f'{section_id}.json' if section_id else base / 'story.json'),
+        _artifact(root, '叙事合同', base / 'narrative_contract.json'),
+        _artifact(root, '叙事预检报告', base / 'narrative_script_check.json'),
+    ]
+    cinematic_files = [
+        _artifact(root, '影视化交接请求', request_path or base / 'cinematization_request.json'),
+        _artifact(root, '影视化交接响应', film_path.parent / 'cinematization_response.json' if film_path else base / 'cinematization_response.json'),
+        _artifact(root, '影视化剧本（Markdown）', film_path.parent / 'cinematic_screenplay.md' if film_path else base / 'cinematic_screenplay.md'),
+        _artifact(root, '影视化剧本（JSON）', film_path),
+        _artifact(root, '影视化绑定检查', film_path.parent / 'cinematization_check.json' if film_path else base / 'cinematization_check.json'),
+        _artifact(root, '绑定后的全章拍摄计划', canonical_path),
+        _artifact(root, '导演剪辑方案', base / 'editorial_blueprint.json'),
+        _artifact(root, '实际执行分镜', episode_path) if episode_path else None,
+        _artifact(root, '工作台进度记录', Path(progress_path)),
+    ]
+    model_files = [
+        _artifact(root, 'VDN-H3 / Blender 配置快照', base / 'model_profile.json'),
+        _artifact(root, '单轮生成记录', base / 'run_manifest.json'),
+        _artifact(root, '单轮 worker 脚本', root / 'runtime/erzhongren_vdn_r2_video_worker.py'),
+    ]
+    shot_artifacts = []
+    legacy_state = _optional(root / 'state.json').get('takes', {})
+    legacy_by_shot = {}
+    for take in legacy_state.values():
+        if take.get('episode') == chapter_id and not take.get('retired'):
+            old = legacy_by_shot.get(take.get('shot'))
+            if old is None or take.get('created_at', 0) > old.get('created_at', 0):
+                legacy_by_shot[take.get('shot')] = take
+    row_by_shot = {row['shot']: row for row in rows}
+    for shot in canonical.get('shots', []):
+        sid = shot['id']
+        row = row_by_shot.get(sid, {})
+        shot_files = [_artifact(root, '绑定资产与最终 H3 提示词', root / 'execution_sheets' / str(chapter_id) / f'{sid}.json')]
+        folder = receipts.get(row.get('take_id'), (None, {}))[0]
+        folders = [folder] if folder else []
+        if legacy_by_shot.get(sid):
+            folders.append(root / 'renders' / legacy_by_shot[sid]['id'])
+        for folder in folders:
+            for label, name in (('本次 H3 执行单', 'h3_execution_sheet.json'),
+                                ('实际 ComfyUI 输入图', 'prompt.json'),
+                                ('语音绑定清单', 'speech_manifest.json'),
+                                ('生成状态', 'status.json')):
+                shot_files.append(_artifact(root, label, folder / name))
+        preview_dir = root / 'previews' / 'blender_previs' / str(chapter_id) / sid
+        if preview_dir.is_dir():
+            for guide_dir in sorted(preview_dir.iterdir()):
+                for name, label in (('scene_spec.json', 'Blender 白模场景规格'),
+                                    ('guide.json', 'Blender 白模记录'),
+                                    ('guide.mp4', 'Blender 白模视频')):
+                    shot_files.append(_artifact(root, label, guide_dir / name))
+        shot_files = list({item['path']: item for item in shot_files if item}.values())
+        if shot_files:
+            shot_artifacts.append({'shot': sid, 'title': row.get('title') or shot.get('title') or sid,
+                                   'files': shot_files})
+    blender_enabled = bool(_optional(root / 'config.json').get('blender_previs', {}).get('enabled'))
+    spatial_files = []
+    for shot in canonical.get('shots', []):
+        sid = shot.get('id')
+        preview_dir = root / 'previews' / 'blender_previs' / str(chapter_id) / str(sid)
+        if preview_dir.is_dir():
+            for guide_dir in sorted(preview_dir.iterdir()):
+                for name, label in (('scene_spec.json', f'{sid} 白模场景规格'),
+                                    ('guide.json', f'{sid} 白模记录'),
+                                    ('guide.mp4', f'{sid} 白模参考视频')):
+                    item = _artifact(root, label, guide_dir / name)
+                    if item:
+                        spatial_files.append(item)
+    artifact_groups = [
+        {'title': '原文与白话改编', 'files': [item for item in narrative_files if item]},
+        {'title': '影视化剧本与镜头绑定', 'files': [item for item in cinematic_files if item]},
+        {'title': '模型与空间参考', 'files': [item for item in model_files if item] + spatial_files,
+         'note': ('Blender 白模预演已启用；下方镜头文件会列出实际输入 H3 的参考视频。'
+                  if blender_enabled else '本章未启用 Blender 白模预演；H3 使用绑定的场景、人物与声音参考。')},
+        {'title': '逐镜模型输入', 'shots': shot_artifacts},
+    ]
     data.update(schema='cinema_dashboard_v1', available=True, title=canonical.get('title', canonical_id),
         chapter_id=canonical.get('chapter_id', base.name), plan_id=canonical_id,
         planned_total=len(rows), generated_shots=counts['saved'], counts=counts,
@@ -184,5 +300,6 @@ def enrich(root, progress_path, active_plan, data):
         resources_stale=bool(resources and time.time()-resources['time'] > 30),
         worker_alive=worker_alive, edit_progress=_optional(root / 'review_exports/progress.json'),
         cinematization=film_check,
+        artifact_groups=artifact_groups,
         observed_at=time.time(), service_role='workbench', release_approved=review_approved)
     return data

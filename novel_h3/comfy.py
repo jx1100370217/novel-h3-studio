@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 import uuid
 
-from .director import delivered_frames, episode_path, h3_prompt, validate_episode
+from .director import delivered_frames, episode_path, h3_prompt, validate_episode, has_visible_dialogue
 from .project import read, write, digest, file_hash, inside, load_state, locked, update_state, safe_id
 from .shot_package import compile_package
 from .safety import native_generation
@@ -731,7 +731,13 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
             "dialogue_character_whitelist": bool(shot.get("dialogue")),
             "non_dialogue_extras_must_be_silent_and_background_only": False,
             "speaker_audio_one_to_one": True,
-            "speaker_picture_binding_exact": True,
+            "speaker_picture_binding_exact": all(
+                event.get("kind") in ("voiceover", "offscreen_character") or bool(event.get("picture_label"))
+                for event in asset_package.get("dialogue_event_bindings", [])),
+            "offscreen_character_voice_has_no_picture": all(
+                event.get("kind") == "offscreen_character" and event.get("mouth_owner") == "none"
+                for event in asset_package.get("dialogue_event_bindings", [])
+                if event.get("kind") == "offscreen_character"),
             "speaker_dominant_retake_contract": shot.get("speaker_focus_mode") == "speaker_dominant",
             "identity_binding_table_present": bool(asset_package.get("identity_bindings")),
             "present_time_dialogue_lock": bool(asset_package.get("character_identity_lock", {}).get("present_time_only")),
@@ -739,10 +745,7 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
             "dialogue_only_audio": bool(shot.get("dialogue")),
             "vocal_content_lock": bool(shot.get("dialogue")),
             "dialogue_audio_prompt_contract_version": 5 if shot.get("dialogue") else 3,
-            "dialogue_visual_framing_contract_version": 2 if any(
-                line.get("kind") != "voiceover" and str(line.get("text", "")).strip()
-                for line in shot.get("dialogue", [])
-            ) else 0,
+            "dialogue_visual_framing_contract_version": 2 if has_visible_dialogue(shot) else 0,
             "speaker_visible_throughout_dialogue_windows": bool(
                 asset_package.get("interaction_contract", {}).get("dialogue_framing", {}).get(
                     "speaker_visible_throughout_dialogue_windows")),
@@ -753,8 +756,8 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
                 "dialogue_framing", {}).get("policy", "not_applicable"),
             "review_note_excluded_from_model_prompt": True,
             "diegetic_only_audio": not bool(shot.get("dialogue")),
-            "silent_bound_characters": not bool(shot.get("dialogue")),
-            "no_dialogue_mouth_movement": not bool(shot.get("dialogue")),
+            "silent_bound_characters": not has_visible_dialogue(shot),
+            "no_dialogue_mouth_movement": not has_visible_dialogue(shot),
             "no_human_voice_when_no_dialogue": not bool(shot.get("dialogue")),
             "bound_character_presence_every_frame": bool(
                 asset_package.get("interaction_contract", {}).get("bound_character_presence_every_frame")),
@@ -1001,9 +1004,11 @@ def current_takes(root, episode):
                 or sheet.get("episode_id") != episode["id"]
                 or sheet.get("shot_id") != shot["id"]):
             return False
-        expected_dialogue = [{k: line.get(k) for k in ("kind", "speaker", "text")}
+        expected_dialogue = [{**{k: line.get(k) for k in ("kind", "speaker", "text")},
+                              "offscreen": bool(line.get("offscreen"))}
                              for line in shot.get("dialogue", [])]
-        assigned = [{k: line.get(k) for k in ("kind", "speaker", "text")}
+        assigned = [{**{k: line.get(k) for k in ("kind", "speaker", "text")},
+                     "offscreen": bool(line.get("offscreen"))}
                     for line in take.get("assigned_dialogue", [])]
         if assigned != expected_dialogue:
             return False
@@ -1068,7 +1073,8 @@ def current_takes(root, episode):
         # locked source dialogue and verify the media hash before allowing the
         # queue to pass it; never reuse an unrelated stale render.
         if not candidates:
-            expected_dialogue = [{k: line.get(k) for k in ("kind", "speaker", "text")}
+            expected_dialogue = [{**{k: line.get(k) for k in ("kind", "speaker", "text")},
+                                  "offscreen": bool(line.get("offscreen"))}
                                  for line in shot.get("dialogue", [])]
             retained = []
             for take in state["takes"].values():
@@ -1079,7 +1085,8 @@ def current_takes(root, episode):
                     continue
                 if not is_current_execution_sheet(take):
                     continue
-                assigned = [{k: line.get(k) for k in ("kind", "speaker", "text")}
+                assigned = [{**{k: line.get(k) for k in ("kind", "speaker", "text")},
+                             "offscreen": bool(line.get("offscreen"))}
                             for line in take.get("assigned_dialogue", [])]
                 if assigned != expected_dialogue or not take.get("video"):
                     continue
@@ -1110,7 +1117,7 @@ def current_takes(root, episode):
 
 
 def submit_next(root, episode_id, preview=False, independent_cuts=False, check_preparation=True,
-                rework_item=None):
+                rework_item=None, single_pass=False):
     from .safety import check_paused, check_shot_budget
     check_paused()
     root = Path(root)
@@ -1161,6 +1168,19 @@ def submit_next(root, episode_id, preview=False, independent_cuts=False, check_p
                         take = max(prior, key=lambda candidate: candidate.get("created_at", 0))
                 if not take or take.get("status") not in ("rendered", "approved"):
                     raise ValueError(f"重拍前置镜头尚未完成：{shot['id']}")
+                previous = take
+                continue
+            if single_pass and take and take.get("status") in ("failed", "cancelled"):
+                previous = take
+                continue
+            if single_pass and take and take.get("status") == "rendered":
+                try:
+                    intact = (take.get("video") and file_hash(inside(root, take["video"]))
+                              == take.get("video_sha256"))
+                except (OSError, ValueError):
+                    intact = False
+                if not intact:
+                    raise ValueError(f"{shot['id']} 的已生成候选缺少或未通过完整性绑定；单轮模式不会重拍")
                 previous = take
                 continue
             if rework_item and shot["id"] == target_shot:
@@ -1279,6 +1299,15 @@ def submit_next(root, episode_id, preview=False, independent_cuts=False, check_p
                 raise
             update_state(root, lambda s: s["takes"][take_id].update(status="submitted", prompt_id=response["prompt_id"]))
             return load_state(root)["takes"][take_id]
+        if single_pass:
+            final_rows = current_takes(root, episode)
+            statuses = [take.get("status") for _, _, take in final_rows if take]
+            complete = all(take and take.get("status") in ("rendered", "approved", "failed", "cancelled")
+                           for _, _, take in final_rows)
+            if complete:
+                return {"status": "single_pass_complete_pending_review", "episode": episode_id,
+                        "rendered": sum(status in ("rendered", "approved") for status in statuses),
+                        "failed": sum(status in ("failed", "cancelled") for status in statuses)}
         return {"status": "episode_rendered_pending_review" if independent_cuts else "episode_ready", "episode": episode_id}
 
 

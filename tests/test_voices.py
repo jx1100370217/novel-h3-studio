@@ -66,6 +66,40 @@ class VoiceBindingTests(unittest.TestCase):
         prompt=h3_prompt(dict(self.shot,speech_bindings=b),'cinema')
         self.assertNotIn('无极',prompt)
 
+    def test_offscreen_character_dialogue_binds_voice_without_showing_the_speaker(self):
+        shot = copy.deepcopy(self.template)
+        shot.update(id='ER01', scene_id='room', action='Tan listens without moving his lips.')
+        shot['references'] = [dict(asset_id='room', description='study', lock='one room'),
+                              dict(asset_id='tan', description='scholar', lock='one person')]
+        shot['dialogue'] = [dict(speaker='无极', kind='dialogue', offscreen=True,
+                                 text='可以见了。', start_frame=16, end_frame=52)]
+        write(self.root/'bible/assets.json', {
+            'characters': {'谭晋玄': {'id': 'tan', 'gender': '男', 'design_description': 'scholar'},
+                           '无极': {'id': 'wuji', 'gender': '未知', 'design_description': 'spirit'}},
+            'scenes': {'书房': {'id': 'room', 'design_description': 'one study'}},
+        })
+        bound_voice = bindings(self.root, shot)
+        self.assertEqual(bound_voice[0]['picture'], None)
+        self.assertTrue(bound_voice[0]['offscreen'])
+        visuals = [
+            dict(asset_id='room', source_sha256='scene-source', generation_path='scene.png',
+                 generation_sha256='scene-image', variant='front'),
+            dict(asset_id='tan', source_sha256='tan-source', generation_path='tan.png',
+                 generation_sha256='tan-image', variant='front', selected_view='front'),
+        ]
+        package = compile_package(self.root, shot, visuals, bound_voice)
+        event = package['dialogue_event_bindings'][0]
+        self.assertEqual(event['kind'], 'offscreen_character')
+        self.assertEqual(event['mouth_owner'], 'none')
+        self.assertEqual(package['interaction_contract']['speaker_visual_bindings'], [])
+        self.assertEqual(package['interaction_contract']['offscreen_speaker_audio_bindings'][0]['audio_label'], 'Audio 1')
+        prompt = h3_prompt(dict(shot, speech_bindings=bound_voice, asset_package=package), 'cinema')
+        self.assertIn('registered offscreen character voice <Audio 1>', prompt)
+        self.assertIn('mouth_owner=none', prompt)
+        self.assertIn('source character, face and body completely unseen', prompt)
+        self.assertIn('Tan listens without moving his lips', prompt)
+        self.assertNotIn('offscreen narrator', prompt)
+
     def test_dialogue_prompt_excludes_chinese_identity_metadata(self):
         shot = copy.deepcopy(self.shot)
         shot['asset_package'] = {

@@ -57,8 +57,8 @@ function renderCinemaDashboard(panel,p,mode='progress'){
  if(p.note)activity.append(el('p',p.note,'muted'));if(['failed','interrupted'].includes(p.status)&&p.error)activity.append(el('p',p.error,'error'));
  if(p.resources){const r=p.resources,fmt=n=>Number.isFinite(n)?n.toFixed(1):'—';activity.append(el('p',(p.resources_stale?'最近一次资源采样':'实时资源采样')+' · '+cinemaTime(r.time),'muted'),el('p','显存 '+fmt(r.gpu_mib/1024)+' GiB · '+fmt(r.temperature_c??r.gpu_temp)+' °C · '+fmt(r.power_w??r.gpu_watts)+' W · 系统可用 '+fmt(r.available_gib)+' GiB','muted'))}
  activity.append(el('p',p.model+' · 原生画幅 1376 × 768 · 24 fps · 无背景音乐','muted'));
- const sourceNames={script:'白话剧本',cinematic_script:'影视化剧本与场景承接',cinematic_check:'影视化结构检查',story:'原文事实与故事结构',plan:'全章拍摄计划',edit:'导演剪辑方案',timeline:'实际剪辑时间线',narrative_audit:'故事断点与修复方案',revised_script:'修订后的完整白话剧本'};
- const sources=slot('sources');sources.replaceChildren(el('h3','制作资料'),el('p','当前章节独立制作计划与实际剪辑记录。','muted'));const links=el('div',undefined,'row');for(const [key,path] of Object.entries(p.source_files))links.append(cinemaLink(sourceNames[key]||key,path));sources.append(links);
+ const sources=slot('sources');sources.replaceChildren(el('h3','制作资料'),el('p','按制作阶段查阅本章原文、剧本、镜头计划与实际模型输入。','muted'));
+ for(const group of p.artifact_groups||[]){const section=el('section',undefined,'cinema-artifact-group');section.append(el('h4',group.title));if(group.note)section.append(el('p',group.note,'muted'));const links=el('div',undefined,'row');for(const file of group.files||[])links.append(cinemaLink(file.label,file.path));if(links.childElementCount)section.append(links);for(const item of group.shots||[]){const details=el('details',undefined,'cinema-artifact-shot');details.append(el('summary',item.shot+' · '+item.title));const shotLinks=el('div',undefined,'row');for(const file of item.files||[])shotLinks.append(cinemaLink(file.label,file.path));if(shotLinks.childElementCount)details.append(shotLinks);section.append(details)}sources.append(section)}
  const review=slot('review');
  // Preserve the video element while polling so playback and seeking continue.
  if(review.dataset.video!==(p.review.video||'')||!review.dataset.initialized){review.replaceChildren(el('h3','全章审片版'));review.dataset.video=p.review.video||'';review.dataset.initialized='true';
@@ -67,7 +67,7 @@ function renderCinemaDashboard(panel,p,mode='progress'){
  review.querySelector('h3').textContent=p.review.narrative_rejected?'原审片版 · 故事已退回':'全章审片版';
  review.querySelector('.warn').textContent=p.review.narrative_rejected?'这是被退回的原审片版，保留用于定位故事断点和比较。新的剧本与剪辑修订尚未生成成片。':p.review.approved?'整章已人工验收。':'候选生成与声音自动检查不代表影视质量通过。全章仍需人工检查剧情、表演、连贯性、口型与最终声音。';
  cinemaRows(panel,p);
- for(const name of ['kpis','stages','activity','sources','review','shots'])slot(name).hidden=(mode==='content'||mode==='execution'||mode==='episodes')? !['sources','shots'].includes(name):(mode==='review'||mode==='delivery'||mode==='audio')?!['review','kpis','activity'].includes(name):false;
+ for(const name of ['kpis','stages','activity','sources','review','shots'])slot(name).hidden=(mode==='content'||mode==='execution'||mode==='episodes')? !['sources','shots'].includes(name):(mode==='review'||mode==='delivery'||mode==='audio')?!['review','kpis','activity','sources'].includes(name):false;
 }
 async function refreshCinemaPage(){const panel=$('cinemaPage');if(!panel)return;try{const p=await request('/api/production-progress');if(!panel.isConnected)return;if(!p.available){panel.textContent='当前项目尚无新版章节制作任务。';return}renderCinemaDashboard(panel,p,panel.dataset.mode)}catch(e){cinemaConnection(panel,e)}}
 function nativeCinemaPage(main,mode){const panel=el('div');panel.id='cinemaPage';panel.dataset.mode=mode;panel.append(el('p','正在读取章节制作记录…','muted'));main.append(panel);refreshCinemaPage()}

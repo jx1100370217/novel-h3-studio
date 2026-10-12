@@ -265,6 +265,46 @@ def content_current(root, episode):
         if episode.get("release_role") == "proof":
             return
         raise ValueError("正式分集必须通过 ArcReel 内容锁定和视觉合并流程")
+    if str(episode.get('id', '')).startswith('chapter_'):
+        bound_plans = []
+        for path in (Path(root) / 'production_v2').glob('*/chapter_plan.json'):
+            try:
+                plan = read(path)
+            except (OSError, ValueError):
+                continue
+            if plan.get('chapter_id') == episode['id'] and plan.get('cinematization_required'):
+                bound_plans.append((path, plan))
+        if bound_plans:
+            plan_path, plan = max(bound_plans, key=lambda item: item[0].stat().st_mtime)
+            from .v2.narrative import preflight
+            from .v2.cinematization import require
+            preflight(root, plan_path)
+            require(root, plan)
+            film_shots, render_shots = plan.get('shots', []), episode.get('shots', [])
+            if len(film_shots) != len(render_shots):
+                raise ValueError('Legacy H3 queue shot count differs from the bound cinematic screenplay')
+            for authored, rendered in zip(film_shots, render_shots):
+                if (authored.get('id') != rendered.get('id')
+                        or authored.get('source_paragraph_ids') != rendered.get('source_ids')
+                        or authored.get('action') != rendered.get('action')
+                        or authored.get('scene_id') != rendered.get('scene_id')
+                        or authored.get('camera') != rendered.get('camera')
+                        or authored.get('start_state') != rendered.get('handoff_in')
+                        or authored.get('end_state') != rendered.get('handoff_out')
+                        or [ref.get('asset_id') for ref in authored.get('references', [])]
+                           != [ref.get('asset_id') for ref in rendered.get('references', [])]
+                        or round(float(authored.get('duration_seconds', 0)) * 24) != rendered.get('frames')):
+                    raise ValueError('Legacy H3 shot differs from its bound cinematic screenplay: ' + str(authored.get('id')))
+                expected_lines = authored.get('spoken_lines', [])
+                actual_lines = rendered.get('dialogue', [])
+                if len(expected_lines) != len(actual_lines) or any(
+                        (left.get('speaker'), left.get('text'), left.get('kind'), bool(left.get('offscreen')),
+                         left.get('start_frame'), left.get('end_frame'))
+                        != (right.get('speaker'), right.get('text'), right.get('kind'), bool(right.get('offscreen')),
+                            right.get('start_frame'), right.get('end_frame'))
+                        for left, right in zip(expected_lines, actual_lines)):
+                    raise ValueError('Legacy H3 dialogue differs from its bound cinematic screenplay: ' + str(authored.get('id')))
+            return
     plan = read(plan_path(root, episode["id"]))
     check_speaker_audit(root, plan)
     state = load_state(root)

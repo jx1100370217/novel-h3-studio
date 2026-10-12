@@ -35,6 +35,27 @@ class SafetyTests(unittest.TestCase):
                     submit_next(root, 'e', independent_cuts=True)
                 self.assertTrue(all(len(c.args) == 2 for c in api.call_args_list))
 
+    def test_single_pass_skips_rendered_candidates_without_review_or_retry(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            video = root / "candidate.mp4"
+            video.write_bytes(b"fixture")
+            episode = {"id": "e", "shots": [{"id": "s", "continuity": "cut"}]}
+            take = {"status": "rendered", "qc": {"passed": True}, "video": "candidate.mp4",
+                    "video_sha256": file_hash(video)}
+            with patch('novel_h3.safety.check_paused'), \
+                    patch('novel_h3.comfy.read', return_value=episode), \
+                    patch('novel_h3.comfy.validate_episode', return_value=[]), \
+                    patch('novel_h3.comfy.config', return_value={"comfy_url": "unused"}), \
+                    patch('novel_h3.comfy.load_state', return_value={"approvals": {"e": {"sha256": digest(episode)}}}), \
+                    patch('novel_h3.comfy.api', return_value={"queue_running": [], "queue_pending": []}) as api, \
+                    patch('novel_h3.comfy.current_takes', return_value=[(episode['shots'][0], 'fp', take)]), \
+                    patch('novel_h3.listening.active_audio', return_value=None):
+                result = submit_next(root, 'e', independent_cuts=True, single_pass=True)
+                self.assertEqual(result['status'], 'single_pass_complete_pending_review')
+                self.assertEqual((result['rendered'], result['failed']), (1, 0))
+                api.assert_called_once_with("unused", "/queue")
+
     def test_power_limit_must_be_applied(self):
         with patch.object(safety.subprocess, "run") as run:
             run.return_value.stdout = "450.00\n"

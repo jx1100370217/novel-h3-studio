@@ -274,6 +274,11 @@ def character_visibility_policy(cast_count, has_dialogue):
             "may appear at any depth. Do not invent a speaker, listener or foreground human identity.")
 
 
+def has_visible_dialogue(shot):
+    return any(line.get("kind") != "voiceover" and not line.get("offscreen")
+               and str(line.get("text", "")).strip() for line in shot.get("dialogue", []))
+
+
 def bound_character_action_contract(shot, cast_count):
     """Add deterministic blocking to free-form action text when bodies are bound.
 
@@ -284,6 +289,11 @@ def bound_character_action_contract(shot, cast_count):
     """
     if not cast_count:
         return ""
+    if shot.get("dialogue") and not has_visible_dialogue(shot):
+        return (
+            " Keep the bound listening character visible with a closed mouth throughout. "
+            "Only the registered offscreen character voice may speak; keep its face and body unseen."
+        )
     if shot.get("dialogue"):
         return (
             " Bound cast blocking is fixed for the entire take: keep the same registered body or bodies in frame, "
@@ -498,7 +508,7 @@ def h3_prompt(shot, style):
     if dialogue_events:
         intro += (
             "DIALOGUE_EVENT_BINDING_LOCK (silent production metadata only; never speak, subtitle, quote, paraphrase "
-            "or vocalize this table): each event below has one immutable visual mouth owner and one matching voice reference.\n"
+            "or vocalize this table): visible events have one bound mouth owner; offscreen-character events have no visible mouth.\n"
         )
         for event in dialogue_events:
             if event.get("kind") == "voiceover":
@@ -506,6 +516,14 @@ def h3_prompt(shot, style):
                     f"- {event['event_id']} at {timestamp(event.get('start_frame', 0) + offset)}-"
                     f"{timestamp(event.get('end_frame', 0) + offset)}: offscreen narrator, "
                     f"{event.get('audio_label') or 'no visual subject'}, mouth_owner=none; no visible character may lip-sync.\n"
+                )
+                continue
+            if event.get("kind") == "offscreen_character":
+                intro += (
+                    f"- {event['event_id']} at {timestamp(event.get('start_frame', 0) + offset)}-"
+                    f"{timestamp(event.get('end_frame', 0) + offset)}: registered offscreen character voice, "
+                    f"voice_reference={event.get('audio_label') or 'none'}, mouth_owner=none; "
+                    "keep the source character, face and body completely unseen; no visible character may lip-sync.\n"
                 )
                 continue
             if event.get("collective"):
@@ -526,7 +544,7 @@ def h3_prompt(shot, style):
                 f"mouth_owner={event.get('subject_label', 'unresolved')}; "
                 "the voice reference cannot authorize another face or body.\n"
             )
-        if len(dialogue_events) and len(package.get("visual_assets", [])) > 1:
+        if any(event.get("kind") not in ("voiceover", "offscreen_character") for event in dialogue_events) and len(package.get("visual_assets", [])) > 1:
             intro += (
                 "For every speaking event, the assigned visual picture is the only fully visible moving mouth. "
                 "Keep all listener faces rear-facing, occluded or outside the focal plane with closed lips; never show two "
@@ -597,7 +615,7 @@ def h3_prompt(shot, style):
                       "orientation and state continuous with the action; do not drop, duplicate or teleport it.\n")
         intro += ("Reference pictures provide identity, environment or prop appearance only. Never reproduce a reference-sheet layout, "
                   "split screen, inset portrait, reflection, twin, clone, mirrored duplicate or second copy of a bound subject.\n")
-    intro += character_visibility_policy(body_count, bool(shot.get("dialogue"))) + "\n"
+    intro += character_visibility_policy(body_count, has_visible_dialogue(shot)) + "\n"
     if bound_cast:
         labels = ", ".join(f"<Subject {item.get('subject_label', 'visual subject').split()[-1]}>" for item in bound_cast)
         intro += (
@@ -606,7 +624,9 @@ def h3_prompt(shot, style):
             "the environment image is a background layer only and can never replace the cast. No empty hall, empty room, "
             "throne-only, architecture-only, corridor-only or background-only frame is allowed. Never shrink, grow, float, "
             "teleport, reverse-walk, reverse the motion, duplicate a body or introduce an unbound human. "
-            + ("All bound mouths stay closed because this shot has no dialogue.\n" if not has_dialogue
+            + ("All bound mouths stay closed; the offscreen voice source remains unseen.\n"
+               if has_dialogue and not has_visible_dialogue(shot) else
+               "All bound mouths stay closed because this shot has no dialogue.\n" if not has_dialogue
                else "Only the event-bound speaker opens their mouth; listeners remain closed-lipped.\n")
         )
     if not shot.get("dialogue"):
@@ -618,7 +638,7 @@ def h3_prompt(shot, style):
     if shot.get("dialogue"):
         intro += (
             "VOCAL_CONTENT_LOCK: The human-voice track contains only the exact <d> dialogue lines below, each once, "
-            "through its bound picture and bound timbre reference. No human voice exists outside those time windows or "
+            "through its bound visible mouth and timbre reference, or its explicitly offscreen character voice with no visible mouth. No human voice exists outside those time windows or "
             "between lines. All metadata, source prose, labels and reference-audio words are non-speech. Keep diegetic "
             "thunder, water, wind, impact and room ambience non-verbal.\n"
         )
@@ -653,7 +673,7 @@ def h3_prompt(shot, style):
         visible_subjects = sorted({
             str(event.get("subject_label"))
             for event in package.get("dialogue_event_bindings", [])
-            if event.get("kind") != "voiceover" and event.get("subject_label")
+            if event.get("kind") not in ("voiceover", "offscreen_character") and event.get("subject_label")
         })
         if visible_subjects:
             owners = ", ".join(visible_subjects)
@@ -663,6 +683,11 @@ def h3_prompt(shot, style):
                 "including every exact <d> window and the silent pauses between windows. The environment picture is a background layer only and can never replace the speaker. "
                 "Never cut, dissolve, reframe or drift to an empty hall, empty room, throne-only, prop-only, ceiling, floor, corridor, listener-only, wide establishing or off-screen dialogue frame. "
                 "During pauses, hold the same speaker coverage with lips closed; when a line starts, show that bound face and mouth before and throughout the line.\n"
+            )
+        elif any(event.get("kind") == "offscreen_character" for event in package.get("dialogue_event_bindings", [])):
+            intro += (
+                "OFFSCREEN_CHARACTER_VOICE_LOCK: the exact bound character voice is heard from outside the frame. "
+                "Do not show its face, body, reflection, silhouette or source location; keep every visible character's mouth closed.\n"
             )
     else:
         if bound_cast:
@@ -690,12 +715,17 @@ def h3_prompt(shot, style):
         binding = bindings.get(line["speaker"])
         if binding:
             voice = (f"<Subject {binding['picture']}>" if binding["picture"]
-                     else (f"the collective voice reference <Audio {binding['audio']}>"
+                     else (f"the registered offscreen character voice <Audio {binding['audio']}>"
+                           if binding.get('offscreen') else
+                           f"the collective voice reference <Audio {binding['audio']}>"
                            if binding.get('collective') else "offscreen narrator"))
         instruction = ("No visible character mouths this narration." if line.get("kind") == "voiceover"
-                       else ("Only the already-bound collective cast speaks this line; no other human voice or body."
+                       else ("The registered character speaks from offscreen; no visible character moves their mouth, "
+                             "and the voice source never enters frame." if line.get("offscreen") else
+                             "Only the already-bound collective cast speaks this line; no other human voice or body."
                              if binding and binding.get("collective") else "Only this person speaks."))
-        delivery = "says in an off-screen voiceover" if line.get("kind") == "voiceover" else "says"
+        delivery = ("says in an off-screen voiceover" if line.get("kind") == "voiceover" else
+                    "speaks from offscreen" if line.get("offscreen") else "says")
         intro += (f"At {timestamp(line['start_frame'] + offset)}, {voice} "
                   f"(S{speakers.index(line['speaker']) + 1}) {delivery} <d>[Chinese] {spoken_text}</d>. "
                   f"{instruction} Finish by {timestamp(line['end_frame'] + offset)}.\n")
@@ -760,7 +790,9 @@ def h3_prompt(shot, style):
         definitions.append(f"<Subject {i}> is {description} from <Picture {i}>.")
         retention.append(f"<Subject {i}> (appears in [Shot 1]): fully_preserved - {lock}.")
     for binding in bindings.values():
-        target = f"<Subject {binding['picture']}>" if binding["picture"] else "the offscreen narrator"
+        target = (f"<Subject {binding['picture']}>" if binding["picture"] else
+                  f"the registered offscreen character voice <Audio {binding['audio']}>"
+                  if binding.get("offscreen") else "the offscreen narrator")
         definitions.append(f"<Audio {binding['audio']}> is the voice-timbre reference for {target} ({binding['speaker_label']}).")
         retention.append(f"<Audio {binding['audio']}>: reference - transfer only this speaker's vocal identity and timbre. Speak only the target Chinese dialogue, never copy the reference transcript. No other character uses this voice.")
     task_type = "[reference generation + audio reference] " if bindings else "[reference generation] "

@@ -335,9 +335,11 @@ def cinema_progress(root):
     data = read(path)
     plan_path = Path(root) / data['plan_path'] if data.get('plan_path') else path.parent / 'pilot.json'
     plan = read(plan_path)
+    vdn_enabled = plan.get('vdn_enabled') is True or data.get('video_engine') == 'VDN-H3 Turbo'
     data.update(title=plan.get('title', plan['id']), planned_total=len(plan['shots']),
                 script=str((path.parent / 'screenplay.md').relative_to(root)),
-                model=('MiniMax H3 · 对白驱动表演' if data.get('audio_route') == 'h3_audio_conditioned'
+                model=('VDN-H3 Turbo · 8 步' if vdn_enabled else
+                       'MiniMax H3 · 对白驱动表演' if data.get('audio_route') == 'h3_audio_conditioned'
                        else 'MiniMax H3 · 原生音画'), release_approved=False)
     data['stage'] = {'generating': '正在生成原生音画', 'speech_screening': '正在核对台词',
                      'cinematization': '正在编排影视剧本与场景承接',
@@ -351,9 +353,10 @@ def cinema_progress(root):
                      'editing': '正在剪辑全章审片版',
                      'chapter_review_ready': '全章审片版已生成，待影视质量审核'}.get(data['status'], data['status'])
     if data['status'] == 'generating':
+        steps_total = int(data.get('steps_total') or plan.get('generation', {}).get('steps') or 20)
         live_text, source = _live_comfy_text({'created_at': data['started_at']})
-        steps, _ = parse_sampling_progress(live_text, 20)
-        data.update(steps=steps, steps_total=20, progress_source=source)
+        steps, _ = parse_sampling_progress(live_text, steps_total)
+        data.update(steps=steps, steps_total=steps_total, progress_source=source)
         from .live_progress import listener
         live = listener(root).get(data.get('prompt_id'))
         if _prefer_websocket_progress(steps, live):
