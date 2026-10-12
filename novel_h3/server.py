@@ -22,6 +22,13 @@ from .media import assemble_episode, assemble_book
 from .listening import start_audio, audio_reports
 
 
+def media_content_type(path):
+    content_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    if content_type.startswith("text/"):
+        content_type += "; charset=utf-8"
+    return content_type
+
+
 def _create_project(server, data):
     """Create an isolated project from an uploaded novel without touching others."""
     title = str(data.get("title") or "").strip()
@@ -356,7 +363,7 @@ class Handler(BaseHTTPRequestHandler):
             if start > end or start >= total:
                 self.send_error(416); return
         self.send_response(206 if value else 200)
-        self.send_header("Content-Type", mimetypes.guess_type(path)[0] or "application/octet-stream")
+        self.send_header("Content-Type", media_content_type(path))
         self.send_header("Content-Length", str(end - start + 1))
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("X-Content-Type-Options", "nosniff")
