@@ -1,0 +1,169 @@
+name: novel-cinematic
+version: "1.0"
+description: >
+  Faithful novel-to-film pipeline for long-form Chinese fiction. The source is a
+  full novel (or chapter) plus a previously approved character/scene reference
+  set; each shot is authored as a continuous photorealistic period-drama take
+  and rendered locally with the MiniMax H3 / VDN-H3 Turbo stack before a
+  continuity-aware edit and subtitle burn.
+category: cinematic
+stability: beta
+default_checkpoint_policy: guided
+
+orchestration:
+  mode: executive-producer
+  skill: pipelines/novel-cinematic/executive-producer
+  budget_default_usd: 0.00
+  max_revisions_per_stage: 3
+
+extensions:
+  custom_scripts: true
+  custom_playbooks: true
+  custom_skills: true
+  custom_tools: false
+
+required_skills:
+  - pipelines/novel-cinematic/executive-producer
+  - pipelines/novel-cinematic/novel-director
+  - pipelines/novel-cinematic/scene-director
+  - pipelines/novel-cinematic/asset-director
+  - pipelines/novel-cinematic/edit-director
+  - pipelines/novel-cinematic/compose-director
+  - meta/reviewer
+  - meta/checkpoint-protocol
+
+compatible_playbooks:
+  recommended:
+    - clean-professional
+  also_works:
+    - flat-motion-graphics
+  custom_allowed: true
+
+stages:
+  - name: breakdown
+    skill: pipelines/novel-cinematic/novel-director
+    produces:
+      - script
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Every adapted section cites its source paragraph ids
+      - No invented facts, names, dialogue or endings
+      - Section text covers the dramatic action, not just summary
+    success_criteria:
+      - Schema-valid script artifact
+      - total_duration_seconds within 10 percent of the approved runtime target
+
+  - name: scene_plan
+    skill: pipelines/novel-cinematic/scene-director
+    required_artifacts_in:
+      - script
+    produces:
+      - scene_plan
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Shot coverage answers the dramatic question and turning point
+      - Each shot has a start state, end state, camera and eyeline
+      - Screen direction and axis stay coherent across shots
+    success_criteria:
+      - Schema-valid scene_plan artifact
+      - Every script section maps to at least one scene
+
+  - name: assets
+    skill: pipelines/novel-cinematic/asset-director
+    required_artifacts_in:
+      - scene_plan
+    optional_artifacts_in:
+      - script
+    produces:
+      - asset_manifest
+    required_tools:
+      - vdn_h3_video
+    optional_tools:
+      - codex_image
+      - image_selector
+    tools_available:
+      - vdn_h3_video
+      - codex_image
+      - image_selector
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Approved reference images are reused, not silently regenerated
+      - One continuous take per shot with native audio, correct duration
+      - Cast count, identity and costume stay consistent with references
+    success_criteria:
+      - Schema-valid asset_manifest artifact
+      - Every referenced clip exists and passes ffprobe
+
+  - name: edit
+    skill: pipelines/novel-cinematic/edit-director
+    required_artifacts_in:
+      - scene_plan
+      - asset_manifest
+    optional_artifacts_in:
+      - script
+    produces:
+      - edit_decisions
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Cuts follow the authored shot durations and ordering
+      - Typography cue windows sit inside the correct shot
+    success_criteria:
+      - Schema-valid edit_decisions artifact
+      - Edit decisions cover the full planned runtime
+
+  - name: compose
+    skill: pipelines/novel-cinematic/compose-director
+    required_artifacts_in:
+      - edit_decisions
+      - asset_manifest
+    optional_artifacts_in:
+      - scene_plan
+    produces:
+      - render_report
+      - final_review
+    required_tools:
+      - video_stitch
+      - video_compose
+    optional_tools:
+      - audio_mixer
+      - color_grade
+    tools_available:
+      - video_stitch
+      - video_compose
+      - audio_mixer
+      - color_grade
+    checkpoint_required: true
+    human_approval_default: false
+    review_focus:
+      - Native per-shot audio survives the assembly
+      - Subtitles and name plates are legible and timed
+      - Output is H.264/AAC at the delivery resolution
+    success_criteria:
+      - Schema-valid render_report artifact
+      - Output file exists and passes ffprobe validation
+
+  - name: publish
+    skill: pipelines/novel-cinematic/publish-director
+    required_artifacts_in:
+      - render_report
+      - final_review
+    optional_artifacts_in:
+      - script
+    produces:
+      - publish_log
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Metadata matches the source chapter and adaptation scope
+      - The human audio review warning is surfaced, not hidden
+    success_criteria:
+      - Schema-valid publish_log artifact
+      - Export package contains video, subtitle and metadata outputs
