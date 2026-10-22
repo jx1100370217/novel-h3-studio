@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 .venv-audio/
 .venv-dialogue/
+.venv-openmontage/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

@@ -102,6 +102,16 @@ const DICT = {
   "crit": "严重",
   "sugg": "建议",
   "alert": "提醒",
+  "novel-cinematic pipeline": "小说电影流水线",
+  "unknown pipeline": "未知流水线",
+  "No pipeline state.": "没有流水线状态。",
+  "clean-professional": "干净专业",
+  "flat-motion-graphics": "扁平动效",
+  "premium-minimalist": "高级极简",
+  "minimalist-diagram": "极简图解",
+  "ink-sketch": "水墨手绘",
+  "DECISION": "决策",
+  "CARD WIDTH ∝ DURATION": "卡片宽度 ∝ 时长",
   "theme": "主题",
   "dark": "深色",
   "light": "浅色",
@@ -139,7 +149,46 @@ const DICT = {
   "idea": "构思",
 };
 
+const SUBSTRINGS = [
+  ["card width ∝ duration", "卡片宽度 ∝ 时长"],
+  ["CARD WIDTH", "卡片宽度"],
+  ["∝ DURATION", "∝ 时长"],
+  ["more sections", "个章节"],
+  ["MORE SECTIONS", "个章节"],
+  ["sections", "个章节"],
+  ["scenes", "个场景"],
+  ["takes", "条镜头"],
+  ["version", "个版本"],
+  ["MORE SECTIONS", "个章节"],
+  ["SCENES", "个场景"],
+  ["SECTIONS", "个章节"],
+  ["TAKES", "条镜头"],
+  ["VERSION", "个版本"],
+  ["H AGO", "小时前"],
+  ["M AGO", "分钟前"],
+  ["D AGO", "天前"],
+  ["IDLE", "空闲"],
+  ["LIVE", "运行中"],
+  ["pipeline", "流水线"],
+  ["DECISION", "决策"],
+];
+
 const PATTERNS = [
+  [/^(\d+) scenes · (.+)$/, "$1 个场景 · $2"],
+  [/^(\d+) SCENES · (.+)$/, "$1 个场景 · $2"],
+  [/^(\d+) sections$/, "$1 个章节"],
+  [/^(\d+) MORE SECTIONS$/, "还有 $1 个章节"],
+  [/^(\d+) TAKES$/, "$1 条镜头"],
+  [/^(\d+) VERSION$/, "$1 个版本"],
+  [/^IDLE · (.+)$/, "空闲 · $1"],
+  [/^LIVE · (.+)$/, "运行中 · $1"],
+  [/^(\d+)H AGO$/, "$1 小时前"],
+  [/^(\d+)M AGO$/, "$1 分钟前"],
+  [/^(\d+)D AGO$/, "$1 天前"],
+  [/^(.+) pipeline$/, "$1 流水线"],
+  [/^script · (.+)$/, "剧本 · $1"],
+  [/^… (\d+) 个章节$/, "… 还有 $1 个章节"],
+  [/^(\d+) 个场景 · (.+)$/, "$1 个场景 · $2"],
   [/^(\d+) projects?$/, "$1 个项目"],
   [/^(\d+) LIVE$/, "$1 运行中"],
   [/^(\d+) scenes?$/, "$1 个场景"],
@@ -155,13 +204,16 @@ const PATTERNS = [
 
 function translateString(value) {
   if (!value) return value;
-  const text = value.trim();
-  if (!text) return value;
-  if (DICT[text]) return value.replace(text, DICT[text]);
-  for (const [re, rep] of PATTERNS) {
-    if (re.test(text)) return value.replace(text, text.replace(re, rep));
+  let out = value;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const before = out;
+    const text = out.trim();
+    if (DICT[text]) out = out.replace(text, DICT[text]);
+    for (const [from, to] of SUBSTRINGS) out = out.split(from).join(to);
+    for (const [re, rep] of PATTERNS) out = out.replace(re, rep);
+    if (out === before) break;
   }
-  return value;
+  return out;
 }
 
 function translateNode(node) {
