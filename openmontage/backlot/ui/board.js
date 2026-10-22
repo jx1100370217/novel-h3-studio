@@ -4,6 +4,7 @@ import {
   STAGE_ICONS, el, fmtAgo, fmtClock, fmtDuration, fmtMoney,
   getJSON, mediaURL, subscribe, thumbURL, waveBars,
 } from "/ui/lib.js";
+import { startI18n } from "/ui/i18n.js";
 
 const rawProjectPath = location.pathname.split("/p/")[1] || "";
 const projectId = decodeURIComponent(rawProjectPath);
@@ -1140,3 +1141,4 @@ refresh().catch((err) => {
 if (!new URLSearchParams(location.search).has("static")) {
   subscribe(`/api/project/${encodeURIComponent(projectId)}/events`, () => refresh().catch(console.error));
 }
+startI18n();

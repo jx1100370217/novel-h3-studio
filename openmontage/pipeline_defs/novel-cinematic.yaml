@@ -81,11 +81,13 @@ stages:
     produces:
       - asset_manifest
     required_tools:
-      - vdn_h3_video
+      - fastvideo_h3_video
     optional_tools:
+      - vdn_h3_video
       - codex_image
       - image_selector
     tools_available:
+      - fastvideo_h3_video
       - vdn_h3_video
       - codex_image
       - image_selector
@@ -93,8 +95,9 @@ stages:
     human_approval_default: true
     review_focus:
       - Approved reference images are reused, not silently regenerated
-      - One continuous take per shot with native audio, correct duration
+      - One continuous take per shot with native H3 dialogue and sound effects, correct duration
       - Cast count, identity and costume stay consistent with references
+      - Strict six-section Ref2VA prompts pass the official validator
     success_criteria:
       - Schema-valid asset_manifest artifact
       - Every referenced clip exists and passes ffprobe
@@ -131,23 +134,27 @@ stages:
     required_tools:
       - video_stitch
       - video_compose
-    optional_tools:
       - audio_mixer
+      - audio_qc
+    optional_tools:
       - color_grade
     tools_available:
       - video_stitch
       - video_compose
       - audio_mixer
+      - audio_qc
       - color_grade
     checkpoint_required: true
     human_approval_default: false
     review_focus:
-      - Native per-shot audio survives the assembly
-      - Subtitles and name plates are legible and timed
-      - Output is H.264/AAC at the delivery resolution
+      - Native H3 character dialogue and sound effects survive the assembly
+      - Narration TTS and music are mixed underneath the native take audio
+      - The audio_qc report is pass or every issue is explicitly resolved
+      - Output is H.264/AAC at 1344x768 / 24fps
     success_criteria:
       - Schema-valid render_report artifact
       - Output file exists and passes ffprobe validation
+      - audio_qc report exists and is pass or human-approved
 
   - name: publish
     skill: pipelines/novel-cinematic/publish-director

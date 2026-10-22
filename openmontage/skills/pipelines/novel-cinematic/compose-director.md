@@ -3,30 +3,47 @@
 ## Inputs
 
 - `edit_decisions` (ffmpeg runtime), `asset_manifest`.
-- Per-shot clips with native audio.
+- Native H3 takes under `projects/<id>/takes/<shot_id>/native.mp4`.
+- Narration manifest and audio files (`voiceover/*_48.wav`).
+- Approved music bed segments.
+- Strict Ref2VA shot specs and the v4 timeline.
 
 ## Outputs
 
-- `renders/<id>_final.mp4` - H.264/AAC delivery master.
+- `exports/<id>_v4.mp4` - H.264/AAC delivery master at 1344x768 / 24fps.
+- `v4/audio_qc/report.json` - the audio QC gate report.
 - Schema-valid `render_report` and `final_review` artifacts.
 
 ## Process
 
-1. **Stitch.** Call `video_stitch` with the ordered clip paths, `transition: cut`,
-   `auto_normalize: true`, `target_resolution: 1024x576`, `target_fps: 24`. Native
-   audio is preserved; do not mux an external track.
-2. **Overlay.** Build transparent PNG overlays for each typography cue
-   (`ffmpeg -f lavfi` or `drawtext` with `fontfile`), then call `video_compose` with
-   `operation: "overlay"` and the cue windows. Keep every overlay inside its shot.
-3. **Encode.** Final file must be `libx264`, `yuv420p`, AAC stereo, faststart.
-4. **QC.** ffprobe: duration exact to the frame grid, one video + one audio stream,
-   1024x576, 24 fps. Extract one frame per shot and confirm no black/duplicate frames.
+1. **Trim to the timeline.** For every shot, cut the native take to the exact
+   frame count from the v4 script (`124` / `158` / `243` frames) and scale to
+   `1344x768`. Use the official `video_trimmer` tool; never hand-edit frames.
+2. **Stitch picture.** Call `video_stitch` with the ordered clip paths,
+   `transition: cut`, `auto_normalize: true`, `target_resolution: 1344x768`,
+   `target_fps: 24`.
+3. **Mix audio.** Build the mix with `audio_mixer`:
+   - character dialogue and sound effects: the native H3 take audio;
+   - narration: the existing TTS files, placed on the v4 timeline;
+   - music: the approved bed, ducked under speech.
+   Do not replace character dialogue with TTS.
+4. **Audio QC gate.** Run `audio_qc` with the v4 script, narration manifest,
+   shots directory, native take root, and report path. The compose stage must
+   not deliver while the report is `revise` unless every issue is explicitly
+   resolved and recorded.
+5. **Encode.** Final file must be `libx264`, `yuv420p`, AAC stereo, faststart,
+   `1344x768`, 24fps.
+6. **Self-review.** ffprobe the final file, extract one frame per shot, confirm
+   no black/duplicate frames, and write `final_review`.
 
 ## Hard rules
 
-- Native audio is the only audio. No narration, no music bed, unless the source
-  explicitly has it and the user approved it.
-- If a clip fails QC, fix the shot in the assets stage and re-stitch; never hide a
-  broken clip under an overlay.
-- Report the human audio-review warning as-is when the model-generated track contains
+- Character dialogue and video sound effects are native H3 audio. TTS is only
+  for narration.
+- Music is the approved existing bed; do not add a different track.
+- The `audio_qc` report is a gate, not a suggestion. Human listening is the
+  final gate and must be recorded as `human_listening_confirmed`.
+- If a take fails QC, fix the shot in the assets stage and re-stitch; never hide
+  a broken take under an overlay or a louder music bed.
+- Report the human audio-review warning as-is when the native track contains
   speech-like material.

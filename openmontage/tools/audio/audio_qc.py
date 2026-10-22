@@ -100,6 +100,91 @@ def check_timeline(script: dict, lines: list[dict], *, native_root: Path,
                        'female F0 gate', 'native take presence'],
             'lines': rows, 'issues': issues}
 
+from tools.base_tool import (
+    BaseTool,
+    Determinism,
+    ExecutionMode,
+    ResourceProfile,
+    RetryPolicy,
+    ResumeSupport,
+    ToolResult,
+    ToolRuntime,
+    ToolStability,
+    ToolTier,
+)
+
+
+class AudioQC(BaseTool):
+    """OpenMontage gate for dialogue routing, order, fit, overlap and F0."""
+
+    name = "audio_qc"
+    version = "1.0.0"
+    tier = ToolTier.CORE
+    capability = "audio_processing"
+    provider = "ffmpeg"
+    stability = ToolStability.EXPERIMENTAL
+    execution_mode = ExecutionMode.SYNC
+    determinism = Determinism.DETERMINISTIC
+    runtime = ToolRuntime.LOCAL
+
+    dependencies = ["cmd:ffmpeg", "cmd:ffprobe"]
+    install_instructions = "Install FFmpeg (ffmpeg + ffprobe)."
+    agent_skills = ["ffmpeg"]
+
+    capabilities = ["dialogue_routing", "timeline_order", "line_fit", "overlap", "female_f0"]
+    best_for = [
+        "catching TTS dialogue in a native-H3 cut",
+        "catching lines that overflow their shot",
+        "catching a male-sounding voice cast as a female role",
+    ]
+    input_schema = {
+        "type": "object",
+        "required": ["script_path", "lines_path", "shots_dir", "native_root", "output_path"],
+        "properties": {
+            "script_path": {"type": "string"},
+            "lines_path": {"type": "string"},
+            "shots_dir": {"type": "string"},
+            "native_root": {"type": "string"},
+            "output_path": {"type": "string"},
+            "human_listening_confirmed": {"type": "boolean", "default": False},
+        },
+    }
+    output_schema = {
+        "type": "object",
+        "properties": {
+            "status": {"type": "string"},
+            "issues": {"type": "array", "items": {"type": "string"}},
+            "report_path": {"type": "string"},
+        },
+    }
+    resume_support = ResumeSupport.NONE
+    side_effects = ["writes the audio QC report JSON"]
+    resource_profile = ResourceProfile(cpu_cores=2, ram_mb=2048, vram_mb=0, disk_mb=256, network_required=False)
+    retry_policy = RetryPolicy(max_retries=0)
+    user_visible_verification = [
+        "read the report status and issues",
+        "human listening remains the final gate",
+    ]
+
+    def execute(self, inputs):
+        script_path = Path(inputs["script_path"])
+        lines_path = Path(inputs["lines_path"])
+        shots_dir = Path(inputs["shots_dir"])
+        native_root = Path(inputs["native_root"])
+        output_path = Path(inputs["output_path"])
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        script["shot_durations"] = {
+            shot: json.loads((shots_dir / f"{shot}.json").read_text(encoding="utf-8"))["duration_seconds"]
+            for shot in (s for sec in script["sections"] for s in sec["shots"])}
+        lines = json.loads(lines_path.read_text(encoding="utf-8"))["lines"]
+        report = check_timeline(script, lines, native_root=native_root)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        return ToolResult(success=report["status"] == "pass", data={
+            "status": report["status"], "issues": report["issues"],
+            "report_path": str(output_path),
+        }, artifacts=[str(output_path)])
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)

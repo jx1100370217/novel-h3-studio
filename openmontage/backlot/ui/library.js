@@ -1,4 +1,5 @@
 import { el, fmtAgo, getJSON, subscribe, thumbURL } from "/ui/lib.js";
+import { startI18n } from "/ui/i18n.js";
 
 const grid = document.getElementById("grid");
 const THEME_KEY = "backlot.theme";
@@ -89,3 +90,4 @@ render().catch(console.error);
 if (!new URLSearchParams(location.search).has("static")) {
   subscribe("/api/library/events", () => render().catch(console.error));
 }
+startI18n();
