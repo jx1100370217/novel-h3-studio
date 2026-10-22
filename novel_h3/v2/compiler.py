@@ -12,25 +12,85 @@ from ..comfy import asset_for, config, generation_reference
 from ..project import digest, file_hash, inside, read, safe_id, write
 from .audio_anchor import AUDIO_ROUTE, VERSION as ANCHOR_VERSION, add_audio_anchor, validate_target_audio
 
-VERSION = 'cinema_ref2va_native_v2'
-GRAPH_PROFILE = {'version': 1, 'shift_video': 12.0, 'shift_audio': 3.0,
+VERSION = 'cinema_ref2va_native_v4'
+GRAPH_PROFILE = {'version': 2, 'shift_video': 12.0, 'shift_audio': 3.0,
                  'ref_image_size': 'match', 'trim_frames': 0}
+
+
+def video_engine(cfg):
+    engine_id = cfg.get('video_engine', 'minimax_h3')
+    if engine_id == 'vdn_h3_turbo':
+        profile = cfg.get('vdn', {})
+        if profile.get('enabled') is not True:
+            raise ValueError('VDN-H3 Turbo is not enabled in this project')
+        if int(cfg.get('generation', {}).get('steps', 0)) != 8:
+            raise ValueError('VDN-H3 Turbo requires its fixed 8-step sampling profile')
+        return {'id': engine_id, 'name': 'VDN-H3 Turbo',
+                'model_filename': cfg['models']['ref2va'], 'vdn_enabled': True,
+                'shift_video': 12.0, 'shift_audio': 3.0}
+    if engine_id == 'fast_h3_omni':
+        profile = cfg.get('fast_h3_omni', {})
+        from ..fastvideo import available
+        if profile.get('backend') != 'fastvideo' or not available(cfg):
+            raise ValueError('FastH3-Omni now requires the complete FastVideo NVFP4 QAD stack')
+        if profile.get('production_enabled') is not True or profile.get('input_mode', 'ref2va') != 'ref2va':
+            raise ValueError('FastH3-Omni is not enabled for Ref2VA production')
+        if int(cfg.get('generation', {}).get('steps', 0)) != int(profile.get('steps', 8)):
+            raise ValueError('FastH3-Omni requires its fixed 8-step sampling profile')
+        return {'id': engine_id, 'name': 'FastH3-Omni NVFP4 QAD', 'model_filename': profile['model_repo'],
+                'backend': 'fastvideo', 'quantization': 'NVFP4 QAD', 'revision': profile['revision'],
+                'vdn_enabled': False,
+                'shift_video': float(profile.get('scheduler_shift_video', 12.0)),
+                'shift_audio': float(profile.get('scheduler_shift_audio', 3.0))}
+    if engine_id == 'minimax_h3':
+        return {'id': engine_id, 'name': 'MiniMax H3',
+                'model_filename': cfg['models']['ref2va'], 'vdn_enabled': False,
+                'shift_video': 12.0, 'shift_audio': 3.0}
+    raise ValueError(f'Unknown video generation model: {engine_id}')
+
+
+def _effective_models(cfg, engine=None):
+    engine = engine or video_engine(cfg)
+    models = dict(cfg['models'])
+    models['ref2va'] = engine['model_filename']
+    if engine['id'] == 'fast_h3_omni':
+        profile = cfg['fast_h3_omni']
+        return {key: str(Path(profile['model_dir']) / folder) for key, folder in (
+            ('ref2va', 'transformer_ref'), ('clip', 'text_encoder'), ('video_vae', 'vae'), ('audio_vae', 'audio_vae'))}
+    return models
 
 
 def pinned_models(root, cfg):
     """Hash immutable weights once, refreshing the cache if filesystem identity changes."""
+    from ..fastvideo import selected, model_lock
+    if selected(cfg):
+        return model_lock(root, cfg)
     cache_path = Path(root) / 'production_v2/model_lock.json'
     old = read(cache_path) if cache_path.exists() else {}
     result = {}
+    selected_engine = video_engine(cfg)
+    models = _effective_models(cfg, selected_engine)
     for key, folder in (('ref2va', 'diffusion_models'), ('clip', 'text_encoders'),
                         ('video_vae', 'vae'), ('audio_vae', 'vae')):
-        path = (Path(cfg['comfy_root']) / 'models' / folder / cfg['models'][key]).resolve(strict=True)
+        path = (Path(cfg['comfy_root']) / 'models' / folder / models[key]).resolve(strict=True)
         stat = path.stat()
         identity = {'path': str(path), 'size': stat.st_size, 'mtime_ns': stat.st_mtime_ns,
                     'device': stat.st_dev, 'inode': stat.st_ino}
         previous = old.get(key, {})
         sha = previous.get('sha256') if previous.get('identity') == identity else None
         result[key] = {'identity': identity, 'sha256': sha or file_hash(path)}
+    if selected_engine['vdn_enabled']:
+        stage = Path(cfg['comfy_root']) / 'models' / 'vdn' / cfg['vdn']['inputs']['vdn_checkpoint']
+        result['vdn'] = {}
+        for name in ('model_spec.json', 'linear_branch/model_int8_convrot_comfyui.safetensors',
+                     'adapters/default/adapter_model.safetensors', 'adapters/turbo/adapter_model.safetensors'):
+            path = (stage / name).resolve(strict=True)
+            stat = path.stat()
+            identity = {'path': str(path), 'size': stat.st_size, 'mtime_ns': stat.st_mtime_ns,
+                        'device': stat.st_dev, 'inode': stat.st_ino}
+            previous = old.get('vdn', {}).get(name, {})
+            sha = previous.get('sha256') if previous.get('identity') == identity else None
+            result['vdn'][name] = {'identity': identity, 'sha256': sha or file_hash(path)}
     if result != old:
         write(cache_path, result)
     return result
@@ -109,6 +169,8 @@ def compile_shot(root, plan, shot, seed):
     assets = inventory(root)
     validate_shot(shot, assets)
     cfg = config(root)
+    engine = video_engine(cfg)
+    models = _effective_models(cfg, engine)
     target = shot.get('audio_target')
     if target:
         target = dict(target)
@@ -191,8 +253,17 @@ def compile_shot(root, plan, shot, seed):
         else:
             raise ValueError('Unknown visual reference scope')
         setting_ids = []
+    if any(assets[a]['kind'] == 'character' and a not in shot['cast'] and a not in speaking
+           for a in shot.get('references', [])):
+        raise ValueError('Every character image must belong to the visible cast or an explicit offscreen speaker')
     image_ids = list(dict.fromkeys(speaking + shot['cast'] + setting_ids + shot.get('references', [])))
     aliases = plan.get('subject_aliases', {})
+    if shot.get('ref2va_sections'):
+        prose = re.sub(r'<d>.*?</d>', '', '\n'.join(shot['ref2va_sections'].values()), flags=re.S)
+        for asset_id, alias in aliases.items():
+            if (assets.get(asset_id, {}).get('kind') == 'character' and asset_id not in image_ids
+                    and re.search(r'(?<!\w)' + re.escape(alias) + r'(?!\w)', prose)):
+                raise ValueError(f'Unbound character {alias} in authored Ref2VA directions; describe the unseen listener without staging another body')
     visuals, subjects = [], {}
     for i, asset_id in enumerate(image_ids, 1):
         ref = {'asset_id': asset_id}
@@ -204,6 +275,8 @@ def compile_shot(root, plan, shot, seed):
                 raise ValueError('Single actor props requires a resolved approved face view')
             if reference_scope == 'seated_court' and resolved.get('selected_view') != 'front':
                 raise ValueError('Seated court requires resolved approved front views')
+        elif 'generation_crop' in assets[asset_id]:
+            resolved = generation_reference(root, ref)
         else:
             path, sha = asset_for(root, asset_id)
             resolved = {'asset_id': asset_id, 'generation_path': str(path.relative_to(root)),
@@ -211,6 +284,7 @@ def compile_shot(root, plan, shot, seed):
         role = aliases.get(asset_id, f'registered {assets[asset_id]["kind"]} {i}')
         visuals.append(dict(resolved, kind=assets[asset_id]['kind'], alias=role,
                             instances=int(assets[asset_id].get('instances', 1)),
+                            visible=asset_id in shot['cast'] if assets[asset_id]['kind'] == 'character' else False,
                             picture=f'<Picture {i}>', subject=f'<Subject {i}>'))
         subjects[asset_id] = f'<Subject {i}>'
 
@@ -218,6 +292,8 @@ def compile_shot(root, plan, shot, seed):
     voices = []
     for asset_id in dict.fromkeys(speaking):
         voice = voice_bank.get(asset_id)
+        if not voice and engine.get('backend') == 'fastvideo':
+            continue  # Native joint audio: the authored prompt defines the speaker's voice.
         if not voice or voice.get('approved') is not True:
             raise ValueError(f'Voice reference is not ready: {asset_id}')
         path = inside(root, voice['path'])
@@ -277,14 +353,17 @@ def compile_shot(root, plan, shot, seed):
     elif target and target.get('kind') == 'nonverbal':
         dialogue.append('No spoken dialogue; follow only the authored physical action or stillness and the verified complete nonverbal audio target.')
     else:
-        dialogue.append('No spoken dialogue in this clip; play the authored reaction with natural breathing and physical sound.'
-                        if shot['cast'] else 'No spoken dialogue; use only the authored room ambience and physical prop sounds.')
+        dialogue.append('No speech or human voice in any language: no intelligible or unintelligible words, murmuring, whispers, singing, chanting, voice-like breaths or vocal syllables. Human breathing may be quiet and non-vocal. Use only the authored non-vocal ambience and physical sounds; no narration or music.'
+                        if shot['cast'] else 'No speech or human voice in any language: no intelligible or unintelligible words, murmuring, whispers, singing, chanting, or vocal syllables. Use only the authored room ambience and physical prop sounds; no narration or music.')
     visible = ', '.join(f"{subjects[a]} ({int(assets[a].get('instances', 1))} person(s))" for a in shot['cast'])
     body_count = sum(int(assets[a].get('instances', 1)) for a in shot['cast'])
     cast_instruction = (f'Visible people: {visible}. Keep their count, faces, eyelines and physical positions coherent.'
                         if shot['cast'] else 'No people are visible in this insert; preserve the authored prop and setting.')
     if body_count:
         cast_instruction += f' The authored visible cast contains exactly {body_count} people in total.'
+    if shot.get('additional_visible_people'):
+        from ..ref2va import population_text
+        cast_instruction = population_text(visuals, shot['additional_visible_people'])
     material_policy = ('Natural materials; follow the authored movement or stillness;'
         if reference_scope in ('props_only', 'single_actor_props') else 'Natural materials and motivated movement;')
     sound_policy = (' Use only the authored ambience and prop sounds; do not add an unrequested handling event or voices. No narration, unassigned words or music.'
@@ -325,11 +404,12 @@ def compile_shot(root, plan, shot, seed):
         prompt = '\n\n'.join([
             'subject_definitions:\n' + '\n'.join(definitions),
             'summary:\nOne continuous photorealistic stationary seated court. ' + bind(shot['action']),
-            'retention_analysis:\n' + ', '.join(principals) + ': three separate principal individuals. '
-            + ensemble['subject'] + ': nine additional ordinary individuals, distinct from all three principals. '
-            + 'The twelve individuals occupy twelve separate chairs in the one authored row.',
+            'retention_analysis:\n' + '\n'.join(retention),
             f"detailed_description:\n[Shot 1] Duration approximately {shot['duration_seconds']} seconds. "
-            + bind(camera_text) + '\nAction: ' + bind(shot['action']),
+            + bind(camera_text) + '\nThe three individual subjects ' + ', '.join(principals)
+            + ' and the nine-person ensemble ' + ensemble['subject']
+            + ' consists of nine additional ordinary individuals, distinct from the principals; '
+            + 'the twelve people occupy twelve separate chairs in the one authored row.\nAction: ' + bind(shot['action']),
             'overall_soundscape:\n' + bind(shot['soundscape']),
             'non_diegetic_music:\nN/A',
         ])
@@ -346,14 +426,54 @@ def compile_shot(root, plan, shot, seed):
     for label, count in (('Picture', len(visuals)), ('Audio', len(voices)), ('Subject', len(visuals)), ('Video', 0)):
         if any(not 1 <= int(i) <= count for i in re.findall(r'<' + label + r' (\d+)>', prompt)):
             raise ValueError(f'Unresolved {label} reference')
+    if shot.get('ref2va_sections'):
+        from ..ref2va import render
+        prompt = render(shot['ref2va_sections'], visuals, voices, lines,
+                        duration_seconds=shot['duration_seconds'], single_shot=True,
+                        additional_visible_people=shot.get('additional_visible_people', []))
+    else:
+        from ..ref2va import SECTIONS
+        parts = re.split(r'(?m)^[a-z_]+:\s*\n', prompt)[1:]
+        sections = dict(zip(SECTIONS, parts))
+        tasks = '[reference generation + audio reference] ' if voices else '[reference generation] '
+        sections['summary'] = tasks + sections['summary'].strip()
+        for ref in visuals:
+            marker = 'partially_preserved' if offscreen and ref['asset_id'] in speaking else 'fully_preserved'
+            sections['retention_analysis'] = sections['retention_analysis'].replace(
+                ref['subject'] + ':', ref['subject'] + f' (appears in [Shot 1]): {marker} -', 1)
+        for voice in voices:
+            sections['retention_analysis'] = sections['retention_analysis'].replace(
+                voice['audio'] + ': reference vocal timbre;', voice['audio'] + ': reference - transfer vocal timbre;', 1)
+        sections['detailed_description'] = ('The target video is a photorealistic Chinese period drama with natural light and material detail.\n'
+            + sections['detailed_description'].strip())
+        if shot['scene_id'] in subjects:
+            sections['detailed_description'] = sections['detailed_description'].replace(
+                '[Shot 1]', '[Shot 1] The location follows ' + subjects[shot['scene_id']] + '.', 1)
+        if voices:
+            sections['detailed_description'] += '\nThe assigned speaking voice follows ' + ', '.join(v['audio'] for v in voices) + '.'
+        prompt = '\n\n'.join(k + ':\n' + sections[k].strip() for k in SECTIONS)
+    from ..ref2va import validate, with_population
+    prompt = with_population(prompt, visuals, shot.get('additional_visible_people', []))
+    validate(prompt, visuals, voices, lines, duration_seconds=shot['duration_seconds'], single_shot=True, no_music=True,
+             additional_visible_people=shot.get('additional_visible_people', []), require_population=True)
     if 'All bound mouths stay closed' in prompt and lines:
         raise ValueError('Dialogue contradicts mouth-rest instructions')
+    graph_profile = dict(GRAPH_PROFILE, shift_video=engine['shift_video'],
+                         shift_audio=engine['shift_audio'])
+    generation = dict(cfg['generation'])
+    if engine.get('backend') == 'fastvideo':
+        generation.update(sampler='pdd_euler', scheduler='trained_pdd_32_heads_8_blocks', guidance_scale=1.0)
+        graph_profile = {'backend': 'FastVideo', 'shift_video': 12.0, 'shift_audio': 3.0,
+                         'attention_backend': 'VIDEO_SPARSE_ATTN_H3', 'video_attention': 'fp4',
+                         'conditioning_prefix': 'fp8', 'decoder': 'NVFP4 quality-36L'}
     request = {'schema': VERSION, 'plan_id': plan['id'], 'shot_id': shot['id'],
                'plan_sha256': digest(plan), 'shot_sha256': digest(shot), 'shot': shot,
                'mode': 'ref2va', 'audio_route': AUDIO_ROUTE if target else 'h3_native_joint', 'seed': int(seed),
                'frames': frames_for(shot['duration_seconds']), 'fps': 24,
-               'generation': dict(cfg['generation']), 'models': dict(cfg['models']),
-               'model_lock': pinned_models(root, cfg), 'graph_profile': dict(GRAPH_PROFILE),
+               'generation': generation, 'models': models,
+               'model_lock': pinned_models(root, cfg), 'graph_profile': graph_profile,
+               'video_engine': engine,
+               'vdn': cfg.get('vdn', {}) if engine['vdn_enabled'] else {'enabled': False},
                'visuals': visuals, 'voices': voices, 'prompt': prompt,
                'prompt_sha256': digest(prompt), 'bgm': False}
     if target:
@@ -369,6 +489,10 @@ def compile_shot(root, plan, shot, seed):
 def graph(request, take_id):
     """Native H3 graph, independent shot, no latent inheritance or replacement TTS."""
     safe_id(take_id)
+    from ..ref2va import validate
+    validate(request['prompt'], request['visuals'], request['voices'], request['shot'].get('spoken_lines', []),
+             duration_seconds=request['frames'] / 24, single_shot=True, no_music=True,
+             additional_visible_people=request['shot'].get('additional_visible_people', []), require_population=True)
     gen, models = request['generation'], request['models']
     prefix = f"novel_h3/cinema_v2/{request['plan_id']}/{request['shot_id']}/{take_id}"
     nodes = {}
@@ -378,6 +502,11 @@ def graph(request, take_id):
         return [str(n), 0]
 
     model = add(1, 'UNETLoader', unet_name=models['ref2va'], weight_dtype='default')
+    if request.get('video_engine', {}).get('vdn_enabled'):
+        vdn = request.get('vdn', {})
+        if vdn.get('enabled') is not True or gen.get('steps') != 8:
+            raise ValueError('VDN-H3 Turbo requires its enabled 8-step adapter profile')
+        model = add(21, 'ApplyVDNH3', model=model, **vdn['inputs'])
     clip = add(2, 'CLIPLoader', clip_name=models['clip'], type='minimax', device='default')
     vae = add(3, 'VAELoader', vae_name=models['video_vae'])
     avae = add(4, 'VAELoader', vae_name=models['audio_vae'])

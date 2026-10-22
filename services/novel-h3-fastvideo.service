@@ -1,0 +1,22 @@
+[Unit]
+Description=Novel H3 FastVideo Omni NVFP4 QAD on RTX 5090
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/jx/codes/novel-h3-studio
+ExecStart=/home/jx/codes/novel-h3-studio/runtime/fastvideo-venv/bin/python /home/jx/codes/novel-h3-studio/start_fastvideo.py --project /home/jx/codes/novel-h3-studio/projects/liaozhai-zhiyi-video-comparison
+Environment=PYTHONUNBUFFERED=1
+Environment=TOKENIZERS_PARALLELISM=false
+Environment=HF_HUB_OFFLINE=1
+Environment=MALLOC_ARENA_MAX=2
+Environment=MALLOC_MMAP_THRESHOLD_=65536
+Environment=MALLOC_TRIM_THRESHOLD_=65536
+Slice=novel-h3-workloads.slice
+OOMPolicy=kill
+Restart=no
+TimeoutStartSec=1800
+TimeoutStopSec=60
+
+[Install]
+WantedBy=default.target

@@ -41,7 +41,7 @@ class CastSoundscapeTests(unittest.TestCase):
 
     def resolved(self, ref, *args):
         return {'asset_id': ref['asset_id'], 'source_sha256': 'a' * 64,
-                'generation_path': ref['asset_id'] + '.png', 'generation_sha256': 'b' * 64,
+                'generation_path': ref['asset_id'] + '.png', 'generation_sha256': ref['asset_id'] + '-hash',
                 'variant': 'front', 'selected_view': 'front', 'selected_view_label': '正面'}
 
     def package(self, shot):

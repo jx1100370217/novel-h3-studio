@@ -21,7 +21,7 @@ CONTENT_FIELDS = {"scene_id", "duration_seconds", "segment_break", "characters_i
                   "source_ids", "cinematic_storyboard_version"}
 H3_FIELDS = {"location_id", "mode", "continuity", "seed", "hold_frames", "first_frame", "last_frame",
              "references", "dramatic_function", "action", "camera", "handoff_in", "handoff_out",
-             "timeline", "soundscape", *SHOT_FIELDS}
+             "timeline", "soundscape", "ref2va_sections", "additional_visible_people", *SHOT_FIELDS}
 
 
 def inventory(root):
@@ -251,13 +251,14 @@ def approve_rhythm(root, episode_id, reviewer, note):
 
 def visual_packet(root, episode_id):
     plan = read(plan_path(root, episode_id))
+    from .ref2va import AUTHORING_INSTRUCTION
     return {"kind": "arcreel_visual_authoring_for_h3", "content_sha256": digest(plan),
             "instruction": AUTHORING_RULES + "\n仅编写视觉层，禁止重写 title、source_text、utterances、角色归属或源文事实。必须按 scene_id 一一覆盖。speech_timing 每条严格对应锁定对白。为每个镜头输出 sequence_id、beat_function、state_in/state_out、screen_direction、axis_id、transition、blocking_plan、composition、action_beats；blocking_plan.actors 与绑定角色资产一一对应，声明首尾走位点/姿态/可见性。action_beats 按可见状态变化分段，一段只写一个不同的动作阶段；相邻段不得复述同一动作，不按固定24帧切分。短镜头可用1-2段，复杂动作按真实阶段增加；精确覆盖交付帧。H3时长按对白/动作决定，17k+5 帧，续接扣除22帧，绝不为凑时长重复动作。场景和道具资产必须逐镜绑定。换场才切，场内续接需首尾状态一致。生成前使用 storyboard_design.validate_shot 和完整资产/对白门禁。",
             "content": plan, "assets": inventory(root),
             "design_version": VERSION,
             "output_fields": ["content_sha256", "scenes: [{scene_id, image_prompt, h3, speech_timing}]",
                               "h3 必须含 " + ", ".join(sorted(SHOT_FIELDS))],
-            "h3_fields": sorted(H3_FIELDS)}
+            "h3_fields": sorted(H3_FIELDS), "ref2va_instruction": AUTHORING_INSTRUCTION}
 
 
 def content_current(root, episode):

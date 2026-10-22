@@ -35,11 +35,11 @@ def check_shot_budget(cfg, shot):
 def native_generation(cfg, shot):
     """Choose a memory-safe native size without shortening the authored shot.
 
-    VDN-H3's activation memory grows with both spatial tokens and temporal
-    length.  Long, dialogue-heavy shots can therefore exhaust a 32 GiB card
-    even when they are below H3's 362-frame contract.  Keep the requested
+    Eight-step H3 production models' activation memory grows with both spatial
+    tokens and temporal length.  Long shots can therefore exhaust a 32 GiB
+    card even when they are below H3's 362-frame contract. Keep the requested
     duration and scale the completed clip back to the configured output size
-    after rendering.  Short shots retain the normal native profile.
+    after rendering. Short shots retain the normal native profile.
     """
     generation = dict(cfg["generation"])
     policy = cfg.get("resource_policy", {}).get("long_clip_fallback", {})
@@ -49,8 +49,11 @@ def native_generation(cfg, shot):
         "width": int(policy.get("width", 1280)),
         "height": int(policy.get("height", 704)),
     }
+    engine_id = cfg.get("video_engine")
+    if engine_id is None:
+        engine_id = "vdn_h3_turbo" if cfg.get("vdn", {}).get("enabled") else "minimax_h3"
     use_fallback = (
-        bool(cfg.get("vdn", {}).get("enabled"))
+        engine_id in ("vdn_h3_turbo", "fast_h3_omni")
         and fallback["enabled"]
         and int(shot.get("frames", 0)) >= fallback["threshold_frames"]
         and fallback["width"] * fallback["height"] < generation["width"] * generation["height"]

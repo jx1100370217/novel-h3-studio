@@ -1,4 +1,5 @@
 import tempfile
+import runpy
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -7,6 +8,7 @@ from novel_h3 import safety
 from novel_h3.comfy import submit_next
 from novel_h3.listening import start_audio
 from novel_h3.project import digest, file_hash
+from novel_h3.fastvideo import run as fastvideo_run, produce as fastvideo_produce
 
 
 class SafetyTests(unittest.TestCase):
@@ -71,7 +73,9 @@ class SafetyTests(unittest.TestCase):
             with patch.object(safety, "PAUSE", marker):
                 for call in (safety.bounded_worker,
                              lambda: submit_next(Path(folder), "missing"),
-                             lambda: start_audio(Path(folder), "missing.mp4")):
+                             lambda: start_audio(Path(folder), "missing.mp4"),
+                             lambda: fastvideo_run(Path(folder), Path(folder) / 'missing.json', [], 1),
+                             lambda: fastvideo_produce(Path(folder), Path(folder) / 'missing.json', 1)):
                     with self.assertRaisesRegex(ValueError, "已暂停"):
                         call()
 
@@ -80,6 +84,21 @@ class SafetyTests(unittest.TestCase):
         safety.check_shot_budget(cfg, {"frames": 124})
         with self.assertRaisesRegex(ValueError, "124"):
             safety.check_shot_budget(cfg, {"frames": 243})
+
+    def test_model_launchers_respect_pause_before_any_subprocess_or_exec(self):
+        repo = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as folder:
+            marker = Path(folder) / 'paused'
+            marker.write_text('GPU reserved for another task')
+            for script in ('start_fastvideo.py', 'start_comfy.py'):
+                with self.subTest(script=script), patch.object(safety, 'PAUSE', marker), \
+                        patch('sys.argv', [script, '--project', folder]), \
+                        patch.object(safety.subprocess, 'run') as run, \
+                        patch.object(safety.os, 'execv') as execute:
+                    with self.assertRaisesRegex(ValueError, '已暂停'):
+                        runpy.run_path(str(repo / script), run_name='__main__')
+                    run.assert_not_called()
+                    execute.assert_not_called()
 
     def test_missing_budget_fails_closed(self):
         with patch.object(safety, "check_paused"), \

@@ -124,9 +124,11 @@ def freeze_plan(root, source_path, audio_manifest):
     source = read(source_path)
     audio = read(audio_manifest)
     entries = {e['shot_id']: e for e in audio['entries']}
+    has_dialogue = any(shot.get('spoken_lines') for shot in source['shots'])
     plan = copy.deepcopy(source)
     plan.update(id=source.get('production_id', source['id'] + '_production'), status='production_candidates',
-        native_dialogue_required=False, audio_route='h3_audio_conditioned',
+        native_dialogue_required=False,
+        audio_route='h3_audio_conditioned' if has_dialogue else 'h3_native_joint',
         source_plan_sha256=file_hash(source_path), release_approved=False,
         reused_takes=dict(source.get('reused_takes', {})))
     pilot_path = source_path.parent / 'p03_audio_conditioned_canary.json'
@@ -158,6 +160,9 @@ def freeze_plan(root, source_path, audio_manifest):
 
 
 def produce(root, source_plan, seed):
+    from ..fastvideo import selected, produce as produce_fastvideo
+    if selected(config(root)):
+        return produce_fastvideo(root, source_plan, seed)
     root, source_plan = Path(root).resolve(), Path(source_plan).resolve()
     if not source_plan.is_relative_to(root):
         raise ValueError('Chapter plan must belong to this project')
@@ -178,44 +183,51 @@ def produce(root, source_plan, seed):
             queue = api(cfg['comfy_url'], '/queue')
             if queue['queue_running'] or queue['queue_pending']:
                 raise RuntimeError('Another Comfy generation is active')
-            for attempt in range(3):
-                checks = audio.with_name('manifest.speech_check.json')
-                if checks.exists():
-                    archive = audio.parent / 'checks' / f'speech_check_{time.time_ns()}.json'
-                    archive.parent.mkdir(exist_ok=True)
-                    shutil.copy2(checks, archive)
-                queue = api(cfg['comfy_url'], '/queue')
-                if queue['queue_running'] or queue['queue_pending']:
-                    raise RuntimeError('Another Comfy generation is active before voice preparation')
-                api(cfg['comfy_url'], '/free', {'unload_models': True, 'free_memory': True})
-                time.sleep(3)
-                phase(root, base, source_plan, 'dialogue_preparation', note='逐角色准备全章白话对白，保留原始音频；P03可复用。')
-                source = read(source_plan)
-                needed = [s['id'] for s in source['shots'] if s.get('spoken_lines')
-                          and s['id'] not in source.get('reused_takes', {})]
-                command = [REPO / '.venv-dialogue/bin/python', REPO / 'scripts/prepare_chapter_audio.py',
-                    '--project', root, '--plan', source_plan, '--execute', '--seed', seed + attempt * 100]
-                if source.get('reused_takes') and needed:
-                    command += ['--shots', *needed]
-                if source.get('reused_takes') and not needed:
-                    if not audio.is_file():
-                        raise ValueError('Reused dialogue needs its existing audio manifest')
-                    result = 0
-                else:
-                    result = job(command, logs / f'tts_{attempt}.log')
-                if result:
+            source = read(source_plan)
+            if not any(shot.get('spoken_lines') for shot in source['shots']):
+                write(audio, {'schema': 'cinema_chapter_audio_v1',
+                    'plan_path': str(source_plan.relative_to(root)), 'plan_sha256': file_hash(source_plan),
+                    'plan_id': source['id'], 'status': 'no_dialogue', 'total_shots': len(source['shots']),
+                    'dialogue_shots': 0, 'entries': [], 'audio_route': 'h3_native_joint',
+                    'approved': False, 'human_listened': False, 'release_approved': False})
+            else:
+                for attempt in range(3):
+                    checks = audio.with_name('manifest.speech_check.json')
+                    if checks.exists():
+                        archive = audio.parent / 'checks' / f'speech_check_{time.time_ns()}.json'
+                        archive.parent.mkdir(exist_ok=True)
+                        shutil.copy2(checks, archive)
+                    queue = api(cfg['comfy_url'], '/queue')
+                    if queue['queue_running'] or queue['queue_pending']:
+                        raise RuntimeError('Another Comfy generation is active before voice preparation')
+                    api(cfg['comfy_url'], '/free', {'unload_models': True, 'free_memory': True})
+                    time.sleep(3)
+                    phase(root, base, source_plan, 'dialogue_preparation', note='逐角色准备全章白话对白，保留原始音频；P03可复用。')
+                    needed = [s['id'] for s in source['shots'] if s.get('spoken_lines')
+                              and s['id'] not in source.get('reused_takes', {})]
+                    command = [REPO / '.venv-dialogue/bin/python', REPO / 'scripts/prepare_chapter_audio.py',
+                        '--project', root, '--plan', source_plan, '--execute', '--seed', seed + attempt * 100]
+                    if source.get('reused_takes') and needed:
+                        command += ['--shots', *needed]
+                    if source.get('reused_takes') and not needed:
+                        if not audio.is_file():
+                            raise ValueError('Reused dialogue needs its existing audio manifest')
+                        result = 0
+                    else:
+                        result = job(command, logs / f'tts_{attempt}.log')
+                    if result:
+                        if attempt == 2:
+                            raise RuntimeError('Dialogue preparation failed; original audio retained, see production logs')
+                        continue
+                    phase(root, base, source_plan, 'audio_roundtrip', note='使用同一H3音频VAE核对全章对白重建。')
+                    roundtrip(root, audio)
+                    phase(root, base, source_plan, 'dialogue_screening', note='CPU一次加载识别模型核对全部目标与H3重建对白。')
+                    result = job([REPO / '.venv-audio/bin/python', REPO / 'scripts/check_dialogue_batch_strict.py', root, audio],
+                        logs / f'audio_screen_{attempt}.log', cpu=True)
+                    if result == 0:
+                        break
                     if attempt == 2:
-                        raise RuntimeError('Dialogue preparation failed; original audio retained, see production logs')
-                    continue
-                phase(root, base, source_plan, 'audio_roundtrip', note='使用同一H3音频VAE核对全章对白重建。')
-                roundtrip(root, audio)
-                phase(root, base, source_plan, 'dialogue_screening', note='CPU一次加载识别模型核对全部目标与H3重建对白。')
-                result = job([REPO / '.venv-audio/bin/python', REPO / 'scripts/check_dialogue_batch_strict.py', root, audio],
-                    logs / f'audio_screen_{attempt}.log', cpu=True)
-                if result == 0:
-                    break
-                if attempt == 2:
-                    raise RuntimeError('Dialogue checks remain unresolved; not rendering known incorrect words')
+                        raise RuntimeError('Dialogue checks remain unresolved; not rendering known incorrect words')
             plan_path = base / 'chapter_production_plan.json'
             plan = freeze_plan(root, source_plan, audio)
             if plan_path.exists() and read(plan_path) != plan:
@@ -236,10 +248,15 @@ def produce(root, source_plan, seed):
                 batch = read(run(root, plan_path, pending, seed + attempt * 1000))
                 selected.update(batch['takes'])
                 pending = [s['id'] for s in plan['shots']
-                    if read((inside(root, plan['reused_takes'][s['id']])
+                    if s.get('spoken_lines') and read((inside(root, plan['reused_takes'][s['id']])
+                        if s['id'] in plan['reused_takes'] else base / 'takes' / selected[s['id']])
+                        / 'take.json')['speech_screening'].get('passed') is not True]
+                audio_warnings = [s['id'] for s in plan['shots'] if not s.get('spoken_lines')
+                    and read((inside(root, plan['reused_takes'][s['id']])
                         if s['id'] in plan['reused_takes'] else base / 'takes' / selected[s['id']])
                         / 'take.json')['speech_screening'].get('passed') is not True]
                 state.update(takes=selected, unresolved_speech=pending, render_attempt=attempt + 1)
+                state['audio_screening_warnings'] = audio_warnings
                 write(state_path, state)
                 if not pending:
                     break
@@ -253,10 +270,17 @@ def produce(root, source_plan, seed):
                 timeline['narrative_check'] = preflight(root, plan_path, timeline)
             write(base / 'chapter_review_timeline.json', timeline)
             review = export_review(root, timeline)
-            state.update(status='chapter_review_ready', review=review, completed_at=time.time())
+            state.update(status='chapter_review_ready', review=review,
+                         audio_screening_warnings=timeline.get('audio_screening_warnings', []),
+                         narrative_check=timeline.get('narrative_check'),
+                         narrative_review_status=timeline.get('narrative_review_status', 'passed'),
+                         completed_at=time.time())
             write(state_path, state)
             phase(root, base, plan_path, 'chapter_review_ready', completed=len(plan['shots']),
-                total=len(plan['shots']), review_video=review['video'], note='全章审片版已导出；待剧情、表演、连续性、声音与文字读屏审核。')
+                total=len(plan['shots']), review_video=review['video'],
+                audio_screening_warnings=timeline.get('audio_screening_warnings', []),
+                narrative_review_status=timeline.get('narrative_review_status', 'passed'),
+                note='全章审片版已导出；叙事帧区间或视觉证据未通过的项目保留为审片警示，无对白镜头的语音筛查警示待人工判断；剧情、表演、连续性、声音与文字读屏均未验收。')
             return review
         except BaseException as exc:
             state.update(status='failed', error=str(exc), updated_at=time.time())

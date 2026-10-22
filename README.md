@@ -251,7 +251,15 @@ bash scripts/install_blender.sh
 
 白模是可见像素条件，不是精确几何锁；H3 仍可能改写建筑细节或运镜，所以交付前仍须检查空场、角色数量、机位轴线和相邻镜头的动作接点。已经完成的普通镜头成片保留；后续新生成和人工重拍镜头会使用白模引导。
 
-### 6. FastVideo FastH3-8-Step-V2（可选 ComfyUI 速度基准）
+### 6. FastH3-Omni NVFP4 QAD（FastVideo 原生路线）
+
+FastH3 Omni 使用官方 `FastVideo/FastH3-Omni-NVFP4-QAD`，通过隔离的 FastVideo CUDA 13 环境和本机 `127.0.0.1:8195` 服务生成同步音画。原有 FastH3 Omni ComfyUI INT8 路线已移除。VDN-H3 Turbo 和基础 MiniMax H3 仍使用各自的 ComfyUI 路线。
+
+安装组件和启动方法见 [FastH3-Omni 本地部署](docs/FastH3-Omni本地部署.md)。5090 使用固定 8 次 PDD 前向、NVFP4 线性层、FP4 视频稀疏注意力和 FP8 条件前缀、预计算 AdaLN 表、编码器卸载及 NVFP4 视频解码器。所有模型文件与运行时版本均记录在实际请求中。
+
+完整章节入口：`produce_cinema_chapter.py PROJECT PLAN --seed SEED`。分镜须绑定完整原文、影视化稿、叙事交付及严格官方 Ref2VA 六段提示词；新的 FastVideo 请求不接受旧 ComfyUI 工作流。逐镜保留提示词、素材哈希、FastVideo 作业 ID、原生音画与检查结果，输出未通过人审的完整初剪。
+
+### 7. FastH3-8-Step-V2（旧版隔离速度基准）
 
 工作台保留的是 **FastH3-8-Step-V2 的 ComfyUI 兼容路径**，不包含官方 VSA-H3 runner。兼容权重由官方模型页转换为 ComfyUI 单文件格式，来源仍是 [FastVideo/FastVideo-FastH3-8-Step-V2](https://huggingface.co/FastVideo/FastVideo-FastH3-8-Step-V2)，可从 [FastVideo/FastVideo-FastH3-Comfy](https://huggingface.co/FastVideo/FastVideo-FastH3-Comfy) 获取。
 

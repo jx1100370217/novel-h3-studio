@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from novel_h3.project import file_hash, write
+from novel_h3.project import file_hash, read, write
 from novel_h3.v2.compiler import compile_shot, frames_for, graph
 from novel_h3.v2.frames import sample_indices
 
@@ -43,12 +43,12 @@ class CinemaCompilerTests(unittest.TestCase):
                      'shots': [self.shot]}
         self.image = patch('novel_h3.v2.compiler.generation_reference',
                            side_effect=lambda root, ref, **kw: {'asset_id': ref['asset_id'],
-                               'generation_path': ref['asset_id']+'.png', 'generation_sha256': 'image-hash',
+                               'generation_path': ref['asset_id']+'.png', 'generation_sha256': ref['asset_id']+'-hash',
                                'selected_view': ref.get('view', 'front')})
         self.image.start()
         self.addCleanup(self.image.stop)
         self.full_image = patch('novel_h3.v2.compiler.asset_for',
-                                side_effect=lambda root, a: (root / (a+'.png'), 'full-image-hash'))
+                                side_effect=lambda root, a: (root / (a+'.png'), a+'-full-image-hash'))
         self.full_image.start()
         self.addCleanup(self.full_image.stop)
         self.model_lock = patch('novel_h3.v2.compiler.pinned_models', return_value={'ref2va': {'sha256': 'weights'}})
@@ -85,6 +85,38 @@ class CinemaCompilerTests(unittest.TestCase):
         (self.root / 'voice.wav').write_bytes(b'changed')
         with self.assertRaisesRegex(ValueError, 'Voice reference changed'):
             compile_shot(self.root, self.plan, self.shot, 123)
+
+    def test_authored_single_person_cannot_stage_an_unbound_character(self):
+        from novel_h3.ref2va import SECTIONS
+        import re
+        request = compile_shot(self.root, self.plan, self.shot, 123)
+        sections = dict(zip(SECTIONS, re.split(r'(?m)^[a-z_]+:\s*\n', request['prompt'])[1:]))
+        sections['detailed_description'] += ' Gamma occupies the raised seat in the background.'
+        assets = read(self.root / 'bible/assets.json')
+        assets['characters']['丙'] = {'id': 'actor_c'}
+        write(self.root / 'bible/assets.json', assets)
+        self.plan['subject_aliases']['actor_c'] = 'Gamma'
+        self.shot['ref2va_sections'] = sections
+        with self.assertRaisesRegex(ValueError, 'Unbound character Gamma'):
+            compile_shot(self.root, self.plan, self.shot, 123)
+
+    def test_global_ref2va_validation_covers_base_vdn_and_fastvideo(self):
+        from novel_h3.fastvideo import default_profile
+        cfg = read(self.root / 'config.json')
+        cfg['generation']['steps'] = 8
+        cfg['vdn'] = {'enabled': True}
+        cfg['fast_h3_omni'] = default_profile()
+        with patch('novel_h3.fastvideo.available', return_value=True):
+            for engine in ('minimax_h3', 'vdn_h3_turbo', 'fast_h3_omni'):
+                with self.subTest(engine=engine):
+                    cfg['video_engine'] = engine
+                    write(self.root / 'config.json', cfg)
+                    request = compile_shot(self.root, self.plan, self.shot, 123)
+                    self.assertIn('[reference generation + audio reference]', request['prompt'])
+                    bad = copy.deepcopy(self.shot)
+                    bad['soundscape'] = '中文导演备注不应进入模型正文.'
+                    with self.assertRaisesRegex(ValueError, 'English'):
+                        compile_shot(self.root, self.plan, bad, 123)
 
     def test_props_only_insert_uses_only_bound_prop_images(self):
         self.shot.update(cast=[], spoken_lines=[], visual_reference_scope='props_only',
@@ -479,7 +511,8 @@ class CinemaCompilerTests(unittest.TestCase):
         self.assertEqual(req['voices'], [])
         self.assertNotIn('<d>', req['prompt'])
         self.assertNotIn('<Audio', req['prompt'])
-        self.assertIn('natural breathing', req['prompt'])
+        self.assertIn('Human breathing may be quiet and non-vocal', req['prompt'])
+        self.assertIn('No speech or human voice', req['prompt'])
 
     def test_offscreen_ear_voice_does_not_turn_the_listener_into_the_speaker(self):
         self.shot['cast'] = ['actor_b']
@@ -512,7 +545,7 @@ class CinemaCompilerTests(unittest.TestCase):
         self.assertNotEqual(first['request_sha256'], second['request_sha256'])
 
     def test_paper_insert_has_no_phantom_actor_or_voice(self):
-        self.shot.update(cast=[], spoken_lines=[], action='A blank paper lies flat on the desk.')
+        self.shot.update(cast=[], spoken_lines=[], action='The book is open to blank paper lying flat on the desk.')
         req = compile_shot(self.root, self.plan, self.shot, 123)
         self.assertEqual(req['voices'], [])
         self.assertIn('No people are visible in this insert', req['prompt'])

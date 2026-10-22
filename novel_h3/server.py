@@ -14,10 +14,10 @@ from urllib.parse import parse_qs, urlsplit
 import webbrowser
 
 from .project import (status, read, inside, safe_id, analysis_packet, approve_asset, approve_voice,
-                       accept_analysis, precheck_scene_prop_assets, approve_prechecked_scene_prop_assets)
+                       accept_analysis, precheck_scene_prop_assets, approve_prechecked_scene_prop_assets, write)
 from .arcreel import approve_content, approve_rhythm, visual_packet, save_content, compile_visual, save_inventory, create_asset_jobs
 from .director import approve_episode, coverage
-from .comfy import doctor, submit_next, sync, cancel, review_take, review_chapter, REVIEW_ITEMS
+from .comfy import api, doctor, submit_next, sync, cancel, review_take, review_chapter, REVIEW_ITEMS
 from .media import assemble_episode, assemble_book
 from .listening import start_audio, audio_reports
 
@@ -124,6 +124,45 @@ def _rename_project(server, data):
     write(target / "book.json", book)
     return {"project": _project_context(target), "previous_title": previous,
             "previous_author": previous_author}
+
+
+def _set_video_engine(root, engine_id):
+    root = Path(root).resolve()
+    choices = {"vdn_h3_turbo": "VDN-H3 Turbo", "fast_h3_omni": "FastH3-Omni NVFP4 QAD",
+               "minimax_h3": "MiniMax H3"}
+    if engine_id not in choices:
+        raise ValueError("不支持的视频生成模型")
+    from .video_control import status as video_status
+    if video_status(root).get("worker_alive"):
+        raise ValueError("视频任务正在运行，不能切换生成模型")
+    for progress_path in (Path(root) / "production_v2").glob("*/progress.json"):
+        try:
+            phase = read(progress_path).get("status")
+        except (OSError, ValueError):
+            continue
+        if phase not in ("chapter_review_ready", "candidates_ready", "failed"):
+            raise ValueError("V2 章节制作正在运行，不能切换生成模型")
+    cfg = read(root / "config.json")
+    if engine_id == "vdn_h3_turbo" and cfg.get("vdn", {}).get("enabled") is not True:
+        raise ValueError("项目未启用 VDN-H3 Turbo")
+    if engine_id == "fast_h3_omni":
+        from .fastvideo import available, api as fastvideo_api
+        if not available(cfg):
+            raise ValueError("FastVideo NVFP4 QAD 配套模型或 AdaLN 表尚未安装完成")
+        fastvideo_api(cfg, '/health')
+    urls = {cfg.get("comfy_url")}
+    if cfg.get("fast_h3_omni", {}).get("comfy_url"):
+        urls.add(cfg["fast_h3_omni"]["comfy_url"])
+    for url in urls - {None}:
+        try:
+            queue = api(url, "/queue")
+        except OSError:
+            continue
+        if queue.get("queue_running") or queue.get("queue_pending"):
+            raise ValueError("ComfyUI 队列非空，不能切换生成模型")
+    cfg["video_engine"] = engine_id
+    write(root / "config.json", cfg)
+    return {"video_engine": {"id": engine_id, "name": choices[engine_id]}}
 
 
 def _delete_project(server, data):
@@ -286,6 +325,8 @@ class Handler(BaseHTTPRequestHandler):
             elif self.path == "/api/video-control":
                 from .video_control import control
                 result = control(self.root, data["action"])
+            elif self.path == "/api/video-engine":
+                result = _set_video_engine(self.root, data.get("engine"))
             elif self.path == "/api/preparation-control":
                 from .preparation_control import control
                 result = control(self.root, data["action"], data.get("episode"))

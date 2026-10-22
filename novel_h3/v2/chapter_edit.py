@@ -5,14 +5,14 @@ from pathlib import Path
 from ..project import file_hash, inside, read
 
 
-def chapter_timeline(root, plan_path, selected, blueprint_path):
+def chapter_timeline(root, plan_path, selected, blueprint_path, *, first_cut=False):
     root = Path(root).resolve()
     plan, blueprint = read(plan_path), read(blueprint_path)
     if plan.get('cinematization_required'):
         from .cinematization import require
         require(root, plan)
     entries = {e['shot_id']: e for e in blueprint['entries']}
-    segments, typography, subtitles, pending, cursor = [], [], [], [], 0
+    segments, typography, subtitles, pending, audio_warnings, cursor = [], [], [], [], [], 0
     for shot in plan['shots']:
         sid, authored = shot['id'], entries[shot['id']]
         reused = plan.get('reused_takes', {}).get(sid)
@@ -21,8 +21,16 @@ def chapter_timeline(root, plan_path, selected, blueprint_path):
         if reused and receipt.get('id') != selected[sid]:
             raise ValueError('Selected reused take differs from the explicit source: ' + sid)
         screening = receipt['speech_screening']
-        if screening.get('passed') is not True:
+        if screening.get('passed') is not True and shot.get('spoken_lines') and not first_cut:
             raise ValueError('Known speech problem cannot enter the chapter review: ' + sid)
+        audio_warning = None
+        if screening.get('passed') is not True:
+            audio_warning = {'shot_id': sid, 'take_id': selected[sid],
+                'report_path': str((folder / 'analysis/speech.json').relative_to(root)),
+                'transcript': screening.get('transcript', ''),
+                'speech_gate': screening.get('speech_gate', {}),
+                'status': 'needs_human_audio_review'}
+            audio_warnings.append(audio_warning)
         frames = receipt['technical_qc']['frames']
         start, end = 0, frames
         lines = shot.get('spoken_lines', [])
@@ -67,7 +75,8 @@ def chapter_timeline(root, plan_path, selected, blueprint_path):
         if not 0 <= start < end <= frames:
             raise ValueError('Authored protected interval does not fit the rendered source: ' + sid)
         segments.append({'shot_id': sid, 'take_dir': str(folder.relative_to(root)),
-                         'source_in_frame': start, 'source_out_frame': end})
+                         'source_in_frame': start, 'source_out_frame': end,
+                         **({'audio_screening_warning': audio_warning} if audio_warning else {})})
         if observed:
             segments[-1]['observed_cut'] = observed
         for cue in [c for c in plan.get('typography_cues', []) if c['shot_id'] == sid]:
@@ -92,6 +101,11 @@ def chapter_timeline(root, plan_path, selected, blueprint_path):
             b = min(end, math.ceil(max(b for _, b in speech) * 24))
             subtitles.append({'start_frame': cursor + a - start, 'end_frame': cursor + b - start,
                               'text': ''.join(line['text'] for line in lines)})
+        elif lines and first_cut:
+            subtitles.append({'start_frame': cursor + max(start, round(lines[0].get('start_seconds', .5) * 24)) - start,
+                              'end_frame': cursor + end - start,
+                              'text': ''.join(line['text'] for line in lines),
+                              'timing_source': 'authored_window_pending_speech_review'})
         pending.append({'shot_id': sid, 'take_id': selected[sid],
                         'scope': 'Actual action, pose, composition, continuity, paper geometry and final sound mix'})
         cursor += end - start
@@ -99,8 +113,18 @@ def chapter_timeline(root, plan_path, selected, blueprint_path):
             'typography': typography, 'final_loudnorm': False,
             'status': 'provisional_edit_needs_review', 'release_approved': False,
             'pending_visual_marks': pending, 'blueprint_sha256': file_hash(blueprint_path),
-            'plan_sha256': file_hash(plan_path), 'sound_mix_status': 'Native dialogue and shot sound retained; scene mix still needs review'}
+            'plan_sha256': file_hash(plan_path),
+            'audio_screening_warnings': audio_warnings,
+            'sound_mix_status': ('Native per-shot sound retained; automated speech warnings need human review.'
+                if audio_warnings else 'Native dialogue and shot sound retained; scene mix still needs review')}
     if plan.get('narrative_contract_required'):
         from .narrative import preflight
-        result['narrative_check'] = preflight(root, plan_path, result)
+        try:
+            result['narrative_check'] = preflight(root, plan_path, result)
+        except ValueError:
+            report = read(plan_path.parent / 'narrative_edit_check.json')
+            if report.get('passed') is not False:
+                raise
+            result['narrative_check'] = report
+            result['narrative_review_status'] = 'blocked_pending_actual_visual_evidence'
     return result

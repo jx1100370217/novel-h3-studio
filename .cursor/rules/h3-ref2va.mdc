@@ -1,0 +1,22 @@
+---
+description: 所有模型和后续新内容的 H3 Ref2VA 官方格式、引用逻辑及提交校验
+alwaysApply: true
+---
+
+# 全局 H3 Ref2VA 规则
+
+- 适用于本仓库全部新内容、章节、补镜、重拍和基于 Ref2VA 的生成；覆盖 MiniMax H3、VDN-H3、FastH3 和 FastVideo。T2VA/I2VA/FL2VA/L2VA 使用各自官方格式。
+- 编写前应用 `h3-prompt-writing` 技能并阅读其 `references/ref-en.txt`；规范参考见 [详细说明](../../docs/H3-Ref2VA全局规范.md)。
+- 每镜用 `ref2va_sections` 编写六段，依次为 `subject_definitions`、`summary`、`retention_analysis`、`detailed_description`、`overall_soundscape`、`non_diegetic_music`。不得只修本篇或靠模型名称启用规则。
+- 六段正文用英文。对白、歌词在 `<d>[Language] 原文</d>` 内保留原语言；确实可见的文字使用英文双引号。不得把中文剧情摘要或导演备注拼进模型正文。
+- 用 `{subject:asset_id}`、`{picture:asset_id}`、`{audio:asset_id}`、`{video:spatial_guide}` 绑定真实输入；编号由编译器按实际上传顺序生成。未上传的图片、音频、视频不得引用。
+- `summary` 按真实用途选择 `[reference generation]`、`audio reference`、`audio reuse`、`keyframe completion`、`video editing`、`video continuation`，多类型用 ` + ` 连接。引用视频运镜不等于编辑原视频；没有音频输入不能虚构声音复用。
+- 保留分析注明实际出现的 `[Shot N]`，视觉用 `fully_preserved`、`partially_preserved`、`attribute_transfer`、`weak_reference`，音频用 `fully_copy`、`partially_copy`、`reference`、`weak_reference`。此段不分配 `(Sx)`。
+- 详细描述先写英文风格开场，再写 `[Shot 1]`；后续镜头用 `[Shot N] At MM:SS.mmm`，切点及对白时间不得超出实际时长。
+- 明确构图、人物及道具位置、场景与光线、动作首尾、运镜、声音及素材的实际作用时刻。生成任务通常350–500英文词；对白密集时以完整时间线为先，不机械凑数、不截断对白或删掉因果。
+- 实际发声者按首次发声顺序分配 `(S1)`、`(S2)` 等；同一主体及其音频定义复用同一编号，不能把角色编号和音频编号混为一谈。
+- 默认无BGM，`non_diegetic_music` 写 `N/A`；明确要求配乐时再按官方音频关系编写。不得用删对白、模糊动作或省略结局来满足格式。
+- 所有正式模型提交使用 `novel_h3.ref2va` 的公共校验；违规必须在入队前报错，不允许退回旧的不合规提示词或静默切换输入模式。
+- `cast` 只列本镜实际可见人物；群体按成员计数，每个身份只占一个身体。无名可见人物（含只露手臂者）逐人列入 `additional_visible_people`；画外角色不得套用全场可见站位。自定义六段同样强制保留编译器生成的人物数量与身份段。
+- 按实际参考图片检查人、神像、肖像与倒影，不能以生图提示词写了“无人”代替像素检查。场景仅提供建筑材质和光线；已审定的场景裁切须绑定源图哈希，原图及历史请求保留。
+- 保留历史媒体及请求记录。格式和自动检查通过不等于语义、故事理解或影视质量通过，成片仍须审片。

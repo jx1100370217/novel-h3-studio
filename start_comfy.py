@@ -1,30 +1,34 @@
 #!/usr/bin/env python3
-"""Start the isolated H3 service with pinned Motion Context and VDN-H3 nodes."""
+"""Start the isolated ComfyUI service selected by this project."""
 import argparse
 import os
 from pathlib import Path
 import subprocess
 import sys
+from urllib.parse import urlsplit
 
 from novel_h3.cli import DEFAULT_PROJECT, REPO
 from novel_h3.comfy import config, api
 from novel_h3.safety import bounded_worker, check_power_cap
 
-# A pause marker stops generation workers, but must not prevent the model
-# service itself from starting and serving health checks.
-bounded_worker(ignore_pause=True)
+# A paused project must not load a model just to serve health checks.
+bounded_worker()
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--project", type=Path, default=DEFAULT_PROJECT)
 options = parser.parse_args()
 cfg = config(options.project.resolve())
+from novel_h3.fastvideo import selected
+if selected(cfg):
+    os.execv(sys.executable, [sys.executable, str(REPO / 'start_fastvideo.py'), '--project', str(options.project.resolve())])
 check_power_cap(cfg.get("resource_policy", {}).get("max_gpu_power_w", 450))
+port = urlsplit(cfg["comfy_url"]).port or 8191
 try:
     stats = api(cfg["comfy_url"], "/system_stats", timeout=2)
 except OSError:
     stats = None
 if stats:
-    print("8191 已有服务，请先检查 doctor；不会终止其他进程。")
+    print(f"{port} 已有服务，请先检查 doctor；不会终止其他进程。")
     sys.exit(0)
 comfy = Path(cfg["comfy_root"])
 upstream = REPO / "vendor/ComfyUI-H3-Motion-Context"
@@ -38,7 +42,7 @@ else:
     target.symlink_to(upstream, target_is_directory=True)
 runtime = REPO / "runtime"
 whitelist = ["ComfyUI-H3-Motion-Context"]
-if cfg.get("vdn", {}).get("enabled"):
+if cfg.get("video_engine") == "vdn_h3_turbo" and cfg.get("vdn", {}).get("enabled"):
     vdn = REPO / "vendor/ComfyUI-VDN-H3"
     if not vdn.is_dir():
         raise SystemExit("缺少固定版本的 VDN-H3 扩展，请先运行 fetch_vendor.py")
@@ -53,12 +57,17 @@ if cfg.get("vdn", {}).get("enabled"):
     else:
         target.symlink_to(vdn, target_is_directory=True)
     whitelist.append("ComfyUI-VDN-H3-studio")
-for folder in (cfg["input_dir"], cfg["output_dir"], str(runtime / "comfy-user")):
+user_dir = cfg.get("user_dir", str(runtime / "comfy-user"))
+database_url = cfg.get("database_url", "sqlite:///" + str(runtime / "comfyui.db"))
+for folder in (cfg["input_dir"], cfg["output_dir"], user_dir):
     Path(folder).mkdir(parents=True, exist_ok=True)
-args = [str(comfy / ".venv/bin/python"), "main.py", "--listen", "127.0.0.1", "--port", "8191",
+if cfg.get("python_path"):
+    existing = os.environ.get("PYTHONPATH", "")
+    os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, (cfg["python_path"], existing)))
+args = [str(comfy / ".venv/bin/python"), "main.py", "--listen", "127.0.0.1", "--port", str(port),
         "--input-directory", cfg["input_dir"], "--output-directory", cfg["output_dir"],
-        "--user-directory", str(runtime / "comfy-user"),
-        "--database-url", "sqlite:///" + str(runtime / "comfyui.db"),
+        "--user-directory", user_dir,
+        "--database-url", database_url,
         # Evict earlier than the renderer's 4 GiB safety floor. These are
         # available-RAM thresholds, not cache-size limits.
         "--disable-api-nodes", "--cache-ram", "12", "16", "--fast-disk", "--disable-pinned-memory",

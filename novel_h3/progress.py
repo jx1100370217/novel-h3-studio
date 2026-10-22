@@ -273,10 +273,24 @@ def snapshot(root):
     delivery = cfg.get('delivery', generation)
     resolution_label = (f"成片 {delivery.get('width', '—')} × {delivery.get('height', '—')}"
                         f" · 镜头生成 {generation.get('width', '—')} × {generation.get('height', '—')}")
+    engine_id = cfg.get('video_engine')
+    if engine_id is None:
+        engine_id = 'vdn_h3_turbo' if cfg.get('vdn', {}).get('enabled') else 'minimax_h3'
+    engine_names = {'vdn_h3_turbo': 'VDN-H3 Turbo', 'fast_h3_omni': 'FastH3-Omni NVFP4 QAD',
+                    'minimax_h3': 'MiniMax H3'}
+    from .fastvideo import available
     video_engine = {
-        'name': 'VDN-H3 Turbo' if cfg.get('vdn', {}).get('enabled') else 'MiniMax H3',
+        'id': engine_id,
+        'name': engine_names.get(engine_id, engine_id),
         'steps': int(generation.get('steps', total_steps)),
         'generation': generation,
+        'options': [
+            {'id': 'vdn_h3_turbo', 'name': 'VDN-H3 Turbo',
+             'available': cfg.get('vdn', {}).get('enabled') is True},
+            {'id': 'fast_h3_omni', 'name': 'FastH3-Omni NVFP4 QAD',
+             'available': available(cfg)},
+            {'id': 'minimax_h3', 'name': 'MiniMax H3', 'available': True},
+        ],
     }
     from .video_control import next_pending_episode, status as video_status
     # Gate reports are per chapter.  Selecting the newest file globally can
@@ -335,10 +349,12 @@ def cinema_progress(root):
     data = read(path)
     plan_path = Path(root) / data['plan_path'] if data.get('plan_path') else path.parent / 'pilot.json'
     plan = read(plan_path)
+    native_fastvideo = data.get('backend') == 'fastvideo'
     vdn_enabled = plan.get('vdn_enabled') is True or data.get('video_engine') == 'VDN-H3 Turbo'
     data.update(title=plan.get('title', plan['id']), planned_total=len(plan['shots']),
                 script=str((path.parent / 'screenplay.md').relative_to(root)),
-                model=('VDN-H3 Turbo · 8 步' if vdn_enabled else
+                model=('FastH3-Omni NVFP4 QAD · 8 步' if native_fastvideo else
+                       'VDN-H3 Turbo · 8 步' if vdn_enabled else
                        'MiniMax H3 · 对白驱动表演' if data.get('audio_route') == 'h3_audio_conditioned'
                        else 'MiniMax H3 · 原生音画'), release_approved=False)
     data['stage'] = {'generating': '正在生成原生音画', 'speech_screening': '正在核对台词',
@@ -352,7 +368,7 @@ def cinema_progress(root):
                      'dialogue_screening': '正在核对全章对白',
                      'editing': '正在剪辑全章审片版',
                      'chapter_review_ready': '全章审片版已生成，待影视质量审核'}.get(data['status'], data['status'])
-    if data['status'] == 'generating':
+    if data['status'] == 'generating' and not native_fastvideo:
         steps_total = int(data.get('steps_total') or plan.get('generation', {}).get('steps') or 20)
         live_text, source = _live_comfy_text({'created_at': data['started_at']})
         steps, _ = parse_sampling_progress(live_text, steps_total)

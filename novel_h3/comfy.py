@@ -30,7 +30,8 @@ def api(base, route, payload=None, timeout=20):
 
 
 def config(root):
-    return read(Path(root) / "config.json")
+    cfg = read(Path(root) / "config.json")
+    return cfg
 
 
 _VISUAL_SPEAKER_RETAKE_TERMS = (
@@ -379,6 +380,19 @@ def _retake_shot_contract(shot, rework_item, root=None):
 
 def doctor(root):
     cfg = config(root)
+    from .fastvideo import selected, available, api as fastvideo_api
+    if selected(cfg):
+        result = {'url': cfg['fast_h3_omni']['api_url'], 'reachable': False,
+                  'video_engine': {'id': 'fast_h3_omni', 'runtime': 'FastVideo', 'quantization': 'NVFP4 QAD'},
+                  'missing_nodes': [], 'missing_models': [] if available(cfg) else ['NVFP4 QAD components or AdaLN table']}
+        try:
+            result['health'] = fastvideo_api(cfg, '/health')
+            result['model_info'] = fastvideo_api(cfg, '/v1/model_info')
+            result['reachable'] = True
+        except (OSError, ValueError) as exc:
+            result['error'] = str(exc)
+        result['h3_ready'] = result['reachable'] and not result['missing_models']
+        return result
     result = {"url": cfg["comfy_url"], "reachable": False, "missing_nodes": [], "missing_models": []}
     previs_enabled = cfg.get("blender_previs", {}).get("enabled") is True
     if previs_enabled:
@@ -396,9 +410,12 @@ def doctor(root):
         info = api(cfg["comfy_url"], "/object_info")
         stats = api(cfg["comfy_url"], "/system_stats")
         result.update(reachable=True, version=stats["system"]["comfyui_version"], devices=stats["devices"])
+        selected_engine = cfg.get("video_engine")
+        if selected_engine is None:
+            selected_engine = "vdn_h3_turbo" if cfg.get("vdn", {}).get("enabled") else "minimax_h3"
         required = ["MiniMaxH3MotionContext", "MiniMaxH3MotionContextTrim", "MiniMaxH3MotionContextSaveLatent",
                     "MiniMaxH3MotionContextLoadLatent", "MiniMaxH3ImageToVideo", "MiniMaxH3ReferenceToVideo"]
-        if cfg.get("vdn", {}).get("enabled"):
+        if selected_engine == "vdn_h3_turbo" and cfg.get("vdn", {}).get("enabled"):
             required.append("ApplyVDNH3")
             stage = Path(cfg["comfy_root"]) / "models/vdn" / cfg["vdn"]["inputs"]["vdn_checkpoint"]
             for name in ("model_spec.json", "linear_branch/model_int8_convrot_comfyui.safetensors",
@@ -422,6 +439,12 @@ def doctor(root):
                 "scheduler_shift_audio": fast.get("scheduler_shift_audio"),
                 "vsa": fast.get("vsa"),
             }
+        if selected_engine == "vdn_h3_turbo":
+            result["video_engine"] = {"id": selected_engine, "name": "VDN-H3 Turbo",
+                                       "steps": cfg["generation"]["steps"], **cfg.get("vdn", {})}
+        else:
+            result["video_engine"] = {"id": "minimax_h3", "name": "MiniMax H3",
+                                       "steps": cfg["generation"]["steps"]}
         result["missing_nodes"] = [n for n in required if n not in info]
         for folder, key in (("diffusion_models", "fl2va"), ("diffusion_models", "ref2va"),
                             ("text_encoders", "clip"), ("vae", "video_vae"), ("vae", "audio_vae")):
@@ -552,6 +575,40 @@ def generation_reference(root, reference, camera=None, shot=None, speech_binding
             resolved["selected_view_reason"] = reason
             return resolved
     source, source_sha = asset_for(root, asset_id)
+    inventory_path = root / "bible/assets.json"
+    scene = next((item for item in read(inventory_path).get("scenes", {}).values()
+                  if item.get("id") == asset_id), {}) if inventory_path.exists() else {}
+    if "generation_crop" in scene:
+        crop = scene["generation_crop"]
+        if not isinstance(crop, dict) or crop.get("source_sha256") != source_sha:
+            raise ValueError("Reviewed scene crop source hash does not match the current approved image")
+        box = crop.get("box")
+        if (not isinstance(box, list) or len(box) != 4 or any(type(n) is not int for n in box)
+                or not isinstance(crop.get("reason"), str) or not crop["reason"].strip()):
+            raise ValueError("Reviewed scene crop requires an integer box and a review reason")
+        probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0",
+                                "-show_entries", "stream=width,height", "-of", "json", str(source)],
+                               capture_output=True, text=True, check=True, timeout=15)
+        dimensions = json.loads(probe.stdout)["streams"][0]
+        left, top, right, bottom = box
+        if not (0 <= left < right <= dimensions["width"] and 0 <= top < bottom <= dimensions["height"]):
+            raise ValueError("Reviewed scene crop box falls outside the approved image")
+        target = root / "assets/video_refs" / f"{asset_id}_scene_crop_v1_{source_sha[:12]}_{digest(box)[:12]}.png"
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            pending = target.with_name(f".{target.stem}.{uuid.uuid4().hex}.pending.png")
+            try:
+                subprocess.run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-hwaccel", "none",
+                                "-i", str(source), "-vf", f"crop={right-left}:{bottom-top}:{left}:{top}:exact=1",
+                                "-frames:v", "1", "-threads", "1", str(pending)],
+                               check=True, timeout=30, capture_output=True)
+                pending.replace(target)
+            except (OSError, subprocess.SubprocessError) as exc:
+                pending.unlink(missing_ok=True)
+                raise ValueError(f"Cannot create the reviewed scene crop for {asset_id}: {exc}") from exc
+        return {"asset_id": asset_id, "source_sha256": source_sha,
+                "generation_path": str(target.relative_to(root)),
+                "generation_sha256": file_hash(target), "variant": "reviewed_scene_crop", "crop_box": box}
     from .character_views import character_asset_ids
     if asset_id not in character_asset_ids(root):
         return {"asset_id": asset_id, "source_sha256": source_sha,
@@ -636,6 +693,9 @@ def bound_shot(root, shot):
     from .scene_continuity import contract
     ordered_shot["scene_continuity_contract"] = contract(root, ordered_shot)
     speech_bindings = bindings(root, ordered_shot)
+    if any(binding.get('offscreen') and binding.get('asset_id') in subject_by_asset
+           for binding in speech_bindings):
+        raise ValueError('Legacy Ref2VA offscreen speakers must use audio only; remove their visible identity image')
     visual_assets = [generation_reference(root, ref, ordered_shot.get("camera"), ordered_shot, speech_bindings)
                      for ref in refs]
     package = compile_package(root, ordered_shot, visual_assets, speech_bindings)
@@ -790,6 +850,23 @@ def compile_execution_sheet(root, episode, shot, observed_handoff=None, persist=
     return prompt_shot, visual_assets, execution_sheet, model_prompt
 
 
+def _production_engine(cfg, model_mode):
+    engine_id = cfg.get("video_engine")
+    if engine_id is None:
+        engine_id = "vdn_h3_turbo" if cfg.get("vdn", {}).get("enabled") else "minimax_h3"
+    if engine_id == "vdn_h3_turbo":
+        if cfg.get("vdn", {}).get("enabled") is not True:
+            raise ValueError("VDN-H3 Turbo 未在项目配置中启用")
+        return {"id": engine_id, "name": "VDN-H3 Turbo", "model_filename": cfg["models"][model_mode],
+                "vdn_enabled": True, "shift_video": 12.0, "shift_audio": 3.0}
+    if engine_id == "fast_h3_omni":
+        raise ValueError("FastH3-Omni 已迁移到 FastVideo NVFP4 QAD；请使用 v2 完整章节制作入口")
+    if engine_id == "minimax_h3":
+        return {"id": engine_id, "name": "MiniMax H3", "model_filename": cfg["models"][model_mode],
+                "vdn_enabled": False, "shift_video": 12.0, "shift_audio": 3.0}
+    raise ValueError(f"未知视频生成模型：{engine_id}")
+
+
 def graph(root, episode, shot, take_id, previous=None, stage_assets=False, observed_handoff=None,
           return_package=False, benchmark_engine=None, generation_override=None, spatial_guide=None):
     """Build a Comfy graph.
@@ -811,8 +888,8 @@ def graph(root, episode, shot, take_id, previous=None, stage_assets=False, obser
         benchmark_shot.update(mode=model_mode, references=[], first_frame=None, last_frame=None,
                               dialogue=[], speech_bindings=[], asset_package={})
     else:
-        engine = {}
         model_mode = shot["mode"]
+        engine = _production_engine(cfg, model_mode)
         benchmark_shot = shot
     if spatial_guide and model_mode != "ref2va":
         raise ValueError("Blender 时空视频引导当前要求 H3 Ref2VA；FL2VA 镜头不能静默跳过白模")
@@ -836,8 +913,7 @@ def graph(root, episode, shot, take_id, previous=None, stage_assets=False, obser
 
     model_name = engine.get("model_filename", cfg["models"][model_mode])
     model = add(1, "UNETLoader", unet_name=model_name, weight_dtype="default")
-    vdn_enabled = (cfg.get("vdn", {}).get("enabled") if not benchmark
-                   else bool(engine.get("vdn_enabled", False)))
+    vdn_enabled = bool(engine.get("vdn_enabled", False))
     if vdn_enabled:
         if generation["steps"] != 8 or cfg["vdn"]["inputs"].get("apply_turbo_adapter") is not True:
             raise ValueError("当前 VDN-H3 使用 8 步蒸馏权重，必须启用 Turbo 并设置 8 步")
@@ -868,6 +944,11 @@ def graph(root, episode, shot, take_id, previous=None, stage_assets=False, obser
         prompt_shot, visual_assets, execution_sheet, model_prompt = compile_execution_sheet(
             root, episode, shot, observed_handoff=observed_handoff, persist=True,
             spatial_guide=spatial_guide)
+        execution_sheet["video_engine"] = {k: engine[k] for k in ("id", "name", "model_filename", "vdn_enabled")}
+        execution_sheet["model_input"].update({"engine": engine["name"], "model_filename": model_name,
+            "scheduler_shift_video": engine["shift_video"], "scheduler_shift_audio": engine["shift_audio"],
+            "steps": generation["steps"]})
+        write(Path(root) / "execution_sheets" / episode["id"] / f"{shot['id']}.json", execution_sheet)
     speech_bindings = prompt_shot["speech_bindings"]
     inputs = {"clip": clip, "vae": vae, "prompt": model_prompt,
               "width": width, "height": height, "length": shot["frames"]}
@@ -887,6 +968,8 @@ def graph(root, episode, shot, take_id, previous=None, stage_assets=False, obser
         return add(100 + len(nodes), "LoadImage", image=name)
 
     if model_mode == "ref2va" and not benchmark:
+        from .ref2va import validate_legacy
+        validate_legacy(prompt_shot, model_prompt, require_population=True)
         inputs.update(audio_vae=audio_vae, ref_image_size="match")
         for i, (ref, resolved) in enumerate(zip(prompt_shot["references"], visual_assets)):
             inputs[f"ref_images.ref_image_{i}"] = image_input(ref["asset_id"], resolved)
@@ -1261,8 +1344,13 @@ def submit_next(root, episode_id, preview=False, independent_cuts=False, check_p
                             rework_request_id=rework_item.get("id"),
                             review_note=rework_item.get("note"),
                             review_reviewer=rework_item.get("reviewer"))
-            take["generation_profile"] = {"base": cfg["models"][shot["mode"]], "generation": native_profile,
-                                           "requested_generation": cfg["generation"], "vdn": cfg.get("vdn")}
+            selected_engine = _production_engine(cfg, shot["mode"])
+            take["generation_profile"] = {"engine": selected_engine["id"],
+                                           "engine_name": selected_engine["name"],
+                                           "base": selected_engine["model_filename"],
+                                           "generation": native_profile,
+                                           "requested_generation": cfg["generation"],
+                                           "vdn": cfg.get("vdn") if selected_engine["vdn_enabled"] else {"enabled": False}}
             if spatial_guide:
                 take["spatial_guide"] = spatial_guide
             if memory_fallback:

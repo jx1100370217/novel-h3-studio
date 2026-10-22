@@ -133,6 +133,9 @@ def release_between_shots(cfg):
 
 
 def run(root, plan_path, shot_ids, seed):
+    from ..fastvideo import selected, run as run_fastvideo
+    if selected(config(root)):
+        return run_fastvideo(root, plan_path, shot_ids, seed)
     from render_chapter import snapshot
 
     root = Path(root).resolve()

@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from ..project import file_hash, inside, read, safe_id, write
+from ..ref2va import AUTHORING_INSTRUCTION
 
 VERSION = 'filmable_screenplay_v1'
 INSTRUCTION = """完整阅读原文与已有白话剧本，然后进行剧本影视化，不按句子配漂亮画面。
@@ -18,7 +19,7 @@ scenes 包含 id、title、source_paragraph_ids、goal、conflict、turn、chang
 beat_id、axis_id、screen_direction、transition{type,previous_shot_id,reason,audience_cue}。
 实际 action、start_state、end_state、camera、eyeline、spoken_lines、soundscape 必须与影视剧本一致。
 同时更新 narrative_contract.json 和 editorial_blueprint.json；结构通过不能标为影视人审通过。
-"""
+""" + '\n' + AUTHORING_INSTRUCTION
 
 
 def prepare(root, source_plan, directory):
@@ -164,6 +165,10 @@ def shot_content(shot):
         content['visual_reference_scope'] = shot['visual_reference_scope']
     if shot.get('generation_prompt_focus') is not None:
         content['generation_prompt_focus'] = shot['generation_prompt_focus']
+    if shot.get('ref2va_sections') is not None:
+        content['ref2va_sections'] = shot['ref2va_sections']
+    if shot.get('additional_visible_people') is not None:
+        content['additional_visible_people'] = shot['additional_visible_people']
     return content
 
 

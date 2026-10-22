@@ -24,6 +24,7 @@ def _inventory(root):
             result[item["id"]] = {"kind": kind, "name": name,
                                    "source_facts": item.get("source_facts", ""),
                                    "design_description": item.get("design_description", ""),
+                                   "instances": item.get("instances", 1),
                                    "gender": item.get("gender", "未知") if kind == "character" else None}
             for variant, derivative in item.get("derivatives", {}).items():
                 result[derivative["id"]] = {"kind": kind, "name": f"{name}/{variant}"}
@@ -207,7 +208,7 @@ def compile_package(root, shot, visual_assets, speech_bindings):
             "role": role,
             "picture_label": f"Picture {index}",
             "subject_label": f"Subject {index}",
-            "expected_instances": (blocking_instances.get(resolved["asset_id"], 1)
+            "expected_instances": (blocking_instances.get(resolved["asset_id"], meta.get("instances", 1))
                                    if meta["kind"] == "character" else 1 if meta["kind"] == "prop" else None),
             "source_sha256": resolved["source_sha256"],
             "generation_reference": resolved["generation_path"],

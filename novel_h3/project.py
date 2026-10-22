@@ -129,8 +129,9 @@ def decode_source(raw):
 # The known glued first heading is recoverable; arbitrary inline chapter mentions are not headings.
 # Many Chinese TXT novels use either Arabic or Chinese numerals in chapter headings.
 HEADER = re.compile(
-    r"(?m)^[ \t\u3000]*(?:内容还在处理中,请稍后重)?第"
-    r"([0-9]+|[〇零一二两三四五六七八九十百千万]+)章[：:\s]+([^\r\n]+)"
+    r"(?m)^[ \t\u3000]*(?:(?:内容还在处理中,请稍后重)?第"
+    r"(?P<number>[0-9]+|[〇零一二两三四五六七八九十百千万]+)章[：:\s]+(?P<title>[^\r\n]+)"
+    r"|【(?P<bracket_title>[^】\r\n]+)】)"
 )
 
 
@@ -184,10 +185,12 @@ def ingest(source, root):
                                "kind": kind, "char_start": start, "char_end": match.end() + line.end(),
                                "needs_text_review": bool(re.search(r"https?://|www\.|淘宝|未完待续,|未完待续，|\*\*", value))})
             ids.append(pid)
-        source_number = chapter_number(match.group(1))
+        numbered_title = match.group("number") is not None
+        source_number = chapter_number(match.group("number")) if numbered_title else index
+        title = match.group("title") if numbered_title else match.group("bracket_title")
         chapters.append({"id": section_id, "ordinal": index, "source_number": source_number,
-                         "title": match.group(2).strip(), "paragraph_ids": ids,
-                         "kind": "reference" if source_number in (1, 4) else "story",
+                         "title": title.strip(), "paragraph_ids": ids,
+                         "kind": "reference" if numbered_title and source_number in (1, 4) else "story",
                          "chars": end - match.end(), "char_start": match.start(), "char_end": end})
     numbers = [x["source_number"] for x in chapters]
     counts = collections.Counter(numbers)
@@ -418,10 +421,25 @@ def status(root):
     episodes = [read(p) for p in sorted((root / "episodes").glob("*.json"))]
     from .arcreel import inventory
     character_views_path = root / "bible/character_views.json"
+    engine_id = cfg.get("video_engine") or ("vdn_h3_turbo" if cfg.get("vdn", {}).get("enabled") else "minimax_h3")
+    engine_names = {"vdn_h3_turbo": "VDN-H3 Turbo", "fast_h3_omni": "FastH3-Omni NVFP4 QAD",
+                    "minimax_h3": "MiniMax H3"}
+    from .fastvideo import available
+    fast_available = available(cfg)
+    video_engine = {
+        "id": engine_id, "name": engine_names.get(engine_id, engine_id),
+        "steps": int(cfg["generation"]["steps"]), "generation": cfg["generation"],
+        "options": [
+            {"id": "vdn_h3_turbo", "name": "VDN-H3 Turbo",
+             "available": cfg.get("vdn", {}).get("enabled") is True},
+            {"id": "fast_h3_omni", "name": "FastH3-Omni NVFP4 QAD",
+             "available": fast_available},
+            {"id": "minimax_h3", "name": "MiniMax H3", "available": True},
+        ],
+    }
     return {"book": book, "analysis_done": len(list((root / "analysis").glob("*.json"))),
             "project_path": str(root.resolve()),
-            "video_engine": {"name": "VDN-H3 Turbo" if cfg.get("vdn", {}).get("enabled") else "MiniMax H3",
-                             "steps": cfg["generation"]["steps"], "generation": cfg["generation"]},
+            "video_engine": video_engine,
             "asset_inventory": inventory(root),
             "character_views": read(character_views_path) if character_views_path.exists() else {"characters": {}},
             "voices": read(root / "bible/voices.json") if (root / "bible/voices.json").exists() else {},

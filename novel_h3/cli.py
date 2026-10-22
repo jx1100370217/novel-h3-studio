@@ -9,6 +9,7 @@ from .arcreel import save_inventory, create_asset_jobs, save_content, approve_co
 from .director import approve_episode, validate_episode, episode_path, coverage, series_packet
 from .comfy import doctor, submit_next, sync, cancel, review_take, config, graph, schema_check, api
 from .media import assemble_episode, assemble_book, assemble_preview, assemble_chapter, assemble_latest
+from .fastvideo import default_profile
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_PROJECT = REPO / "projects/rendao-wuji"
@@ -34,7 +35,9 @@ def configure(root):
                    "clip": "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors",
                    "video_vae": "minimax_h3_video_vae_fp16.safetensors", "audio_vae": "minimax_h3_audio_vae_fp32.safetensors"},
         "generation": {"width": 1376, "height": 768, "steps": 8, "fps": 24, "sampler": "er_sde", "scheduler": "beta", "crop_to_delivery": True},
+        "video_engine": "vdn_h3_turbo",
         "vdn": read(REPO / "examples/vdn_profile.json"),
+        "fast_h3_omni": default_profile(),
         "fastvideo": {"model_filename": "fastvideo_fasth3_8step_v2_pruned_int8_convrot.safetensors",
                       "model_variant": "int8_convrot", "production_enabled": False,
                       "input_mode": "fl2va", "scheduler_shift_video": 10.0,

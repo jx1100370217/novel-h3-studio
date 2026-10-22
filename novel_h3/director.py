@@ -221,11 +221,13 @@ def validate_episode(root, episode):
 
 
 def series_packet(root):
+    from .ref2va import AUTHORING_INSTRUCTION
     root = Path(root)
     book = read(root / "book.json")
     missing = [c["id"] for c in book["chapters"] if not (root / "analysis" / f"{c['id']}.json").exists()]
     return {"kind": "series_design", "status": "waiting_analysis" if missing else "ready",
             "source_scope": book["scope"], "missing_analysis": missing,
+            "ref2va_instruction": AUTHORING_INSTRUCTION,
             "inputs": {"chapter_analysis": "analysis/*.json", "characters": "bible/characters.json", "world": "bible/world.json"},
             "instruction": "所有正文逐章分析后，按因果与人物选择重组分集。缺失章号允许形成断裂，不补写原文没有的连接剧情。首集不要长篇神谱讲解，先建立人物处境；创世背景按观众当前需要分配。每集 12–20 分钟是初始编辑目标而非强制机械长度。分集必须有主动目标、阻力、关键选择、后果、结尾推进，保留全书人物与伏笔账本。禁止只选开头几章冒充全书。",
             "output": {"series.json": {"episode_ids": ["ep001"], "arcs": [], "episode_summaries": []},
@@ -316,6 +318,12 @@ def bound_character_action_contract(shot, cast_count):
 
 def h3_prompt(shot, style):
     shot = copy.deepcopy(shot)
+    if shot.get('mode') == 'ref2va' and shot.get('ref2va_sections'):
+        from .ref2va import legacy_inputs, render
+        visuals, voices, videos = legacy_inputs(shot)
+        return render(shot['ref2va_sections'], visuals, voices, shot.get('dialogue', []), videos=videos,
+                      duration_seconds=shot['frames'] / FPS,
+                      additional_visible_people=shot.get('additional_visible_people', []))
     if shot.get("speaker_focus_mode") == "speaker_only":
         # A reworked single-speaker close-up is independent camera coverage;
         # inherited conversation-axis and reverse-shot notes can reintroduce
@@ -362,11 +370,11 @@ def h3_prompt(shot, style):
         intro += _speech_safe_visual_text(instruction) + "\n"
     spatial_guide = shot.get("spatial_guide")
     if spatial_guide:
-        intro += "SPATIAL_REFERENCE: " + spatial_guide.get(
+        intro += "SPATIAL_REFERENCE: Use <Video 1> as the spatial and camera guide. " + spatial_guide.get(
             "guide_policy",
             "The silent grayscale Blender reference <Video 1> is a spatial and camera guide only. "
             "Match scene geometry, registered-actor count and blocking, screen direction, camera path, and timing. "
-            "Do not copy proxy appearance, gray materials, lighting, or sound. Use approved <Picture> references "
+            "Do not copy proxy appearance, gray materials, lighting, or sound. Use approved image references "
             "for character identity and photorealistic appearance. <Video 1> has no audio.") + "\n"
         intro += (
             "Video 1's gray proxies are coarse geography, cast and camera markers; do not copy idle hands, "
@@ -724,6 +732,8 @@ def h3_prompt(shot, style):
                              "and the voice source never enters frame." if line.get("offscreen") else
                              "Only the already-bound collective cast speaks this line; no other human voice or body."
                              if binding and binding.get("collective") else "Only this person speaks."))
+        if binding:
+            instruction += f" Use the vocal identity from <Audio {binding['audio']}>."
         delivery = ("says in an off-screen voiceover" if line.get("kind") == "voiceover" else
                     "speaks from offscreen" if line.get("offscreen") else "says")
         intro += (f"At {timestamp(line['start_frame'] + offset)}, {voice} "
@@ -738,6 +748,8 @@ def h3_prompt(shot, style):
     if shot.get("scene_continuity_contract"):
         continuity = shot["scene_continuity_contract"]["prompt"]
         intro += "\nVisual set continuity (not spoken): " + _speech_safe_visual_text(continuity)
+    # A tag mentioned in a direction is not a dialogue event.
+    intro = re.sub(r'<d>(?!\[)', 'dialogue', intro)
     tail = (f"\noverall_soundscape:\n{soundscape}\n\nnon_diegetic_music:\nN/A")
     if shot["mode"] == "fl2va":
         alignment = ""
@@ -797,8 +809,16 @@ def h3_prompt(shot, style):
         retention.append(f"<Audio {binding['audio']}>: reference - transfer only this speaker's vocal identity and timbre. Speak only the target Chinese dialogue, never copy the reference transcript. No other character uses this voice.")
     task_type = "[reference generation + audio reference] " if bindings else "[reference generation] "
     summary = _speech_safe_visual_text(shot["action"]) if has_dialogue else shot["action"]
-    return ("subject_definitions:\n" + "\n".join(definitions) + "\n\nsummary:\n" + task_type + summary +
-            "\n\nretention_analysis:\n" + "\n".join(retention) + "\n\ndetailed_description:\n" + intro + tail)
+    if spatial_guide:
+        definitions.append('<Video 1> is the silent spatial and camera reference for [Shot 1].')
+        retention.append('<Video 1> (appears in [Shot 1]): attribute_transfer - Transfer only camera movement, geography and timing; exclude proxy appearance and audio.')
+    prompt = ("subject_definitions:\n" + "\n".join(definitions) + "\n\nsummary:\n" + task_type + summary +
+              "\n\nretention_analysis:\n" + "\n".join(retention) + "\n\ndetailed_description:\n" + intro + tail)
+    from .ref2va import validate_legacy, legacy_inputs, with_population
+    visuals, _, _ = legacy_inputs(shot)
+    prompt = with_population(prompt, visuals, shot.get('additional_visible_people', []))
+    validate_legacy(shot, prompt)
+    return prompt
 
 
 def image_job(root, asset_id, prompt, references=None, role="keyframe"):
