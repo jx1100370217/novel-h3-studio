@@ -90,10 +90,21 @@ def run_shot(root: Path, project: Path, spec: dict, *, api: str, force: bool = F
     outdir.mkdir(parents=True, exist_ok=True)
     native = outdir / 'native.mp4'
     receipt_path = outdir / 'receipt.json'
-    if native.exists() and receipt_path.exists() and not force:
-        return json.loads(receipt_path.read_text(encoding='utf-8'))
     payload = build_payload(root, spec, width=width, height=height)
     prompt = payload.pop('_prompt_sha256', None)
+    expected = {'prompt_sha256': prompt, 'width': payload['width'], 'height': payload['height'],
+                'frames': payload['num_frames'], 'seed': payload['seed']}
+    if native.exists() and receipt_path.exists() and not force:
+        receipt = json.loads(receipt_path.read_text(encoding='utf-8'))
+        if all(receipt.get(key) == value for key, value in expected.items()):
+            return receipt
+        # Stale take from a different prompt/resolution/seed: keep it for audit
+        # and render the current spec.
+        rejected = outdir / 'rejected'
+        rejected.mkdir(parents=True, exist_ok=True)
+        stamp = int(time.time())
+        native.replace(rejected / f'native_{stamp}.mp4')
+        receipt_path.replace(rejected / f'receipt_{stamp}.json')
     (outdir / 'prompt.txt').write_text(payload['prompt'], encoding='utf-8')
     (outdir / 'fastvideo_request.json').write_text(
         json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
