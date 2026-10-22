@@ -112,6 +112,20 @@ const DICT = {
   "ink-sketch": "水墨手绘",
   "DECISION": "决策",
   "CARD WIDTH ∝ DURATION": "卡片宽度 ∝ 时长",
+  "awaiting your approval": "等待你批准",
+  "reply in chat to continue": "在对话中回复以继续",
+  "The assets stage is waiting for your review. The agent is paused at this gate — reply in chat to approve or request changes.": "素材阶段正在等待你审阅。智能体已停在这个门禁处——请在对话中回复批准或提出修改。",
+  "Assets Is Ready For Your Review": "素材已准备好，请审阅",
+  "Review the artifact here, then reply in chat to approve it or request changes.": "在这里查看产物，然后在对话中回复批准或提出修改。",
+  "Inspect every generated take in the filmstrip below before approving compose.": "批准合成前，请检查下方胶片条中的每一条生成镜头。",
+  "APPROVAL UNLOCKS EDIT.": "批准后解锁剪辑。",
+  "SELF-REVIEW": "自检",
+  "critical": "严重问题",
+  "suggestions": "建议",
+  "assets is ready for your review": "素材已准备好，请审阅",
+  "asset manifest": "素材清单",
+  "reply in chat to approve or request changes.": "请在对话中回复批准或提出修改。",
+  "approval unlocks edit.": "批准后解锁剪辑。",
   "theme": "主题",
   "dark": "深色",
   "light": "浅色",
@@ -150,6 +164,28 @@ const DICT = {
 };
 
 const SUBSTRINGS = [
+  ["Assets Is Ready", "素材已准备好"],
+  ["Assets is ready", "素材已准备好"],
+  ["ASSET MANIFEST", "素材清单"],
+  ["Asset manifest", "素材清单"],
+  ["reply in chat", "在对话中回复"],
+  ["approve or request changes", "批准或提出修改"],
+  ["reply in chat to approve or request changes", "请在对话中回复批准或提出修改"],
+  ["Ready For Your Review", "请审阅"],
+  ["Asset Manifest", "素材清单"],
+  ["Approval unlocks edit.", "批准后解锁剪辑。"],
+  ["awaiting your approval", "等待你批准"],
+  ["reply in chat to continue", "在对话中回复以继续"],
+  ["The assets stage is waiting for your review.", "素材阶段正在等待你审阅。"],
+  ["The agent is paused at this gate", "智能体已停在这个门禁处"],
+  ["reply in chat to approve or request changes.", "请在对话中回复批准或提出修改。"],
+  ["Assets Is Ready For Your Review", "素材已准备好，请审阅"],
+  ["SELF-REVIEW", "自检"],
+  ["critical", "严重问题"],
+  ["suggestions", "建议"],
+  ["ASSET MANIFEST", "素材清单"],
+  ["designed graphic", "设计图形"],
+  ["APPROVAL UNLOCKS EDIT.", "批准后解锁剪辑。"],
   ["card width ∝ duration", "卡片宽度 ∝ 时长"],
   ["CARD WIDTH", "卡片宽度"],
   ["∝ DURATION", "∝ 时长"],
@@ -157,7 +193,6 @@ const SUBSTRINGS = [
   ["MORE SECTIONS", "个章节"],
   ["sections", "个章节"],
   ["scenes", "个场景"],
-  ["takes", "条镜头"],
   ["version", "个版本"],
   ["MORE SECTIONS", "个章节"],
   ["SCENES", "个场景"],
@@ -208,6 +243,7 @@ function translateString(value) {
   for (let pass = 0; pass < 3; pass += 1) {
     const before = out;
     const text = out.trim();
+  if (text.includes('/') || /\.(mp4|wav|png|jpg|json|jsonl)$/i.test(text)) return value;
     if (DICT[text]) out = out.replace(text, DICT[text]);
     for (const [from, to] of SUBSTRINGS) out = out.split(from).join(to);
     for (const [re, rep] of PATTERNS) out = out.replace(re, rep);
