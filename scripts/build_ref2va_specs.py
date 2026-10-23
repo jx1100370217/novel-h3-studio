@@ -95,6 +95,7 @@ def main() -> int:
             voices=tuple(voice_bindings), lines=tuple(shot_lines), previs_path=previs_path,
             open_state=shot_data.get('open', ''), close_state=shot_data.get('close', ''),
             framing=shot_data.get('framing', ''),
+            blocking=shot_data.get('blocking', ''),
             strong_no_text=bool(shot_data.get('strong_no_text', False)),
         )
         spec = build_spec(locked)

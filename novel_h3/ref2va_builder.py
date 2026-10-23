@@ -71,6 +71,7 @@ class LockedShot:
     open_state: str = ''
     close_state: str = ''
     framing: str = ''
+    blocking: str = ''
     strong_no_text: bool = False
     width: int = 1344
     height: int = 768
@@ -200,14 +201,24 @@ def build_spec(shot: LockedShot) -> dict:
     if shot.close_state:
         detail = detail.rstrip() + ' ' + shot.close_state
     count = sum(item.instances for item in shot.cast) + len(shot.extras)
-    blocking = f'Blocking lock: exactly {_people(count)}. {_positions(shot.cast, shot.extras)}. ' \
-               f'No other people, no duplicates, no reflections, no background extras.'
-    if previs_label:
+    if shot.blocking:
+        blocking = 'Blocking lock: ' + shot.blocking
+    else:
+        blocking = f'Blocking lock: exactly {_people(count)}. {_positions(shot.cast, shot.extras)}. ' \
+                   f'No other people, no duplicates, no reflections, no background extras.'
+    if previs_label and not shot.blocking:
         blocking = (f'Blocking lock: the grayscale guide {previs_label} shows exactly {_people(count)}. '
                     f'{_positions(shot.cast, shot.extras)}. No other people, no duplicates, no reflections, '
                     f'no background extras. The guide is a reference diagram only; do not reproduce its gray '
                     f'mannequin materials or studio light.')
+    elif previs_label and shot.blocking:
+        blocking += (f' The grayscale guide {previs_label} shows exactly {_people(count)}; use only its body '
+                     f'count, placement, poses and camera, never its gray materials or mannequin appearance.')
     detail += ' ' + blocking
+    detail += (' Instance lock: every named person is exactly one physical body. A close-up face and a '
+               'full-body or seated view of the same person are one person, never two. Do not add a second '
+               'copy in the background, doorway, reflection, portrait, statue, silhouette, as a servant, '
+               'guard, candidate, neighbor or any other unlisted person.')
     if shot.framing:
         detail += ' Framing lock: ' + shot.framing
     detail += ' Reference bindings: ' + ' '.join(item['subject'] for item in visuals) + '.'
