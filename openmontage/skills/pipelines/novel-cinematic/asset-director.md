@@ -49,6 +49,7 @@ Call `fastvideo_h3_video` with:
 - Every speaking character must have a dedicated voice reference in `voices`; `fastvideo_h3_video` rejects a speaker with no voice reference.
 - Every multi-person shot must use a `blender_previs` guide. The guide fixes only body count, positions, poses, screen direction and camera; identity/costume/lighting come from the approved references.
 - Use `python -m novel_h3.render_batch ... --board-media-dir board_media/v5` so Backlot sees each completed revision take immediately; do not point the board at the previous cut.
+- After the batch, run `python scripts/audit_cast.py --takes-dir ... --expected ... --out ...`; treat it as triage, not a verdict. Confirm duplicate people by opening the annotated suspect frames.
 - One shot at a time; the local GPU cannot run two H3 jobs at once.
 - Frame counts must land on the H3 causal-VAE grid `17n+5`
   (`124` = 5.1667s, `158` = 6.5833s, `243` = 10.125s).
@@ -80,5 +81,7 @@ Call `fastvideo_h3_video` with:
 - [ ] No duplicate people, no missing referenced subject
 - [ ] Every speaking character is bound to a dedicated voice reference
 - [ ] Every multi-person shot has a Blender blocking guide and exactly the authored body count
+- [ ] Instance lock is present: no close-up + full-body duplicate, no unlisted servant/guard/silhouette
+- [ ] `scripts/audit_cast.py` has run and every suspect frame is human-reviewed
 - [ ] Dialogue lines name the speaker and the audio reference explicitly
 - [ ] Manifest paths are project-relative and all files exist

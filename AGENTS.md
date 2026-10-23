@@ -54,6 +54,7 @@ not in a one-off version script:
 - shot construction: `novel_h3/ref2va_builder.py`
 - voice references: `novel_h3/voice_refs.py`
 - Blender blocking guides: `novel_h3/previs.py` + `novel_h3/previs_render.py`
+- cast audit: `novel_h3/cast_audit.py`
 - transition audit: `novel_h3/transition_audit.py`
 - batch rendering: `novel_h3/render_batch.py`
 - picture/audio compose: `novel_h3/compose_cut.py`
@@ -73,8 +74,14 @@ not in the core code.
   that are off-screen must not be marked visible.
 - Every multi-person shot (two or more visible bodies) uses a silent Blender
   gray-model blocking guide unless the human explicitly waives it.
+- Every shot carries the instance lock: a close-up and a full-body view of one
+  person are the same person, never two; no unlisted servants, guards,
+  silhouettes, portraits or background copies.
 - Every cut with an action/state change records `open_state` / `close_state`
   handoffs in the authoring data.
+- The assets stage runs `scripts/audit_cast.py` (or the global `cast_audit`
+  module) and human-reviews every suspect frame; face-count false positives
+  from statues, portraits and animals must be recorded as such.
 - The edit stage runs `transition_audit`; every `needs_fix` cut is either
   re-rendered with a handoff or explicitly accepted by the human.
 - `audio_qc` and a human listening pass remain the final audio gate.
