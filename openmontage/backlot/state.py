@@ -404,8 +404,16 @@ def _build_storyboard(
     project_dir: Path,
     artifacts: dict[str, dict],
     events: list[dict],
+    *,
+    live_assets: Optional[dict] = None,
+    live_assets_active: bool = False,
+    keep_manifest: Optional[set[str]] = None,
+    current_scene: Optional[str] = None,
+    assets_in_progress: bool = False,
 ) -> Optional[dict]:
-    """Scene cards: scene_plan × script × asset_manifest (+ live events)."""
+    """Scene cards: scene_plan × script × asset_manifest × live v5 takes."""
+    live_assets = live_assets or {}
+    keep_manifest = keep_manifest or set()
     scene_plan = artifacts.get("scene_plan")
     if not scene_plan or not isinstance(scene_plan.get("scenes"), list):
         return None
@@ -443,20 +451,47 @@ def _build_storyboard(
             continue
         sid = scene_key(scene.get("id"))
         section = _find_script_section(scene, sections)
-        scene_assets = assets_by_scene.get(sid, [])
-        visuals = [a for a in scene_assets if a["type"] in ("image", "video", "diagram", "animation")]
-        audio = [a for a in scene_assets if a["type"] in ("audio", "narration", "music", "sfx")]
-        # Only files that can actually be shown (raster/video) are takes; a
-        # bespoke composition asset (.tsx animation) is real but not showable.
-        renderable = [a for a in visuals if a.get("renderable")]
-        # A raster/video asset whose FILE is missing stays as a "file missing"
-        # indicator. But an asset that EXISTS yet can't be shown (a .tsx atelier
-        # composition) is dropped — it falls back to a per-scene snapshot.
-        missing = [a for a in visuals if not a.get("exists") and a["type"] in ("image", "video", "diagram")]
-        active_visual = (
-            renderable[-1] if renderable
-            else missing[-1] if missing
-            else _find_scene_snapshot(project_dir, sid)
+        live = live_assets.get(sid) if isinstance(live_assets.get(sid), dict) else None
+        if live and live.get("path"):
+            live_entry = _asset_entry(project_dir, {
+                "id": f"live_{sid}", "type": "video", "scene_id": sid,
+                "path": live.get("path"), "source_tool": "fastvideo_h3_video",
+                "model": "FastH3-Omni NVFP4 QAD",
+                "duration_seconds": (
+                    max(0, (scene.get("end_seconds") or 0) - (scene.get("start_seconds") or 0))
+                    if scene.get("end_seconds") is not None and scene.get("start_seconds") is not None else None
+                ),
+            })
+            scene_assets = [live_entry]
+            visuals = [live_entry]
+            renderable = [live_entry] if live_entry.get("renderable") else []
+            missing = [] if live_entry.get("exists") else [live_entry]
+            audio = []
+            active_visual = renderable[-1] if renderable else missing[-1] if missing else None
+        elif live_assets_active and assets_in_progress and sid not in keep_manifest:
+            # A new render is active. Never fall back to the previous cut's
+            # takes for scenes that have not been rendered yet; show the
+            # pending/generating state instead.
+            scene_assets, visuals, renderable, missing, audio = [], [], [], [], []
+            active_visual = None
+        else:
+            scene_assets = assets_by_scene.get(sid, [])
+            visuals = [a for a in scene_assets if a["type"] in ("image", "video", "diagram", "animation")]
+            audio = [a for a in scene_assets if a["type"] in ("audio", "narration", "music", "sfx")]
+            # Only files that can actually be shown (raster/video) are takes; a
+            # bespoke composition asset (.tsx animation) is real but not showable.
+            renderable = [a for a in visuals if a.get("renderable")]
+            # A raster/video asset whose FILE is missing stays as a "file missing"
+            # indicator. But an asset that EXISTS yet can't be shown (a .tsx atelier
+            # composition) is dropped — it falls back to a per-scene snapshot.
+            missing = [a for a in visuals if not a.get("exists") and a["type"] in ("image", "video", "diagram")]
+            active_visual = (
+                renderable[-1] if renderable
+                else missing[-1] if missing
+                else _find_scene_snapshot(project_dir, sid)
+            )
+        is_generating = generating.get(sid) is not None or (
+            live_assets_active and assets_in_progress and current_scene == sid
         )
         cards.append({
             "id": sid,
@@ -480,8 +515,10 @@ def _build_storyboard(
             "visual": active_visual,
             "takes": renderable,
             "audio": audio,
-            "generating": generating.get(sid) is not None,
-            "generating_tool": (generating.get(sid) or {}).get("tool"),
+            "generating": is_generating,
+            "generating_tool": (generating.get(sid) or {}).get("tool") or ("fastvideo_h3_video" if is_generating else None),
+            "live_take": bool(live),
+            "live_pending": bool(live_assets_active and assets_in_progress and not live and sid not in keep_manifest),
         })
 
     total = scene_plan.get("metadata", {}).get("total_duration_seconds")
@@ -511,6 +548,12 @@ def _scan_media(project_dir: Path) -> dict[str, list[dict]]:
             if f.suffix.lower() in MEDIA_VIDEO_EXT and f.is_file():
                 renders.append({"path": _rel(project_dir, f), "size": f.stat().st_size,
                                 "mtime": f.stat().st_mtime})
+    exports_dir = project_dir / 'exports'
+    if exports_dir.is_dir():
+        for f in sorted(exports_dir.iterdir()):
+            if f.suffix.lower() in MEDIA_VIDEO_EXT and f.is_file():
+                renders.append({'path': _rel(project_dir, f), 'size': f.stat().st_size,
+                                'mtime': f.stat().st_mtime, 'at_exports': True})
     # Atelier heuristic: deliverables at project root.
     for f in sorted(project_dir.glob("*.mp4")):
         renders.append({"path": _rel(project_dir, f), "size": f.stat().st_size,
@@ -607,7 +650,16 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
 
     artifacts = _collect_artifacts(project_dir, checkpoints)
     events = read_events(project_dir, limit=250)
-    storyboard = _build_storyboard(project_dir, artifacts, events)
+    assets_cp = checkpoints.get('assets') or {}
+    assets_meta = assets_cp.get('metadata') or {}
+    storyboard = _build_storyboard(
+        project_dir, artifacts, events,
+        live_assets=assets_meta.get('live_assets') or {},
+        live_assets_active=bool(assets_meta.get('live_assets_active')),
+        keep_manifest=set(assets_meta.get('keep_manifest') or []),
+        current_scene=(assets_meta.get('partial_progress') or {}).get('current') or None,
+        assets_in_progress=assets_cp.get('status') == 'in_progress',
+    )
     media = _scan_media(project_dir)
 
     stages = _build_stage_rail(pipeline_meta, checkpoints, history)

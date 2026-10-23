@@ -48,6 +48,7 @@ Call `fastvideo_h3_video` with:
 - Build every spec through `novel_h3.ref2va_builder.build_spec` (or the `scripts/build_ref2va_specs.py` CLI). Do not hand-assemble a spec that bypasses voice and cast validation.
 - Every speaking character must have a dedicated voice reference in `voices`; `fastvideo_h3_video` rejects a speaker with no voice reference.
 - Every multi-person shot must use a `blender_previs` guide. The guide fixes only body count, positions, poses, screen direction and camera; identity/costume/lighting come from the approved references.
+- Use `python -m novel_h3.render_batch ... --board-media-dir board_media/v5` so Backlot sees each completed revision take immediately; do not point the board at the previous cut.
 - One shot at a time; the local GPU cannot run two H3 jobs at once.
 - Frame counts must land on the H3 causal-VAE grid `17n+5`
   (`124` = 5.1667s, `158` = 6.5833s, `243` = 10.125s).

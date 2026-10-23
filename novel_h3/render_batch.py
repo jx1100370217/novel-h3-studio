@@ -63,21 +63,66 @@ def start_service(service_project: Path, log_path: Path) -> None:
     raise TimeoutError('FastVideo service did not become healthy within 240s')
 
 
+def _sha256(path: Path) -> str:
+    import hashlib
+    digest = hashlib.sha256()
+    with path.open('rb') as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def copy_live_asset(project: Path, board_media_dir: str, fastvideo_project: Path,
+                    takes_subdir: str, shot: str) -> dict:
+    """Copy a completed take into the board project with an in-project path.
+
+    Backlot only serves media inside the project directory. A symlink to a
+    sibling FastVideo project resolves outside and is rejected, so the board
+    gets a lightweight copy / hardlink inside the project instead.
+    """
+    source = fastvideo_project / takes_subdir / shot / 'native.mp4'
+    target = project / board_media_dir / f'{shot}.mp4'
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if not source.is_file():
+        raise FileNotFoundError(f'cannot publish live take, missing {source}')
+    try:
+        if target.exists():
+            target.unlink()
+        try:
+            import os
+            os.link(source, target)
+        except OSError:
+            import shutil
+            shutil.copy2(source, target)
+    except OSError:
+        import shutil
+        shutil.copy2(source, target)
+    return {'path': f'{board_media_dir}/{shot}.mp4', 'sha256': _sha256(target),
+            'size_bytes': target.stat().st_size, 'updated_at': time.time()}
+
+
 def update_checkpoint(path: Path, done: int, total: int, current: str, phase: str,
-                      extra: dict | None = None) -> None:
+                      extra: dict | None = None, *, live_assets: dict | None = None,
+                      live_assets_active: bool = False, keep_manifest: list[str] | None = None,
+                      event_name: str | None = None) -> None:
     partial = {'phase': phase, 'done': done, 'total': total, 'current': current,
                'updated_at': time.time()}
     if extra:
         partial.update(extra)
+    metadata = {'partial_progress': partial,
+                'live_assets_active': bool(live_assets_active),
+                'live_assets': live_assets or {},
+                'keep_manifest': list(keep_manifest or [])}
     checkpoint = {
         'version': '1.0', 'project_id': path.parent.name, 'pipeline_type': 'novel-cinematic',
         'stage': 'assets', 'status': 'in_progress',
         'timestamp': datetime.now(timezone.utc).isoformat(), 'artifacts': {},
-        'metadata': {'partial_progress': partial},
+        'metadata': metadata,
     }
     path.write_text(json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding='utf-8')
     event = {'ts': datetime.now(timezone.utc).isoformat(), 'tool': 'fastvideo_h3_video',
-             'event': phase, 'shot': current, 'done': done, 'total': total}
+             'event': event_name or ('start' if phase == 'render' else phase),
+             'scene_id': current or None, 'shot': current, 'done': done, 'total': total}
     with (path.parent / 'events.jsonl').open('a', encoding='utf-8') as handle:
         handle.write(json.dumps(event, ensure_ascii=False) + '\n')
 
@@ -101,12 +146,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--checkpoint', type=Path, default=None)
     parser.add_argument('--failure-file', type=Path, default=None)
     parser.add_argument('--service-log', type=Path, default=ROOT / 'runtime/render_service.log')
+    parser.add_argument('--board-media-dir', default='', help='Project-relative media dir Backlot can serve; copies each completed take there.')
+    parser.add_argument('--board-keep-manifest', default='A01,A16,A45', help='Scene ids that keep the previous graphic from asset_manifest.')
     args = parser.parse_args(argv)
     project = args.project.resolve()
     fastvideo_project = args.fastvideo_project.resolve()
     specs_dir = (args.specs_dir or fastvideo_project / 'shots').resolve()
     checkpoint = (args.checkpoint or project / 'checkpoint_assets.json').resolve()
     failure_file = (args.failure_file or project / 'render_failures.json').resolve()
+    board_active = bool(args.board_media_dir)
+    keep_manifest = [x.strip() for x in args.board_keep_manifest.split(',') if x.strip()]
+    live_assets: dict = {}
+    if board_active and checkpoint.is_file():
+        try:
+            old = json.loads(checkpoint.read_text(encoding='utf-8'))
+            live_assets = dict(((old.get('metadata') or {}).get('live_assets') or {}))
+        except Exception:
+            live_assets = {}
     specs = sorted(specs_dir.glob('*.json'))
     if args.shots:
         wanted = {s.strip() for s in args.shots.split(',') if s.strip()}
@@ -118,7 +174,9 @@ def main(argv: list[str] | None = None) -> int:
     for index, path in enumerate(specs, 1):
         spec = load_spec(path)
         sid = spec['shot']
-        update_checkpoint(checkpoint, rendered, total, sid, 'render')
+        update_checkpoint(checkpoint, rendered, total, sid, 'render', live_assets=live_assets,
+                          live_assets_active=board_active, keep_manifest=keep_manifest,
+                          event_name='start')
         if not health(args.api):
             start_service(args.service_project.resolve(), args.service_log)
         try:
@@ -126,18 +184,31 @@ def main(argv: list[str] | None = None) -> int:
                                width=args.width, height=args.height,
                                takes_subdir=args.takes_subdir)
             rendered += 1
+            if board_active:
+                try:
+                    live_assets[sid] = copy_live_asset(project, args.board_media_dir, fastvideo_project,
+                                                       args.takes_subdir, sid)
+                except Exception as exc:  # board copy must not fail the render
+                    print(f'BOARD COPY WARNING {sid}: {exc}', flush=True)
             update_checkpoint(checkpoint, rendered, total, sid, 'render', {
-                'inference_time_s': receipt.get('inference_time_s'), 'sha256': receipt.get('sha256')})
+                'inference_time_s': receipt.get('inference_time_s'), 'sha256': receipt.get('sha256')},
+                live_assets=live_assets, live_assets_active=board_active, keep_manifest=keep_manifest,
+                event_name='finish')
             print(f'[{index}/{total}] {sid} {receipt.get("inference_time_s")}s', flush=True)
         except Exception as exc:  # noqa: BLE001
             failures.append({'shot': sid, 'error': str(exc)})
+            update_checkpoint(checkpoint, rendered, total, sid, 'render', {'error': str(exc)},
+                              live_assets=live_assets, live_assets_active=board_active,
+                              keep_manifest=keep_manifest, event_name='error')
             print(f'[{index}/{total}] {sid} FAILED: {exc}', flush=True)
         if args.restart_every and index % args.restart_every == 0 and index < total:
             stop_service()
     if args.restart_every:
         stop_service()
     failure_file.write_text(json.dumps(failures, ensure_ascii=False, indent=2), encoding='utf-8')
-    update_checkpoint(checkpoint, rendered, total, '', 'render_done', {'failures': len(failures)})
+    update_checkpoint(checkpoint, rendered, total, '', 'render_done', {'failures': len(failures)},
+                      live_assets=live_assets, live_assets_active=board_active,
+                      keep_manifest=keep_manifest, event_name='finish')
     print(f'RENDER DONE {rendered}/{total} failures={len(failures)}', flush=True)
     return 1 if failures else 0
 
