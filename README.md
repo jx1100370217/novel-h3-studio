@@ -70,22 +70,28 @@ Novel H3 Studio 是以 **OpenMontage 为生产工作流、FastH3-Omni 为本地�
 ## 3. 架构与代码目录
 
 ```mermaid
+---
+config:
+  htmlLabels: false
+  flowchart:
+    rankSpacing: 30
+---
 flowchart TD
-    U[用户：原文、参考、时长与审查意见] --> A[AI 代理]
-    M[OpenMontage manifest 与导演技能] --> A
-    A --> B[breakdown 原文与剧本拆解]
-    B --> C[scene_plan 分镜与状态交接]
-    C --> D[assets 参考、声线与 Blender 白模]
-    D --> R[Ref2VA 构建与校验]
-    R --> F[FastVideo 服务 127.0.0.1:8195]
-    F --> V[FastH3-Omni NVFP4 QAD 原生音画]
-    V --> E[edit 逐切点审查]
-    E --> Q[compose 混音与 audio_qc]
-    Q --> P[publish 人工验收与导出包]
-    A --> W[(projects：产物、检查点、回执与历史)]
+    U["用户<br/>原文、参考、时长<br/>与审查意见"] --> A["AI 代理"]
+    M["OpenMontage<br/>manifest 与导演技能"] --> A
+    A --> B["breakdown<br/>原文与剧本拆解"]
+    B --> C["scene_plan<br/>分镜与状态交接"]
+    C --> D["assets<br/>参考、声线<br/>与 Blender 白模"]
+    D --> R["Ref2VA<br/>构建与校验"]
+    R --> F["FastVideo 服务<br/>127.0.0.1:8195"]
+    F --> V["FastH3-Omni<br/>NVFP4 QAD 原生音画"]
+    V --> E["edit<br/>逐切点审查"]
+    E --> Q["compose<br/>混音与 audio_qc"]
+    Q --> P["publish<br/>人工验收与导出包"]
+    A --> W[("projects<br/>产物、检查点<br/>回执与历史")]
     V --> W
     P --> W
-    W --> K[Backlot 只读制片看板]
+    W --> K["Backlot<br/>只读制片看板"]
 ```
 
 ```text
