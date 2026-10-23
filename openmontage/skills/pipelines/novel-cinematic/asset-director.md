@@ -5,6 +5,9 @@
 - `scene_plan` + `projects/<id>/shots/*.json` shot contracts.
 - Strict Ref2VA shot specs under `projects/<id>/shots/`.
 - Approved references in `projects/<id>/assets/refs/`.
+- Project authoring data: cast, scene, voice plan, extras and blocking (`projects/<id>/.../authoring.json`).
+- Character voice references (`assets/voices/*_ref.wav`) and `voice_manifest.json`.
+- Silent Blender blocking guides (`previs/<shot>.png`) for multi-person shots.
 
 ## Outputs
 
@@ -18,6 +21,7 @@
 | Tool | Use | Notes |
 |---|---|---|
 | `fastvideo_h3_video` | **Default.** Render each shot | Local FastH3-Omni NVFP4 QAD on the FastVideo service; strict Ref2VA; native H3 dialogue + SFX |
+| `blender_previs` | **Multi-person default.** Render a silent gray blocking guide | Locks body count, screen position, pose and camera; never supplies final appearance |
 | `vdn_h3_video` | Fallback only | Local MiniMax H3 + VDN Turbo on ComfyUI; use only when the FastVideo service is unavailable or a shot explicitly needs VDN |
 | `codex_image` | New references, title art, posters | Codex/ChatGPT subscription; no API key |
 | `image_selector` | Optional provider fallback | Only if `codex_image` is unavailable |
@@ -41,6 +45,9 @@ Call `fastvideo_h3_video` with:
 - `width` / `height`: `1344` / `768`;
 - `force`: only for an intentional re-render.
 
+- Build every spec through `novel_h3.ref2va_builder.build_spec` (or the `scripts/build_ref2va_specs.py` CLI). Do not hand-assemble a spec that bypasses voice and cast validation.
+- Every speaking character must have a dedicated voice reference in `voices`; `fastvideo_h3_video` rejects a speaker with no voice reference.
+- Every multi-person shot must use a `blender_previs` guide. The guide fixes only body count, positions, poses, screen direction and camera; identity/costume/lighting come from the approved references.
 - One shot at a time; the local GPU cannot run two H3 jobs at once.
 - Frame counts must land on the H3 causal-VAE grid `17n+5`
   (`124` = 5.1667s, `158` = 6.5833s, `243` = 10.125s).
@@ -70,4 +77,7 @@ Call `fastvideo_h3_video` with:
 - [ ] Native H3 dialogue and sound effects are present in every take
 - [ ] Cast count matches the Ref2VA population contract
 - [ ] No duplicate people, no missing referenced subject
+- [ ] Every speaking character is bound to a dedicated voice reference
+- [ ] Every multi-person shot has a Blender blocking guide and exactly the authored body count
+- [ ] Dialogue lines name the speaker and the audio reference explicitly
 - [ ] Manifest paths are project-relative and all files exist

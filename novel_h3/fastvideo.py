@@ -74,12 +74,13 @@ def model_lock(root, cfg):
     return result
 
 
-def request_payload(root, request):
+def request_payload(root, request, *, require_voice_bindings=True):
     root = Path(root)
     from .ref2va import validate
     validate(request['prompt'], request['visuals'], request['voices'], request['shot'].get('spoken_lines', []),
              duration_seconds=request['frames'] / 24, single_shot=True, no_music=True,
-             additional_visible_people=request['shot'].get('additional_visible_people', []), require_population=True)
+             additional_visible_people=request['shot'].get('additional_visible_people', []), require_population=True,
+             require_voice_bindings=require_voice_bindings)
     if request['generation']['width'] * request['generation']['height'] > 1032192:
         raise ValueError('FastVideo MiniMax-H3 canvas exceeds the official 1032192-pixel limit')
     return {'model': 'fasth3-omni-nvfp4-qad', 'task': 'ref2va', 'prompt': request['prompt'],

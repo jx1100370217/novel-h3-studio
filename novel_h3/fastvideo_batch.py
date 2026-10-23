@@ -43,7 +43,8 @@ def load_spec(path: Path) -> dict:
     return spec
 
 
-def build_payload(root: Path, spec: dict, *, width: int | None = None, height: int | None = None) -> dict:
+def build_payload(root: Path, spec: dict, *, width: int | None = None, height: int | None = None,
+                  require_voice_bindings: bool = True) -> dict:
     root = Path(root).resolve()
     visuals = []
     for ref in spec['visuals']:
@@ -59,7 +60,7 @@ def build_payload(root: Path, spec: dict, *, width: int | None = None, height: i
     validate(prompt, visuals, voices, spoken, duration_seconds=spec['frames'] / 24,
              single_shot=True, no_music=True,
              additional_visible_people=spec.get('additional_visible_people', []),
-             require_population=True)
+             require_population=True, require_voice_bindings=require_voice_bindings)
     request = {
         'prompt': prompt,
         'visuals': visuals,
@@ -71,9 +72,33 @@ def build_payload(root: Path, spec: dict, *, width: int | None = None, height: i
                        'height': int(height or spec.get('height') or DEFAULT_HEIGHT)},
         'seed': int(spec['seed']),
     }
-    payload = request_payload(root, request)
+    payload = request_payload(root, request, require_voice_bindings=require_voice_bindings)
     payload['_prompt_sha256'] = hashlib.sha256(prompt.encode('utf-8')).hexdigest()
     return payload
+
+
+
+def _file_sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, 'rb') as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def reference_sha256(payload: dict) -> str:
+    """Hash the actual image/audio reference files, not just their prompt labels.
+
+    A cached take is reusable only when the prompt, canvas, frame count, seed
+    AND the exact reference media are unchanged. This prevents a regenerated
+    voice reference or blocking guide from silently reusing an old take.
+    """
+    items = []
+    for bucket in ('image_reference', 'audio_reference'):
+        for ref in payload.get(bucket, []):
+            url = ref.get('image_url') or ref.get('audio_url') or ''
+            items.append([bucket, url, _file_sha256(url) if url and Path(url).is_file() else 'missing'])
+    return hashlib.sha256(json.dumps(sorted(items), ensure_ascii=False).encode('utf-8')).hexdigest()
 
 
 def _http_json(url: str, payload: dict | None = None, timeout: float = 180.0) -> dict:
@@ -84,16 +109,17 @@ def _http_json(url: str, payload: dict | None = None, timeout: float = 180.0) ->
 
 
 def run_shot(root: Path, project: Path, spec: dict, *, api: str, force: bool = False,
-             width: int | None = None, height: int | None = None) -> dict:
+             width: int | None = None, height: int | None = None, takes_subdir: str = 'takes') -> dict:
     shot = spec['shot']
-    outdir = project / 'takes' / shot
+    outdir = project / takes_subdir / shot
     outdir.mkdir(parents=True, exist_ok=True)
     native = outdir / 'native.mp4'
     receipt_path = outdir / 'receipt.json'
     payload = build_payload(root, spec, width=width, height=height)
     prompt = payload.pop('_prompt_sha256', None)
+    ref_sha = reference_sha256(payload)
     expected = {'prompt_sha256': prompt, 'width': payload['width'], 'height': payload['height'],
-                'frames': payload['num_frames'], 'seed': payload['seed']}
+                'frames': payload['num_frames'], 'seed': payload['seed'], 'reference_sha256': ref_sha}
     if native.exists() and receipt_path.exists() and not force:
         receipt = json.loads(receipt_path.read_text(encoding='utf-8'))
         if all(receipt.get(key) == value for key, value in expected.items()):
@@ -146,6 +172,7 @@ def run_shot(root: Path, project: Path, spec: dict, *, api: str, force: bool = F
         'seed': int(spec['seed']),
         'sha256': hashlib.sha256(native.read_bytes()).hexdigest(),
         'prompt_sha256': prompt,
+        'reference_sha256': ref_sha,
         'wall_seconds': round(time.time() - started, 2),
     }
     receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding='utf-8')

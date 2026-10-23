@@ -90,7 +90,8 @@ def render(sections, visuals, voices, spoken_lines, *, videos=(), duration_secon
 
 
 def validate(prompt, visuals, voices, spoken_lines=(), *, videos=(), duration_seconds=None,
-             single_shot=False, no_music=False, additional_visible_people=(), require_population=False):
+             single_shot=False, no_music=False, additional_visible_people=(), require_population=False,
+             require_voice_bindings=False):
     if not (visuals or voices or videos):
         raise ValueError('Ref2VA requires actual reference media')
     if re.search(r'\{(?:subject|picture|audio|video):[^{}]+\}', prompt):
@@ -193,6 +194,19 @@ def validate(prompt, visuals, voices, spoken_lines=(), *, videos=(), duration_se
         expected = line.get('speaker_subject') or by_asset.get(speaker)
         if expected and speaker_subjects.get(sid) != expected:
             raise ValueError('Ref2VA vocal event does not belong to its declared subject')
+    if require_voice_bindings and spoken_lines:
+        voice_subjects = {voice.get('subject') for voice in voices}
+        for line in spoken_lines:
+            expected = line.get('speaker_subject')
+            if expected is None:
+                if None not in voice_subjects:
+                    raise ValueError('Every speaker needs a voice reference; off-screen speakers need an explicit voice-only reference')
+            elif expected not in voice_subjects:
+                raise ValueError(f'Speaker subject {expected} has no voice reference')
+        for event in re.finditer(r'<d>', detail):
+            before = detail[:event.start()]
+            if not re.search(r'<Audio \d+>[^\n]{0,300}$', before):
+                raise ValueError('Every spoken line needs an explicit <Audio N> voice binding before the dialogue')
     for voice in voices:
         subject = voice.get('subject')
         if subject and subject in speaker_subjects.values():

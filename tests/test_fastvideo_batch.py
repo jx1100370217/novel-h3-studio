@@ -24,7 +24,12 @@ class FastVideoBatchTests(unittest.TestCase):
                  'kind': 'scene', 'visible': True,
                  'generation_path': 'projects/p/assets/refs/hall.png'},
             ],
-            'voices': [],
+            'voices': [
+                {'asset_id': 'voice_zhang', 'audio': '<Audio 1>', 'subject': '<Subject 1>',
+                 'path': 'projects/p/assets/voices/zhang.wav'},
+                {'asset_id': 'voice_song', 'audio': '<Audio 2>', 'subject': '<Subject 2>',
+                 'path': 'projects/p/assets/voices/song.wav'},
+            ],
             'spoken_lines': [
                 {'speaker': 'zhang', 'text': '兄台也是来应考的？', 'speaker_subject': '<Subject 1>'},
                 {'speaker': 'song', 'text': '长山宋焘。', 'speaker_subject': '<Subject 2>'},
@@ -32,13 +37,18 @@ class FastVideoBatchTests(unittest.TestCase):
             'sections': {
                 'subject_definitions': '<Subject 1> is Zhang in <Picture 1>.\n'
                                        '<Subject 2> is Song in <Picture 2>.\n'
-                                       '<Subject 3> is the hall in <Picture 3>.',
-                'summary': '[reference generation] <Subject 1> and <Subject 2> meet in <Subject 3>.',
+                                       '<Subject 3> is the hall in <Picture 3>.\n'
+                                       '<Audio 1> is the voice reference for <Subject 1> (S1), Zhang.\n'
+                                       '<Audio 2> is the voice reference for <Subject 2> (S2), Song.',
+                'summary': '[reference generation + audio reference] <Subject 1> and <Subject 2> meet in <Subject 3>.',
                 'retention_analysis': '<Subject 1> (appears in [Shot 1]): fully_preserved - Keep him.\n'
                                       '<Subject 2> (appears in [Shot 1]): fully_preserved - Keep him.\n'
-                                      '<Subject 3> (appears in [Shot 1]): fully_preserved - Keep it.',
-                'detailed_description': 'A period drama in <Subject 3>.\n[Shot 1] <Subject 1> (S1) asks '
-                                        '<d>[Chinese] 兄台也是来应考的？</d> <Subject 2> (S2) answers '
+                                      '<Subject 3> (appears in [Shot 1]): fully_preserved - Keep it.\n'
+                                      '<Audio 1>: partially_copy - Copy timbre only.\n'
+                                      '<Audio 2>: partially_copy - Copy timbre only.',
+                'detailed_description': 'A period drama in <Subject 3>.\n[Shot 1] <Subject 1> (S1) speaks '
+                                        'with <Audio 1>, <d>[Chinese] 兄台也是来应考的？</d> '
+                                        '<Subject 2> (S2) speaks with <Audio 2>, '
                                         '<d>[Chinese] 长山宋焘。</d>',
                 'overall_soundscape': 'Stone hall reverb and robes.',
                 'non_diegetic_music': 'N/A',
@@ -83,6 +93,15 @@ class FastVideoBatchTests(unittest.TestCase):
             spec = copy.deepcopy(self.spec(root))
             spec['visuals'][0]['kind'] = None
             with self.assertRaisesRegex(ValueError, 'population metadata'):
+                build_payload(root, spec)
+
+    def test_unbound_speaker_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spec = copy.deepcopy(self.spec(root))
+            spec['voices'] = []
+            spec['sections']['summary'] = spec['sections']['summary'].replace(' + audio reference', '')
+            with self.assertRaises(ValueError):
                 build_payload(root, spec)
 
     def test_load_spec_requires_grid_frames(self):

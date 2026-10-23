@@ -80,6 +80,7 @@ class FastVideoH3Video(BaseTool):
             "width": {"type": "integer", "default": DEFAULT_WIDTH},
             "height": {"type": "integer", "default": DEFAULT_HEIGHT},
             "force": {"type": "boolean", "default": False},
+            "takes_subdir": {"type": "string", "default": "takes", "description": "Take directory under the project; use takes_v5 for a revision without overwriting v4."},
         },
     }
     output_schema = {
@@ -130,10 +131,11 @@ class FastVideoH3Video(BaseTool):
                 force=bool(inputs.get("force")),
                 width=int(inputs.get("width") or DEFAULT_WIDTH),
                 height=int(inputs.get("height") or DEFAULT_HEIGHT),
+                takes_subdir=str(inputs.get("takes_subdir") or "takes"),
             )
         except Exception as exc:  # noqa: BLE001 - surface the runtime error to the agent
             return ToolResult(success=False, error=str(exc))
-        native = project / "takes" / spec["shot"] / "native.mp4"
+        native = project / str(inputs.get("takes_subdir") or "takes") / spec["shot"] / "native.mp4"
         if not native.is_file():
             return ToolResult(success=False, error=f"native take missing after render: {native}")
         final = native
@@ -153,6 +155,7 @@ class FastVideoH3Video(BaseTool):
             "height": int(receipt.get("height") or inputs.get("height") or DEFAULT_HEIGHT),
             "seed": int(receipt.get("seed") or spec["seed"]),
             "sha256": receipt.get("sha256") or hashlib.sha256(final.read_bytes()).hexdigest(),
+            "reference_sha256": receipt.get("reference_sha256"),
             "inference_time_s": receipt.get("inference_time_s"),
             "wall_seconds": round(time.time() - start, 2),
         }

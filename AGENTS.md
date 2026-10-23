@@ -46,6 +46,39 @@ OpenMontage pipeline: manifests + stage director skills + checkpoints + tools.
   --project projects/<project>-fastvideo --all --width 1344 --height 768
 ```
 
+## Global optimization rule (binding)
+
+Every fix or production optimization must land in the shared production code,
+not in a one-off version script:
+
+- shot construction: `novel_h3/ref2va_builder.py`
+- voice references: `novel_h3/voice_refs.py`
+- Blender blocking guides: `novel_h3/previs.py` + `novel_h3/previs_render.py`
+- transition audit: `novel_h3/transition_audit.py`
+- batch rendering: `novel_h3/render_batch.py`
+- picture/audio compose: `novel_h3/compose_cut.py`
+- official tools: `openmontage/tools/**`
+- workflow rules: `openmontage/pipeline_defs/` + stage director skills
+
+`scripts/*.py` are thin CLI wrappers only. Do not fork a new `v5_*`/`v6_*`
+pipeline when the existing production module can be extended. Project-specific
+blocking, cast and voice decisions belong in `projects/<id>/.../authoring.json`,
+not in the core code.
+
+## Locked shot contract (production default)
+
+- Every speaking character must have a dedicated voice reference WAV; a
+  speaker without one is a hard validation error.
+- Every shot declares its **exact visible cast**; source-reference characters
+  that are off-screen must not be marked visible.
+- Every multi-person shot (two or more visible bodies) uses a silent Blender
+  gray-model blocking guide unless the human explicitly waives it.
+- Every cut with an action/state change records `open_state` / `close_state`
+  handoffs in the authoring data.
+- The edit stage runs `transition_audit`; every `needs_fix` cut is either
+  re-rendered with a handoff or explicitly accepted by the human.
+- `audio_qc` and a human listening pass remain the final audio gate.
+
 ## Rules
 
 - Every new Ref2VA prompt follows
