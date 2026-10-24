@@ -50,6 +50,7 @@ Call `fastvideo_h3_video` with:
 - Every multi-person shot must use a `blender_previs` guide. The guide fixes only body count, positions, poses, screen direction and camera; identity/costume/lighting come from the approved references.
 - Use `python -m novel_h3.render_batch ... --board-media-dir board_media/v5` so Backlot sees each completed revision take immediately; do not point the board at the previous cut.
 - After the batch, run `python scripts/audit_cast.py --takes-dir ... --expected ... --out ...`; treat it as triage, not a verdict. Confirm duplicate people by opening the annotated suspect frames.
+- If a shot still burns a caption after `strong_no_text` and a fresh seed, use `python scripts/remove_subtitles.py --video ... --out ... --start ... --end ... --box x0,y0,x1,y1` (LaMa) while preserving the raw take and native audio. Prefer removing an invented line entirely if the source has no direct quote.
 - One shot at a time; the local GPU cannot run two H3 jobs at once.
 - Frame counts must land on the H3 causal-VAE grid `17n+5`
   (`124` = 5.1667s, `158` = 6.5833s, `243` = 10.125s).

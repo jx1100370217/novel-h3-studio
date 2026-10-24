@@ -48,12 +48,14 @@ def stop_service() -> None:
 
 def start_service(service_project: Path, log_path: Path) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
     with log_path.open('ab') as handle:
         subprocess.Popen(
             [str(ROOT / 'runtime/fastvideo-venv/bin/python'), str(ROOT / 'start_fastvideo.py'),
              '--project', str(service_project)],
             cwd=ROOT, stdout=handle, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-            start_new_session=True,
+            start_new_session=True, env=env,
         )
     deadline = time.time() + 240
     while time.time() < deadline:
