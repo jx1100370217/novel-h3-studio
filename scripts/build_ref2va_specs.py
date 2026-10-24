@@ -52,7 +52,7 @@ def main() -> int:
             pos = previs_cast.get(asset, {})
             cast.append(CastMember(
                 asset_id=asset, name=info['name'], definition=info['definition'],
-                image_path=info['image_path'], instances=1,
+                image_path=info['image_path'], instances=1, kind=info.get('kind', 'character'),
                 x=float(pos.get('x', 0.0)), y=float(pos.get('y', 0.0)),
                 pose=pos.get('pose', 'standing'),
             ))

@@ -113,6 +113,7 @@ def _build_graph(
     *,
     prompt: str,
     uploaded: list[tuple[str, str]],
+    audio_uploaded: list[tuple[str, str]],
     width: int,
     height: int,
     frames: int,
@@ -191,6 +192,10 @@ def _build_graph(
         node_id = str(100 + index)
         nodes[node_id] = {"class_type": "LoadImage", "inputs": {"image": staged_name}}
         nodes["6"]["inputs"][f"ref_images.ref_image_{index}"] = [node_id, 0]
+    for index, (staged_name, _asset_id) in enumerate(audio_uploaded):
+        node_id = str(200 + index)
+        nodes[node_id] = {"class_type": "LoadAudio", "inputs": {"audio": staged_name}}
+        nodes["6"]["inputs"][f"ref_audios.ref_audio_{index}"] = [node_id, 0]
     return nodes
 
 
@@ -228,6 +233,12 @@ class VdnH3VideoTool(BaseTool):
             },
             "output_path": {"type": "string", "description": "Destination .mp4 path"},
             "audio_output_path": {"type": "string", "description": "Optional .flac destination"},
+            "audio_references": {
+                "type": "array", "maxItems": 3,
+                "items": {"type": "object", "required": ["path"], "properties": {
+                    "path": {"type": "string"}, "asset_id": {"type": "string"}}},
+                "description": "Optional standalone audio references (max 3), in the same order as <Audio 1..N> in the prompt.",
+            },
             "width": {"type": "integer", "default": 1024},
             "height": {"type": "integer", "default": 576},
             "duration_seconds": {"type": "number", "default": 5.166666},
@@ -264,7 +275,7 @@ class VdnH3VideoTool(BaseTool):
     )
     retry_policy = RetryPolicy(max_retries=1, retryable_errors=["timed out", "did not complete"])
     resume_support = ResumeSupport.FROM_START
-    idempotency_key_fields = ["prompt", "reference_images", "duration_seconds", "seed", "width", "height"]
+    idempotency_key_fields = ["prompt", "reference_images", "audio_references", "duration_seconds", "seed", "width", "height"]
 
     side_effects = ["writes an mp4 (and optional flac) to disk", "occupies the local GPU"]
     best_for = [
@@ -298,11 +309,17 @@ class VdnH3VideoTool(BaseTool):
             seed = int(time.time()) % 2_000_000_000
 
         references = inputs.get("reference_images") or []
+        audio_references = inputs.get("audio_references") or []
+        if len(audio_references) > 3:
+            return ToolResult(success=False, error="audio_references supports at most 3 files")
         if not references:
             return ToolResult(success=False, error="reference_images must contain at least one image")
         for ref in references:
             if not Path(ref["path"]).expanduser().is_file():
                 return ToolResult(success=False, error=f"Reference image not found: {ref.get('path')}")
+        for ref in audio_references:
+            if not Path(ref["path"]).expanduser().is_file():
+                return ToolResult(success=False, error=f"Audio reference not found: {ref.get('path')}")
 
         base = str(inputs.get("comfy_url") or "http://127.0.0.1:8191").rstrip("/")
         prefix = str(inputs.get("filename_prefix") or f"openmontage/vdn_h3/{output_path.stem}")
@@ -319,12 +336,19 @@ class VdnH3VideoTool(BaseTool):
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
             staged = _upload_image(base, path, f"{digest}{path.suffix.lower()}")
             uploaded.append((staged, str(ref.get("asset_id") or path.stem)))
+        audio_uploaded: list[tuple[str, str]] = []
+        for ref in audio_references:
+            path = Path(ref["path"]).expanduser().resolve()
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            staged = _upload_image(base, path, f"{digest}{path.suffix.lower()}")
+            audio_uploaded.append((staged, str(ref.get("asset_id") or path.stem)))
 
         models = dict(DEFAULT_MODELS)
         models.update(inputs.get("models") or {})
         nodes = _build_graph(
             prompt=inputs["prompt"],
             uploaded=uploaded,
+            audio_uploaded=audio_uploaded,
             width=int(inputs.get("width", 1024)),
             height=int(inputs.get("height", 576)),
             frames=frames,
@@ -367,6 +391,7 @@ class VdnH3VideoTool(BaseTool):
             "seed": int(seed),
             "sha256": sha,
             "references": [asset for _staged, asset in uploaded],
+            "audio_references": [asset for _staged, asset in audio_uploaded],
         }
         if audio_path:
             data["audio_output_path"] = str(audio_path)

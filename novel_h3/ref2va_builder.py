@@ -26,6 +26,7 @@ class CastMember:
     definition: str
     image_path: str
     instances: int = 1
+    kind: str = 'character'
     x: float = 0.0
     y: float = 0.0
     pose: str = 'standing'
@@ -118,14 +119,20 @@ def build_spec(shot: LockedShot) -> dict:
         subject[item.asset_id] = label
         visuals.append({
             'asset_id': item.asset_id, 'subject': label, 'picture': picture,
-            'kind': 'character', 'instances': int(item.instances), 'visible': True,
+            'kind': item.kind, 'instances': int(item.instances), 'visible': True,
             'generation_path': item.image_path,
         })
         defs.append(f'{label} is {item.name} in {picture}; {item.definition}')
-        retention.append(
-            f'{label} (appears in [Shot 1]): fully_preserved - preserve face, age, hair, costume and '
-            f'identity; {'exactly one body, appearing once' if item.instances == 1 else f'exactly {item.instances} distinct bodies, each appearing once'}.'
-        )
+        if item.kind == 'prop':
+            retention.append(
+                f'{label} (appears in [Shot 1]): attribute_transfer - transfer only the hand/forearm '
+                f'appearance; do not create a face, head, torso or full body from this reference.'
+            )
+        else:
+            retention.append(
+                f'{label} (appears in [Shot 1]): fully_preserved - preserve face, age, hair, costume and '
+                f'identity; {'exactly one body, appearing once' if item.instances == 1 else f'exactly {item.instances} distinct bodies, each appearing once'}.'
+            )
     scene_label = f'<Subject {len(shot.cast) + 1}>'
     scene_picture = f'<Picture {len(shot.cast) + 1}>'
     visuals.append({
@@ -142,7 +149,7 @@ def build_spec(shot: LockedShot) -> dict:
     if shot.previs_path:
         previs_label = f'<Subject {len(shot.cast) + 2}>'
         previs_picture = f'<Picture {len(shot.cast) + 2}>'
-        count = sum(item.instances for item in shot.cast) + len(shot.extras)
+        count = sum(item.instances for item in shot.cast if item.kind == 'character') + len(shot.extras)
         visuals.append({
             'asset_id': f'previs_{shot.shot_id}', 'subject': previs_label, 'picture': previs_picture,
             'kind': 'prop', 'visible': True, 'generation_path': shot.previs_path,
@@ -200,7 +207,7 @@ def build_spec(shot: LockedShot) -> dict:
         detail = shot.open_state + ' ' + detail
     if shot.close_state:
         detail = detail.rstrip() + ' ' + shot.close_state
-    count = sum(item.instances for item in shot.cast) + len(shot.extras)
+    count = sum(item.instances for item in shot.cast if item.kind == 'character') + len(shot.extras)
     if shot.blocking:
         blocking = 'Blocking lock: ' + shot.blocking
     else:
