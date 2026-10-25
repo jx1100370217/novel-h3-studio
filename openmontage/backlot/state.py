@@ -455,8 +455,9 @@ def _build_storyboard(
         if live and live.get("path"):
             live_entry = _asset_entry(project_dir, {
                 "id": f"live_{sid}", "type": "video", "scene_id": sid,
-                "path": live.get("path"), "source_tool": "fastvideo_h3_video",
-                "model": "FastH3-Omni NVFP4 QAD",
+                "path": live.get("path"),
+                "source_tool": live.get("source_tool") or "fastvideo_h3_video",
+                "model": live.get("model") or "FastH3-Omni NVFP4 QAD",
                 "duration_seconds": (
                     max(0, (scene.get("end_seconds") or 0) - (scene.get("start_seconds") or 0))
                     if scene.get("end_seconds") is not None and scene.get("start_seconds") is not None else None
