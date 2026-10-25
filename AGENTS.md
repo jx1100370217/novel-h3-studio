@@ -88,6 +88,12 @@ not in the core code.
   before the reveal. Verify native line onset with VAD/ASR; if the model places
   the line late, retime the native audio (mute the late span and insert the
   approved voice line) or re-render with an explicit early line timing.
+- Kneeling/supplicant blocking must face the superior or high desk, with the
+  back/profile toward camera; never let the character kneel facing away or
+  sideways from the person being addressed.
+- Wake/reveal handoffs must match the previous close state. If A23 ends sitting
+  upright with the mother touching his cheek, A24 must open sitting upright,
+  eyes open; never return to lying down or stage a second awakening.
 - The assets stage runs `scripts/audit_cast.py` (or the global `cast_audit`
   module) and human-reviews every suspect frame; face-count false positives
   from statues, portraits and animals must be recorded as such.
