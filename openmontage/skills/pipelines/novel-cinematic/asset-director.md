@@ -21,8 +21,8 @@
 | Tool | Use | Notes |
 |---|---|---|
 | `fastvideo_h3_video` | **Default.** Render each shot | Local FastH3-Omni NVFP4 QAD on the FastVideo service; strict Ref2VA; native H3 dialogue + SFX |
+| `vdn_h3_video` | Comparison / explicit fallback only | Do **not** use as the default: VDN-H3 Turbo can add unexpected native speech and is not delivery-approved unless the user explicitly chooses it. |
 | `blender_previs` | **Multi-person default.** Render a silent gray blocking guide | Locks body count, screen position, pose and camera; never supplies final appearance |
-| `vdn_h3_video` | Fallback only | Local MiniMax H3 + VDN Turbo on ComfyUI; use only when the FastVideo service is unavailable or a shot explicitly needs VDN |
 | `codex_image` | New references, title art, posters | Codex/ChatGPT subscription; no API key |
 | `image_selector` | Optional provider fallback | Only if `codex_image` is unavailable |
 

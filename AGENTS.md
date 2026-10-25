@@ -19,7 +19,9 @@ OpenMontage pipeline: manifests + stage director skills + checkpoints + tools.
 ## Defaults
 
 - Video engine: **FastH3-Omni NVFP4 QAD** (FastVideo service on
-  `127.0.0.1:8195`, 8 steps).
+  `127.0.0.1:8195`, 8 steps). This is the **default and required delivery engine**.
+  VDN-H3 Turbo is comparison/fallback only; do not switch the default without an
+  explicit user decision.
 - Resolution: **1344x768 @ 24fps** (768P, official FastVideo canvas limit).
 - Prompts: strict six-section **Ref2VA** English format; Chinese only inside
   `<d>[Chinese] ...</d>` dialogue.
