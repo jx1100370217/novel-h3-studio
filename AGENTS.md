@@ -81,6 +81,13 @@ not in the core code.
   silhouettes, portraits or background copies.
 - Every cut with an action/state change records `open_state` / `close_state`
   handoffs in the authoring data.
+- Body-part shots (hand/forearm inserts) must use a body-part take and a
+  body-part reference. Never substitute a full-body clip or a close-up that
+  reveals the actor's face; verify the take with the face audit.
+- Entrance/off-screen dialogue must be timed before the character enters or
+  before the reveal. Verify native line onset with VAD/ASR; if the model places
+  the line late, retime the native audio (mute the late span and insert the
+  approved voice line) or re-render with an explicit early line timing.
 - The assets stage runs `scripts/audit_cast.py` (or the global `cast_audit`
   module) and human-reviews every suspect frame; face-count false positives
   from statues, portraits and animals must be recorded as such.
