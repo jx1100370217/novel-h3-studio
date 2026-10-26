@@ -50,6 +50,7 @@ if __name__ == '__main__':
     os.environ['FASTVIDEO_LAYERWISE_RESIDENT_BLOCKS'] = '0'
     os.environ['FASTVIDEO_H3_FFN_CHUNK_TOKENS'] = '8192'
     os.environ['FASTVIDEO_H3_PINNED_SWAP'] = '0'
+    os.environ.setdefault('TORCHINDUCTOR_CACHE_DIR', str(REPO / 'runtime/torchinductor-cache'))
     import yaml
     source = REPO / 'runtime/FastVideo/examples/serving/openai_fasth3_omniref_rtx5090.yaml'
     recipe = yaml.safe_load(source.read_text())

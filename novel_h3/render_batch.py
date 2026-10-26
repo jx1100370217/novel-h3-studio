@@ -50,6 +50,7 @@ def start_service(service_project: Path, log_path: Path) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env.setdefault('PYTORCH_CUDA_ALLOC_CONF', 'expandable_segments:True')
+    env.setdefault('TORCHINDUCTOR_CACHE_DIR', str(ROOT / 'runtime/torchinductor-cache'))
     with log_path.open('ab') as handle:
         subprocess.Popen(
             [str(ROOT / 'runtime/fastvideo-venv/bin/python'), str(ROOT / 'start_fastvideo.py'),
@@ -57,12 +58,12 @@ def start_service(service_project: Path, log_path: Path) -> None:
             cwd=ROOT, stdout=handle, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
             start_new_session=True, env=env,
         )
-    deadline = time.time() + 240
+    deadline = time.time() + 1200
     while time.time() < deadline:
         if health(DEFAULT_API):
             return
         time.sleep(2)
-    raise TimeoutError('FastVideo service did not become healthy within 240s')
+    raise TimeoutError('FastVideo service did not become healthy within 1200s')
 
 
 def _sha256(path: Path) -> str:
