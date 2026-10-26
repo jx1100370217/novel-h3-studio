@@ -14,6 +14,7 @@ import hashlib
 import json
 import shutil
 import socket
+import subprocess
 import sys
 import time
 import urllib.error
@@ -43,6 +44,39 @@ def load_spec(path: Path) -> dict:
     return spec
 
 
+def prepare_video_reference(root: Path, ref: dict) -> str:
+    """Return a short tail clip for a previous-take reference.
+
+    The trim is refreshed whenever the source take changes, so a sequential
+    rebuild always continues from the latest rendered shot instead of a stale
+    copy made at spec-build time.
+    """
+    source = Path(ref['path'])
+    if not source.is_absolute():
+        source = root / source
+    source = source.resolve()
+    if not source.is_file():
+        raise FileNotFoundError(f'video reference is missing: {source}')
+    tail = float(ref.get('tail_seconds') or 0)
+    if tail <= 0:
+        return str(source)
+    cache_dir = Path(ref.get('cache_dir') or 'runtime/video-refs')
+    if not cache_dir.is_absolute():
+        cache_dir = root / cache_dir
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    dest = cache_dir / f"{ref['asset_id']}_tail_{int(round(tail * 1000))}.mp4"
+    if dest.exists() and dest.stat().st_mtime >= source.stat().st_mtime:
+        return str(dest)
+    subprocess.run(
+        ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+         '-sseof', f'-{tail:g}', '-i', str(source),
+         '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18',
+         '-pix_fmt', 'yuv420p', '-movflags', '+faststart', str(dest)],
+        check=True,
+    )
+    return str(dest)
+
+
 def build_payload(root: Path, spec: dict, *, width: int | None = None, height: int | None = None,
                   require_voice_bindings: bool = True) -> dict:
     root = Path(root).resolve()
@@ -52,12 +86,18 @@ def build_payload(root: Path, spec: dict, *, width: int | None = None, height: i
         gp = Path(ref['generation_path'])
         ref['generation_path'] = str(gp.relative_to(root)) if gp.is_absolute() else str(gp)
         visuals.append(ref)
+    videos = []
+    for ref in spec.get('videos', []):
+        ref = dict(ref)
+        if ref.get('path'):
+            ref['path'] = prepare_video_reference(root, ref)
+        videos.append(ref)
     voices = spec.get('voices', [])
     spoken = spec.get('spoken_lines', [])
     sections = spec['sections']
     prompt = '\n\n'.join(k + ':\n' + v.strip() for k, v in sections.items())
     prompt = with_population(prompt, visuals, spec.get('additional_visible_people', []))
-    validate(prompt, visuals, voices, spoken, duration_seconds=spec['frames'] / 24,
+    validate(prompt, visuals, voices, spoken, videos=videos, duration_seconds=spec['frames'] / 24,
              single_shot=True, no_music=True,
              additional_visible_people=spec.get('additional_visible_people', []),
              require_population=True, require_voice_bindings=require_voice_bindings)
@@ -65,6 +105,7 @@ def build_payload(root: Path, spec: dict, *, width: int | None = None, height: i
         'prompt': prompt,
         'visuals': visuals,
         'voices': voices,
+        'videos': videos,
         'shot': {'spoken_lines': spoken,
                  'additional_visible_people': spec.get('additional_visible_people', [])},
         'frames': int(spec['frames']),
@@ -87,16 +128,16 @@ def _file_sha256(path: str) -> str:
 
 
 def reference_sha256(payload: dict) -> str:
-    """Hash the actual image/audio reference files, not just their prompt labels.
+    """Hash the actual image/video/audio reference files, not just their prompt labels.
 
     A cached take is reusable only when the prompt, canvas, frame count, seed
     AND the exact reference media are unchanged. This prevents a regenerated
     voice reference or blocking guide from silently reusing an old take.
     """
     items = []
-    for bucket in ('image_reference', 'audio_reference'):
+    for bucket in ('image_reference', 'video_reference', 'audio_reference'):
         for ref in payload.get(bucket, []):
-            url = ref.get('image_url') or ref.get('audio_url') or ''
+            url = ref.get('image_url') or ref.get('video_url') or ref.get('audio_url') or ''
             items.append([bucket, url, _file_sha256(url) if url and Path(url).is_file() else 'missing'])
     return hashlib.sha256(json.dumps(sorted(items), ensure_ascii=False).encode('utf-8')).hexdigest()
 
@@ -173,6 +214,7 @@ def run_shot(root: Path, project: Path, spec: dict, *, api: str, force: bool = F
         'sha256': hashlib.sha256(native.read_bytes()).hexdigest(),
         'prompt_sha256': prompt,
         'reference_sha256': ref_sha,
+        'video_reference_count': len(payload.get('video_reference', [])),
         'wall_seconds': round(time.time() - started, 2),
     }
     receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2), encoding='utf-8')

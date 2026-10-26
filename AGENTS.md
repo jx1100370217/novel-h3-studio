@@ -81,6 +81,21 @@ not in the core code.
   silhouettes, portraits or background copies.
 - Every cut with an action/state change records `open_state` / `close_state`
   handoffs in the authoring data.
+- Same-scene continuation shots default to the previous story-state shot's
+  silent 2–4 s tail as a `<Video N>` continuation reference (`video
+  continuation` in the summary). Insert shots may anchor to the last
+  story-state shot instead of the immediately preceding insert. The video
+  reference must preserve only the ending pose, hand/prop position, costume,
+  light and screen direction; it must not copy framing, cuts, camera movement,
+  old dialogue or audio, and it never replaces the `open_state` / `close_state`
+  text contract. A declared `<Video N>` without a real `video_reference` in the
+  request is a hard validation error.
+- A video reference does not guarantee the target's first frame. If a take
+  still stages an earlier state (for example a second wake-up or a lie-down
+  before sitting), trim the lead-in at the first frame that matches
+  `open_state`, retime the native line if it fell inside the removed span, and
+  record the trim in the take metadata. Do not accept the earlier state just
+  because the rest of the take is usable.
 - Body-part shots (hand/forearm inserts) must use a body-part take and a
   body-part reference. Never substitute a full-body clip or a close-up that
   reveals the actor's face; verify the take with the face audit.

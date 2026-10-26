@@ -11,6 +11,7 @@ alwaysApply: true
 - 六段正文用英文。对白、歌词在 `<d>[Language] 原文</d>` 内保留原语言；确实可见的文字使用英文双引号。不得把中文剧情摘要或导演备注拼进模型正文。
 - 用 `{subject:asset_id}`、`{picture:asset_id}`、`{audio:asset_id}`、`{video:spatial_guide}` 绑定真实输入；编号由编译器按实际上传顺序生成。未上传的图片、音频、视频不得引用。
 - `summary` 按真实用途选择 `[reference generation]`、`audio reference`、`audio reuse`、`keyframe completion`、`video editing`、`video continuation`，多类型用 ` + ` 连接。引用视频运镜不等于编辑原视频；没有音频输入不能虚构声音复用。
+- 同一场景的续接镜默认把上一剧情状态镜的**静默尾段**（2–4 秒，不含原音频）作为 `<Video N>` 参考视频，summary 用 `video continuation`；插入镜/特写可以回退到最近一个承载剧情状态的镜头，不能机械使用紧邻的插入镜。参考视频只保留结尾姿态、手与道具位置、服装、光向和屏幕方向，retention 用 `partially_preserved` 并明确禁止复制构图、切点、运镜、旧对白和音频。参考视频不能替代 `open`/`close` 状态文本。
 - 保留分析注明实际出现的 `[Shot N]`，视觉用 `fully_preserved`、`partially_preserved`、`attribute_transfer`、`weak_reference`，音频用 `fully_copy`、`partially_copy`、`reference`、`weak_reference`。此段不分配 `(Sx)`。
 - 详细描述先写英文风格开场，再写 `[Shot 1]`；后续镜头用 `[Shot N] At MM:SS.mmm`，切点及对白时间不得超出实际时长。
 - 明确构图、人物及道具位置、场景与光线、动作首尾、运镜、声音及素材的实际作用时刻。生成任务通常350–500英文词；对白密集时以完整时间线为先，不机械凑数、不截断对白或删掉因果。

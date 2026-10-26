@@ -48,6 +48,41 @@ class VoiceBinding:
 
 
 @dataclass(frozen=True)
+class VideoRef:
+    """A source clip used as a continuation or motion reference.
+
+    ``asset_id`` is the project-level identity (for example the previous shot
+    id). ``path`` must point at a real clip under the repository root.
+    ``retention`` follows the official Ref2VA visual markers.
+    """
+    asset_id: str
+    path: str
+    definition: str
+    retention: str = 'partially_preserved'
+    retention_detail: str = (
+        'preserve the ending state, identity, costume, hand and prop position, light direction '
+        'and screen direction; do not copy the reference framing, cut points, camera movement, '
+        'old dialogue or audio'
+    )
+    task_type: str = 'video continuation'
+    tail_seconds: float = 0.0
+    cache_dir: str = 'runtime/video-refs'
+
+
+@dataclass(frozen=True)
+class AnchorImage:
+    """A concrete first-frame/keyframe anchor, not a style reference."""
+    asset_id: str
+    path: str
+    definition: str
+    retention: str = 'fully_preserved'
+    retention_detail: str = (
+        'the target video starts exactly on this composition; preserve the opening pose, '
+        'costume, prop placement, light direction and screen direction'
+    )
+
+
+@dataclass(frozen=True)
 class ShotLine:
     speaker: str
     text: str
@@ -67,6 +102,8 @@ class LockedShot:
     scene: SceneRef
     extras: tuple[str, ...] = ()
     voices: tuple[VoiceBinding, ...] = ()
+    videos: tuple[VideoRef, ...] = ()
+    anchor_image: AnchorImage | None = None
     lines: tuple[ShotLine, ...] = ()
     previs_path: str | None = None
     open_state: str = ''
@@ -165,6 +202,41 @@ def build_spec(shot: LockedShot) -> dict:
             f'pose, screen direction and camera; do not transfer gray materials or mannequin appearance.'
         )
 
+    anchor_label = anchor_picture = None
+    if shot.anchor_image:
+        index = len(shot.cast) + (3 if shot.previs_path else 2)
+        anchor_label, anchor_picture = f'<Subject {index}>', f'<Picture {index}>'
+        visuals.append({
+            'asset_id': shot.anchor_image.asset_id, 'subject': anchor_label,
+            'picture': anchor_picture, 'kind': 'prop', 'visible': True,
+            'generation_path': shot.anchor_image.path,
+        })
+        defs.append(
+            f'{anchor_label} and {anchor_picture} are the exact first-frame composition for [Shot 1]: '
+            f'{shot.anchor_image.definition} It is a concrete frame anchor, not a style reference.'
+        )
+        retention.append(
+            f'{anchor_label} (appears in [Shot 1]): {shot.anchor_image.retention} - '
+            f'{shot.anchor_image.retention_detail}.'
+        )
+
+    video_payload: list[dict] = []
+    video_defs: list[str] = []
+    video_ret: list[str] = []
+    allowed_retention = ('fully_preserved', 'partially_preserved', 'attribute_transfer', 'weak_reference')
+    for i, ref in enumerate(shot.videos, 1):
+        if ref.retention not in allowed_retention:
+            raise ValueError(f'{shot.shot_id}: invalid video retention {ref.retention!r}')
+        if ref.task_type not in ('video continuation', 'video editing', 'reference generation'):
+            raise ValueError(f'{shot.shot_id}: invalid video task_type {ref.task_type!r}')
+        label = f'<Video {i}>'
+        video_payload.append({'asset_id': ref.asset_id, 'video': label, 'path': ref.path,
+                              'tail_seconds': ref.tail_seconds, 'cache_dir': ref.cache_dir})
+        video_defs.append(f'{label} is {ref.definition}')
+        video_ret.append(f'{label} (appears in [Shot 1]): {ref.retention} - {ref.retention_detail}.')
+    defs.extend(video_defs)
+    retention.extend(video_ret)
+
     lines = sorted(shot.lines, key=lambda item: item.offset)
     by_role = {voice.role: voice for voice in shot.voices}
     speaker_order = list(dict.fromkeys(line.speaker for line in lines))
@@ -203,6 +275,22 @@ def build_spec(shot: LockedShot) -> dict:
     retention.extend(voice_ret)
 
     detail = shot.visual_core
+    if anchor_picture:
+        detail = (
+            f'The first frame of the target video is exactly {anchor_picture}: open on that composition, '
+            f'with the same pose, costume, prop placement, light and screen direction; never open on a '
+            f'lying, standing or off-screen state. '
+            + detail
+        )
+    if video_payload:
+        detail = (
+            'Continuity source: the target video opens from the exact ending state of '
+            + ', '.join(item['video'] for item in video_payload)
+            + '. Match the ending pose, hand and prop position, costume, light direction and screen '
+              'direction; do not copy the reference framing, cut points, camera movement, old dialogue '
+              'or audio. '
+            + detail
+        )
     if shot.open_state:
         detail = shot.open_state + ' ' + detail
     if shot.close_state:
@@ -258,7 +346,16 @@ def build_spec(shot: LockedShot) -> dict:
          'speaker_subject': subject.get(line.subject_asset) if line.subject_asset else None}
         for line in lines
     ]
-    tasks = '[reference generation + audio reference]' if voice_payload else '[reference generation]'
+    task_types = ['reference generation']
+    if any(ref.task_type == 'video continuation' for ref in shot.videos):
+        task_types.insert(0, 'video continuation')
+    elif any(ref.task_type == 'video editing' for ref in shot.videos):
+        task_types.insert(0, 'video editing')
+    if shot.anchor_image:
+        task_types.insert(0, 'keyframe completion')
+    if voice_payload:
+        task_types.append('audio reference')
+    tasks = '[' + ' + '.join(dict.fromkeys(task_types)) + ']'
     sections = {
         'subject_definitions': '\n'.join(defs),
         'summary': f'{tasks} One continuous photorealistic Chinese period drama shot. {shot.title}.',
@@ -272,11 +369,13 @@ def build_spec(shot: LockedShot) -> dict:
     }
     # Official validation includes the population contract and speaker/audio
     # ownership checks. Fail here, before the FastVideo submission.
-    render(sections, visuals, voice_payload, spoken_lines, duration_seconds=shot.frames / 24,
+    render(sections, visuals, voice_payload, spoken_lines, videos=video_payload,
+           duration_seconds=shot.frames / 24,
            single_shot=True, no_music=True, additional_visible_people=shot.extras)
     return {
         'shot': shot.shot_id, 'seed': shot.seed, 'width': shot.width, 'height': shot.height,
         'frames': shot.frames, 'visuals': visuals, 'voices': voice_payload,
+        'videos': video_payload,
         'spoken_lines': spoken_lines, 'additional_visible_people': list(shot.extras),
         'sections': sections,
     }

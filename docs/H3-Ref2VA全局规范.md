@@ -13,7 +13,7 @@
 5. `overall_soundscape`：环境与物理声音。
 6. `non_diegetic_music`：默认 `N/A`。
 
-例如 `{subject:actor}` 的身份源写成 `{picture:actor}`，而 `{audio:actor}` 只有真正上传声线参考时才能使用。编译器按实际图片/音频顺序生成 `<Subject N>`、`<Picture N>` 和 `<Audio N>`，不要求编剧猜编号。白模视频使用 `{video:spatial_guide}`；静默白模不产生声音参考。
+例如 `{subject:actor}` 的身份源写成 `{picture:actor}`，而 `{audio:actor}` 只有真正上传声线参考时才能使用。编译器按实际图片/视频/音频顺序生成 `<Subject N>`、`<Picture N>`、`<Video N>` 和 `<Audio N>`，不要求编剧猜编号。白模视频使用 `{video:spatial_guide}`；静默白模不产生声音参考。
 
 描述正文使用英文；角色对白和歌词在 `<d>[Chinese] 原文</d>` 等语言标签内保留原文，可见场景文字用英文双引号，例如 `A sign reading "营业中" hangs by the door.`。实际发声者从 `(S1)` 开始按首次发声顺序编号，音频定义复用对应角色的编号。
 
@@ -28,6 +28,18 @@
 旧编排器的默认结构会补齐官方任务前缀、保留关系和风格开场，然后同样接受公共校验；新内容仍应按工作单完整编写六段，不能把旧模板当作省略动作与声音设计的理由。
 
 历史请求与媒体保持原样，重新提交的新请求执行当前规则。程序校验不能判断画面是否真的出现了动作、声音是否正确或观众是否看懂故事；这些仍须审片。
+
+## 跨镜连续性视频参考
+
+同一场景的续接镜默认使用上一剧情状态镜的静默尾段作为 `<Video N>`，让 H3 从真实的结尾姿态、手与道具位置、服装、光向和屏幕方向继续，而不是只靠文字猜测。插入镜和特写可以回退到最近一个承载剧情状态的镜头；例如手部特写之后接人物反应镜，参考视频应取特写之前的人物状态镜，而不是纸张特写本身。
+
+- 默认截取尾段 2–4 秒，去掉原音频；整段参考容易让模型复制构图和运镜。
+- `summary` 使用 `[video continuation + reference generation]`（有对白时再加 `audio reference`）。
+- `retention_analysis` 使用 `partially_preserved` 或 `attribute_transfer`，只保留结尾状态、身份、服装、手与道具、光向和屏幕方向；明确写出不复制构图、切点、运镜、旧对白和音频。
+- `detailed_description` 必须在 `[Shot 1]` 中自然引用 `<Video N>`，并写清目标镜从该结尾状态如何继续。
+- 参考视频不能替代 `open`/`close` 状态文本；两者必须一致，文字仍是审片和校验的主依据。
+- 视频参考不保证目标首帧。若 take 仍从更早状态起拍（例如第二次醒来、先躺下再坐起），在第一个符合 `open_state` 的帧裁掉 lead-in，重定时落在裁除区间内的原生台词，并把裁剪记录写进 take 元数据；不要因为后段可用就接受错误开头。
+- 项目级开关与路径放在 `authoring.json` 的 `continuity`；逐镜可用 `reference_video` 覆盖为某个镜头 id、显式路径或 `false`。构建器写入 `videos`，`novel_h3.fastvideo_batch` 在提交前刷新尾段并发送 `video_reference`。
 
 ## 可见人物与场景参考
 

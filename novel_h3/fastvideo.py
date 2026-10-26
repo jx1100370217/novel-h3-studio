@@ -77,17 +77,22 @@ def model_lock(root, cfg):
 def request_payload(root, request, *, require_voice_bindings=True):
     root = Path(root)
     from .ref2va import validate
+    videos = request.get('videos', [])
     validate(request['prompt'], request['visuals'], request['voices'], request['shot'].get('spoken_lines', []),
+             videos=videos,
              duration_seconds=request['frames'] / 24, single_shot=True, no_music=True,
              additional_visible_people=request['shot'].get('additional_visible_people', []), require_population=True,
              require_voice_bindings=require_voice_bindings)
     if request['generation']['width'] * request['generation']['height'] > 1032192:
         raise ValueError('FastVideo MiniMax-H3 canvas exceeds the official 1032192-pixel limit')
-    return {'model': 'fasth3-omni-nvfp4-qad', 'task': 'ref2va', 'prompt': request['prompt'],
-            'width': request['generation']['width'], 'height': request['generation']['height'],
-            'num_frames': request['frames'], 'fps': 24, 'num_inference_steps': 8,
-            'guidance_scale': 1.0, 'seed': request['seed'],
-            'image_reference': [{'image_url': str(inside(root, ref['generation_path']))}
-                                for ref in request['visuals']],
-            'audio_reference': [{'audio_url': str(inside(root, ref['path']))}
-                                for ref in request['voices']]}
+    payload = {'model': 'fasth3-omni-nvfp4-qad', 'task': 'ref2va', 'prompt': request['prompt'],
+               'width': request['generation']['width'], 'height': request['generation']['height'],
+               'num_frames': request['frames'], 'fps': 24, 'num_inference_steps': 8,
+               'guidance_scale': 1.0, 'seed': request['seed'],
+               'image_reference': [{'image_url': str(inside(root, ref['generation_path']))}
+                                   for ref in request['visuals']],
+               'audio_reference': [{'audio_url': str(inside(root, ref['path']))}
+                                   for ref in request['voices']]}
+    if videos:
+        payload['video_reference'] = [{'video_url': str(inside(root, ref['path']))} for ref in videos]
+    return payload

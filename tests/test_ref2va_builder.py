@@ -1,8 +1,11 @@
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
-from novel_h3.ref2va_builder import CastMember, LockedShot, SceneRef, ShotLine, VoiceBinding, build_spec
+from novel_h3.ref2va_builder import (
+    AnchorImage, CastMember, LockedShot, SceneRef, ShotLine, VideoRef, VoiceBinding, build_spec,
+)
 from novel_h3.voice_refs import VoiceRef
 
 
@@ -43,6 +46,44 @@ class Ref2VABuilderTests(unittest.TestCase):
             voices = (VoiceBinding('zhang', VoiceRef('zhang', 'voice_zhang', root / 'zhang.wav'), 'zhang_sheng'),)
             with self.assertRaisesRegex(ValueError, 'no voice reference'):
                 build_spec(self.shot(voices))
+
+    def test_builder_binds_previous_video_as_continuation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            voices = (
+                VoiceBinding('zhang', VoiceRef('zhang', 'voice_zhang', root / 'zhang.wav'), 'zhang_sheng'),
+                VoiceBinding('songtao', VoiceRef('songtao', 'voice_songtao', root / 'song.wav'), 'songtao'),
+            )
+            shot = replace(self.shot(voices), videos=(
+                VideoRef('prev_A12', 'projects/p/takes_v5/A12/native.mp4',
+                         'the final 3 seconds of shot A12, the immediately preceding shot in the same scene'),
+            ))
+            spec = build_spec(shot)
+            self.assertEqual(spec['videos'][0]['video'], '<Video 1>')
+            self.assertIn('<Video 1> is the final 3 seconds', spec['sections']['subject_definitions'])
+            self.assertIn('<Video 1> (appears in [Shot 1]): partially_preserved', spec['sections']['retention_analysis'])
+            self.assertIn('Continuity source: the target video opens from the exact ending state of <Video 1>',
+                          spec['sections']['detailed_description'])
+            self.assertTrue(spec['sections']['summary'].startswith(
+                '[video continuation + reference generation + audio reference]'))
+
+    def test_builder_binds_keyframe_anchor_for_sitting_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            voices = (
+                VoiceBinding('zhang', VoiceRef('zhang', 'voice_zhang', root / 'zhang.wav'), 'zhang_sheng'),
+                VoiceBinding('songtao', VoiceRef('songtao', 'voice_songtao', root / 'song.wav'), 'songtao'),
+            )
+            anchor = AnchorImage('A06_firstframe', 'projects/p/firstframe.jpg',
+                                 'Song Tao already sitting upright on the edge of the bed with the summons.')
+            spec = build_spec(replace(self.shot(voices), anchor_image=anchor))
+            self.assertIn('<Picture 4>', spec['sections']['subject_definitions'])
+            self.assertIn('<Subject 4> (appears in [Shot 1]): fully_preserved',
+                          spec['sections']['retention_analysis'])
+            self.assertIn('The first frame of the target video is exactly <Picture 4>',
+                          spec['sections']['detailed_description'])
+            self.assertTrue(spec['sections']['summary'].startswith(
+                '[keyframe completion + reference generation + audio reference]'))
 
 
 if __name__ == '__main__':
