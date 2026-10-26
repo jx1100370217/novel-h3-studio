@@ -48,6 +48,58 @@ def _read_json(path: Path) -> Optional[dict]:
         return None
 
 
+_ROUND_RE = re.compile(r"(?i)(?:^|[/_.-])v(\d+)(?:$|[/_.-])")
+
+
+def _round_from_value(value: Any) -> Optional[str]:
+    """Normalize an arbitrary round marker (``v7``, ``..._v7_...``) to ``vN``."""
+    if value is None:
+        return None
+    match = _ROUND_RE.search(str(value))
+    return f"v{match.group(1)}" if match else None
+
+
+def _current_round(
+    project_dir: Path,
+    artifacts: dict[str, dict],
+    checkpoints: dict[str, dict],
+) -> Optional[str]:
+    """Latest active production round, derived from data — never hardcoded.
+
+    Priority: the assets checkpoint's progress/metadata, then downstream
+    artifact metadata, then the highest ``board_media/vN`` or ``exports/*vN*``
+    path on disk. Returns ``None`` when the project has no version marker, so
+    the board can render a version-neutral label.
+    """
+    ordered: list[Any] = []
+    assets = checkpoints.get("assets") or {}
+    assets_meta = assets.get("metadata") or {}
+    progress = assets_meta.get("partial_progress") or {}
+    ordered.extend([progress.get("round"), assets_meta.get("round")])
+    for name in ("asset_manifest", "edit_decisions", "render_report",
+                 "final_review", "publish_log"):
+        metadata = (artifacts.get(name) or {}).get("metadata") or {}
+        ordered.append(metadata.get("round"))
+    for checkpoint in sorted(checkpoints.values(),
+                             key=lambda item: item.get("_mtime", 0), reverse=True):
+        metadata = checkpoint.get("metadata") or {}
+        ordered.extend([metadata.get("round"),
+                        (metadata.get("partial_progress") or {}).get("round")])
+    for value in ordered:
+        round_name = _round_from_value(value)
+        if round_name:
+            return round_name
+
+    versions: list[int] = []
+    for media_dir in (project_dir / "board_media").glob("v*"):
+        if media_dir.is_dir() and (match := re.fullmatch(r"v(\d+)", media_dir.name)):
+            versions.append(int(match.group(1)))
+    for export in (project_dir / "exports").glob("*"):
+        if match := _ROUND_RE.search(export.name):
+            versions.append(int(match.group(1)))
+    return f"v{max(versions)}" if versions else None
+
+
 def _rel(project_dir: Path, path: Path) -> str:
     """Project-relative POSIX path for media URLs."""
     try:
@@ -411,7 +463,7 @@ def _build_storyboard(
     current_scene: Optional[str] = None,
     assets_in_progress: bool = False,
 ) -> Optional[dict]:
-    """Scene cards: scene_plan × script × asset_manifest × live v5 takes."""
+    """Scene cards: scene_plan × script × asset_manifest × live round takes."""
     live_assets = live_assets or {}
     keep_manifest = keep_manifest or set()
     scene_plan = artifacts.get("scene_plan")
@@ -696,6 +748,7 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
         "pipeline": pipeline_meta,
         "style_playbook": marker.get("style_playbook"),
         "created_at": marker.get("created_at"),
+        "current_round": _current_round(project_dir, artifacts, checkpoints),
         "has_marker": bool(marker),
         "has_pipeline_state": bool(checkpoints),
         "stages": stages,

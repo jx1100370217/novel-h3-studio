@@ -669,10 +669,21 @@ function sceneLabel(id) {
   return String(id).toUpperCase().slice(0, 10);
 }
 
+function currentRound(s) {
+  if (s.current_round) return String(s.current_round).toUpperCase();
+  const assets = (s.stages || []).find((st) => st.name === "assets");
+  const progress = (assets && assets.partial_progress) || {};
+  const manifest = (s.artifacts && s.artifacts.asset_manifest) || {};
+  const metadata = manifest.metadata || {};
+  const round = progress.round || metadata.round;
+  return round ? String(round).toUpperCase() : "";
+}
+
 function sceneCard(s, card) {
   const dur = card.duration_seconds;
   const width = Math.max(132, Math.min(300, 70 + (dur || 3) * 26));
   const wrap = el("div", { class: "scene-card", style: `width:${width}px` });
+  const round = currentRound(s);
 
   const slate = el("div", { class: "sc-slate" },
     el("span", { class: "num" }, sceneLabel(card.id)),
@@ -693,11 +704,11 @@ function sceneCard(s, card) {
   } else if (card.live_pending) {
     thumb = el("div", { class: "thumb spec" },
       el("div", { class: "spec-in" },
-        el("div", { class: "spec-desc" }, "V5 待生成"),
+        el("div", { class: "spec-desc" }, round ? `${round} 待生成` : "待生成"),
         el("div", { class: "spec-shot" }, (card.framing || card.description || "").slice(0, 70))));
   } else if (card.visual && card.visual.exists) {
     const v = card.visual;
-    const badge = [card.live_take ? "V5" : null, v.model || v.source_tool,
+    const badge = [card.live_take ? (round || "LIVE") : null, v.model || v.source_tool,
       v.cost_usd != null ? fmtMoney(v.cost_usd) : null,
       v.quality_score != null ? `q ${v.quality_score}` : null].filter(Boolean).join(" · ");
     if (v.type === "video") {
@@ -829,18 +840,22 @@ function renderRenders(s) {
   const assetsStage = (s.stages || []).find((st) => st.name === "assets");
   const liveProgress = assetsStage && assetsStage.status === "in_progress"
     ? assetsStage.partial_progress : null;
-  const hasV5 = renders.some((r) => /v5/i.test(r.path));
-  if (liveProgress && !hasV5) {
-    const previous = renders.find((r) => /v4/i.test(r.path)) || renders[0];
+  const round = currentRound(s);
+  const hasCurrentRound = round
+    ? renders.some((r) => new RegExp(round, "i").test(r.path))
+    : renders.length > 0;
+  if (liveProgress && !hasCurrentRound) {
+    const previous = renders.find((r) => !round || !new RegExp(round, "i").test(r.path)) || renders[0];
+    const prefix = round ? `${round} ` : "";
     return el("div", {},
       el("div", { class: "section-title" }, "Renders",
-        el("span", { class: "meta" }, "V5 · 生成中")),
+        el("span", { class: "meta" }, `${prefix}生成中`)),
       el("div", { class: "notice", style: "border-color:#2b2b33;background:var(--surface-2);color:var(--text-2)" },
         el("span", { style: "color:var(--amber)" }, "◉"),
         el("span", {},
-          el("b", {}, `V5 素材生成中 · ${liveProgress.done || 0}/${liveProgress.total || 0}`),
+          el("b", {}, `${prefix}素材生成中 · ${liveProgress.done || 0}/${liveProgress.total || 0}`),
           liveProgress.current ? ` · 当前 ${liveProgress.current}` : "",
-          " · V5 尚未合成，完成前不再用旧成片冒充当前版本。")),
+          ` · ${prefix}尚未合成，完成前不再用旧成片冒充当前版本。`)),
       previous ? el("div", { class: "render-meta" },
         el("a", { href: mediaURL(s.project_id, previous.path), target: "_blank", style: "color:var(--text-3)" },
           `查看上一版成片：${previous.path.split("/").pop()}`)) : null);

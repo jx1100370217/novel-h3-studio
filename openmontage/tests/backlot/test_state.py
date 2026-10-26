@@ -155,6 +155,26 @@ class TestBoardState:
         idea = next(x for x in s["stages"] if x["name"] == "idea")
         assert idea.get("undeclared") is True
 
+    def test_current_round_comes_from_latest_task(self, projects_root):
+        p = _make_project(projects_root, "rounds")
+        (p / "board_media" / "v6").mkdir(parents=True)
+        (p / "board_media" / "v7").mkdir(parents=True)
+        s = load_board_state(p)
+        assert s["current_round"] == "v7"
+
+        _write(p / "checkpoint_assets.json", {
+            "version": "1.0", "project_id": "rounds", "pipeline_type": "cinematic",
+            "stage": "assets", "status": "in_progress",
+            "timestamp": "2026-01-01T01:00:00Z", "artifacts": {},
+            "metadata": {"partial_progress": {"round": "v10"}},
+        })
+        s = load_board_state(p)
+        assert s["current_round"] == "v10"
+
+    def test_current_round_absent_is_none(self, projects_root):
+        p = _make_project(projects_root, "no-round")
+        assert load_board_state(p)["current_round"] is None
+
 
 class TestLibrary:
     def test_list_projects_sorts_live_first(self, projects_root):
