@@ -46,6 +46,7 @@ if __name__ == '__main__':
     os.environ['FLASHINFER_CUDA_ARCH_LIST'] = '12.0a'
     os.environ['MAX_JOBS'] = '4'
     os.environ['PYTORCH_ALLOC_CONF'] = 'expandable_segments:True'
+    os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
     os.environ['FASTVIDEO_LAYERWISE_OFFLOAD_BUFFERS'] = '1'
     os.environ['FASTVIDEO_LAYERWISE_RESIDENT_BLOCKS'] = '0'
     os.environ['FASTVIDEO_H3_FFN_CHUNK_TOKENS'] = '8192'
