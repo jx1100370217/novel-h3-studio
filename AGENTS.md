@@ -140,6 +140,15 @@ not in the core code.
 
 ## Rules
 
+- **Single-best-version retention (binding):** once the user explicitly states
+  that a version looks better than the historical versions, delete the older
+  versions' media, takes, board media, artifacts, checkpoints/history and old
+  exports; keep only the current best version plus the minimal inputs needed to
+  reproduce it (source refs, voices, script/authoring, compose spec, current
+  takes, final export and QC evidence). Do not let historical versions
+  accumulate as "backups" unless the user explicitly asks to keep a comparison.
+  Before deleting, confirm the best version is complete, playable and QC'd;
+  record the deletion in `decision_log`.
 - Every new Ref2VA prompt follows
   [`.cursor/rules/h3-ref2va.mdc`](.cursor/rules/h3-ref2va.mdc); no exceptions
   for MiniMax H3, VDN-H3, FastH3 or FastVideo.
