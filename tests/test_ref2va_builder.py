@@ -6,6 +6,7 @@ from pathlib import Path
 from novel_h3.ref2va_builder import (
     AnchorImage, CastMember, LockedShot, SceneRef, ShotLine, VideoRef, VoiceBinding, build_spec,
 )
+from novel_h3.ref2va import population_text
 from novel_h3.voice_refs import VoiceRef
 
 
@@ -102,6 +103,28 @@ class Ref2VABuilderTests(unittest.TestCase):
                           spec['sections']['detailed_description'])
             self.assertTrue(spec['sections']['summary'].startswith(
                 '[keyframe completion + reference generation + audio reference]'))
+
+    def test_population_contract_forbids_reference_duplicates(self):
+        text = population_text([
+            {'kind': 'character', 'subject': '<Subject 1>', 'instances': 1},
+            {'kind': 'character', 'subject': '<Subject 2>', 'instances': 1},
+            {'kind': 'scene', 'subject': '<Subject 3>'},
+        ])
+        self.assertIn('Visible population: exactly 2 people', text)
+        self.assertIn('identity reference for that named person only', text)
+        self.assertIn('No named person is duplicated', text)
+
+    def test_builder_embeds_population_lock_in_spec(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            voices = (
+                VoiceBinding('zhang', VoiceRef('zhang', 'voice_zhang', root / 'zhang.wav'), 'zhang_sheng'),
+                VoiceBinding('songtao', VoiceRef('songtao', 'voice_songtao', root / 'song.wav'), 'songtao'),
+            )
+            detail = build_spec(self.shot(voices))['sections']['detailed_description']
+            self.assertIn('Visible population: exactly 2 people', detail)
+            self.assertIn('identity reference for that named person only', detail)
+            self.assertIn('No named person is duplicated', detail)
 
 
 if __name__ == '__main__':

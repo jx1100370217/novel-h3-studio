@@ -79,6 +79,12 @@ not in the core code.
 - Every shot carries the instance lock: a close-up and a full-body view of one
   person are the same person, never two; no unlisted servants, guards,
   silhouettes, portraits or background copies.
+- Every multi-person shot uses individual character reference images, never a
+  group photo as the only identity reference. If a reference image contains
+  other people, the prompt must state that those people are not cast and must
+  be ignored. A duplicate person is a generation defect: re-render with the
+  cast-count/instance lock; never crop or paint the duplicate out of a
+  delivered shot.
 - Every cut with an action/state change records `open_state` / `close_state`
   handoffs in the authoring data.
 - Same-scene continuation shots default to the previous story-state shot's

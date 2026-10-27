@@ -45,9 +45,11 @@ def population_text(visuals, additional_visible_people=()):
         lines.append(f'Additional person {i}: {person.strip()}')
     if count == 0:
         lines.append('No people are visible, including hands or partial bodies.')
-    lines.append('Keep different people distinct in face, costume and position. A foreground identity has no second copy in the background. '
+    lines.append('Each character reference is an identity reference for that named person only; ignore any other person, body edge, reflection or background figure visible in the reference image. '
+                 'Keep different people distinct in face, costume and position. A foreground identity has no second copy in the background. '
                  'The scene reference supplies architecture, materials and light only; human likenesses in it do not supply cast. '
-                 'All people outside this visible population remain fully offscreen, without extra faces, bodies, portraits, human-shaped statues, reflections or silhouettes.')
+                 'All people outside this visible population remain fully offscreen, without extra faces, bodies, portraits, human-shaped statues, reflections or silhouettes. '
+                 'No named person is duplicated; no twin, double or second copy of anyone.')
     return ' '.join(lines)
 
 

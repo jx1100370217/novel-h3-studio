@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
-from .ref2va import SECTIONS, render
+from .ref2va import SECTIONS, population_text, render
 from .voice_refs import VoiceRef
 
 
@@ -330,6 +330,13 @@ def build_spec(shot: LockedShot) -> dict:
     if shot.framing:
         detail += ' Framing lock: ' + shot.framing
     detail += ' Reference bindings: ' + ' '.join(item['subject'] for item in visuals) + '.'
+    # The spec JSON is what FastVideo actually receives. Insert the visible
+    # population lock here (not only in the validation prompt) so the cast
+    # count and the "ignore other people in a reference image" rule reach the
+    # model. Validation reuses the same text and will not duplicate it.
+    population = population_text(visuals, shot.extras)
+    if population:
+        detail = population + ' ' + detail
     if speaker_order:
         locks = []
         for role in speaker_order:
