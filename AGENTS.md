@@ -107,6 +107,11 @@ not in the core code.
   drinking, etc.), the shot must visibly perform that action with the object in
   frame. If the generated take cannot show it, change the narration or re-render;
   do not leave the voiceover describing an action the picture omits.
+- Music is a bed, not a lead voice. Normalize the bed to roughly -30 LUFS,
+  default `music_volume` at or below 0.55, duck to at most 0.22 under speech
+  (attack 250 ms, release 700 ms), and keep the final mix at -16 LUFS with true
+  peak at or below -2 dBFS. Do not use one 5-minute loop for the whole film when
+  the story changes act; use a cue map. Human listening remains the final gate.
 - A video reference does not guarantee the target's first frame. If a take
   still stages an earlier state (for example a second wake-up or a lie-down
   before sitting), trim the lead-in at the first frame that matches

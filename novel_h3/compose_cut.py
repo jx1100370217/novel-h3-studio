@@ -101,12 +101,16 @@ def build_audio(spec: dict, order: list[str], shots: dict, lines: list[dict], bo
         tracks.append({'path': str(wav), 'role': 'speech', 'volume': 1.0,
                        'start_seconds': round(bounds[line['shot']] + float(line['offset']), 4)})
     music = resolve(spec['music'])
-    tracks.append({'path': str(music), 'role': 'music', 'volume': 1.0, 'start_seconds': 0.0})
+    tracks.append({'path': str(music), 'role': 'music',
+                   'volume': float(spec.get('music_volume', 1.0)), 'start_seconds': 0.0})
     tag = spec.get('tag', 'cut')
+    ducking = spec.get('ducking') or {
+        'enabled': True, 'music_volume_during_speech': 0.30,
+        'attack_ms': 150, 'release_ms': 450,
+    }
     config = {
         'operation': 'full_mix', 'tracks': tracks,
-        'ducking': {'enabled': True, 'music_volume_during_speech': 0.30,
-                    'attack_ms': 150, 'release_ms': 450},
+        'ducking': ducking,
         'normalize': False, 'target_duration': target,
         'output_path': str(audio / f'{tag}_mix_flat.wav'),
     }
@@ -120,14 +124,14 @@ def build_audio(spec: dict, order: list[str], shots: dict, lines: list[dict], bo
     final = audio / f'{tag}_mix.wav'
     gain = -16.0 - level
     run(['ffmpeg', '-y', '-loglevel', 'error', '-i', str(flat),
-         '-af', f'volume={gain:.2f}dB,alimiter=limit=0.891:level=0,apad=whole_dur={target},atrim=0:{target}',
+         '-af', f'volume={gain:.2f}dB,alimiter=limit=0.76:level=0,apad=whole_dur={target},atrim=0:{target}',
          '-ar', '48000', '-ac', '2', str(final)])
     final_level, peak = ebur128(final)
     if abs(final_level + 16.0) > 0.3:
         correction = -16.0 - final_level
         tmp = audio / f'{tag}_mix_master_tmp.wav'
         run(['ffmpeg', '-y', '-loglevel', 'error', '-i', str(final),
-             '-af', f'volume={correction:.2f}dB,alimiter=limit=0.891:level=0,apad=whole_dur={target},atrim=0:{target}',
+             '-af', f'volume={correction:.2f}dB,alimiter=limit=0.76:level=0,apad=whole_dur={target},atrim=0:{target}',
              '-ar', '48000', '-ac', '2', str(tmp)])
         tmp.replace(final)
         final_level, peak = ebur128(final)
