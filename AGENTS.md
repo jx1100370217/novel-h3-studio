@@ -85,6 +85,12 @@ not in the core code.
   be ignored. A duplicate person is a generation defect: re-render with the
   cast-count/instance lock; never crop or paint the duplicate out of a
   delivered shot.
+- Every new story's male and female lead reference sheets follow the two-view
+  character-asset contract in [`docs/CHARACTER_ASSET_SHEET.md`](docs/CHARACTER_ASSET_SHEET.md).
+  Build the prompt with `novel_h3.character_sheet.build_character_sheet_prompt`,
+  not with a one-off prompt. The two-view sheet is a casting/design asset; crop
+  one full-body view into a single-body reference before using it in H3 Ref2VA.
+  Never feed the two-view sheet directly to the video model.
 - Every cut with an action/state change records `open_state` / `close_state`
   handoffs in the authoring data.
 - Same-scene continuation shots default to the previous story-state shot's

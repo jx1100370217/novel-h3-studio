@@ -25,6 +25,7 @@ extensions:
 required_skills:
   - pipelines/novel-cinematic/executive-producer
   - pipelines/novel-cinematic/novel-director
+  - pipelines/novel-cinematic/screenplay-director
   - pipelines/novel-cinematic/scene-director
   - pipelines/novel-cinematic/asset-director
   - pipelines/novel-cinematic/edit-director
@@ -55,10 +56,32 @@ stages:
       - Schema-valid script artifact
       - total_duration_seconds within 10 percent of the approved runtime target
 
+  - name: screenplay
+    skill: pipelines/novel-cinematic/screenplay-director
+    required_artifacts_in:
+      - script
+    produces:
+      - screenplay_treatment
+      - script
+    tools_available: []
+    checkpoint_required: true
+    human_approval_default: true
+    review_focus:
+      - Added beats are visual storytelling, not new plot or dialogue
+      - Every added beat cites source paragraph ids and is paid for by compression
+      - Runtime stays within 10 percent of the approved target
+      - Visual motifs, transitions and shot opportunities are production-aware
+      - No new characters, locations, spoken words or changed ending
+    success_criteria:
+      - Schema-valid screenplay_treatment artifact
+      - Enhanced script keeps every original section and stays within runtime tolerance
+      - scripts/audit_screenplay.py reports pass
+
   - name: scene_plan
     skill: pipelines/novel-cinematic/scene-director
     required_artifacts_in:
       - script
+      - screenplay_treatment
     produces:
       - scene_plan
     tools_available: []

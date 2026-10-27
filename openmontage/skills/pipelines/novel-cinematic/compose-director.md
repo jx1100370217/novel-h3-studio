@@ -1,5 +1,10 @@
 # Compose Director - Compose Stage
 
+## Runtime
+
+`render_runtime: ffmpeg`. This pipeline is fixed to the FFmpeg compose path and
+does not select Remotion or HyperFrames.
+
 ## Inputs
 
 - `edit_decisions` (ffmpeg runtime), `asset_manifest`.

@@ -1,0 +1,102 @@
+{
+  "version": "1.0",
+  "title": "TBD",
+  "source_script": "artifacts/script.json",
+  "logline": "TBD",
+  "dramatic_question": "TBD",
+  "theme": "TBD",
+  "tone": "TBD",
+  "visual_motifs": [
+    {
+      "id": "M1",
+      "name": "TBD",
+      "description": "TBD",
+      "setup_sections": ["A01"],
+      "payoff_sections": ["A02"],
+      "camera_notes": "TBD"
+    }
+  ],
+  "act_map": [
+    {
+      "act": "I",
+      "purpose": "TBD",
+      "section_ids": ["A01"],
+      "turn": "TBD"
+    }
+  ],
+  "beat_map": [
+    {
+      "beat_id": "B1",
+      "section_ids": ["A01"],
+      "function": "TBD",
+      "escalation": "TBD",
+      "visual_idea": "TBD"
+    }
+  ],
+  "added_beats": [],
+  "enhanced_sections": [
+    {
+      "id": "A01",
+      "original_section_id": "A01",
+      "label": "TBD",
+      "text": "TBD",
+      "start_seconds": 0,
+      "end_seconds": 1,
+      "source_paragraph_ids": ["s0001_p0001"],
+      "cinematic_function": "TBD",
+      "visual_motif": "M1",
+      "shot_opportunity": "TBD",
+      "added": false
+    }
+  ],
+  "shot_opportunities": [
+    {
+      "section_id": "A01",
+      "shot_size": "medium_wide",
+      "lens_mm": 35,
+      "camera_movement": "static",
+      "composition": "TBD",
+      "lighting": "TBD",
+      "sound": "TBD",
+      "why": "TBD"
+    }
+  ],
+  "transition_plan": [
+    {
+      "from_section": "A01",
+      "to_section": "A02",
+      "type": "hard_cut",
+      "description": "TBD"
+    }
+  ],
+  "sound_plan": {
+    "motifs": ["TBD"],
+    "silence_windows": ["TBD"],
+    "diegetic_texture": "TBD",
+    "music_policy": "TBD"
+  },
+  "fidelity_ledger": [
+    {
+      "source_fact": "TBD",
+      "treatment": "TBD",
+      "status": "preserved"
+    }
+  ],
+  "not_added": [
+    {
+      "idea": "TBD",
+      "reason": "TBD"
+    }
+  ],
+  "production_constraints": [
+    "1344x768 / 24fps / one continuous take per shot",
+    "exact visible cast; individual character refs; no duplicate people"
+  ],
+  "approval_questions": ["TBD"],
+  "metadata": {
+    "runtime_target_seconds": 1,
+    "runtime_after_seconds": 1,
+    "added_section_count": 0,
+    "fidelity_status": "revise"
+  }
+}

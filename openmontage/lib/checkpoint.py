@@ -18,7 +18,7 @@ from schemas.artifacts import ARTIFACT_NAMES, validate_artifact
 
 # All known stages across all pipelines (used only for artifact name lookup).
 ALL_KNOWN_STAGES = frozenset([
-    "research", "proposal", "idea", "script", "scene_plan",
+    "research", "proposal", "idea", "script", "screenplay", "scene_plan",
     "assets", "edit", "compose", "publish",
 ])
 
@@ -32,6 +32,7 @@ CANONICAL_STAGE_ARTIFACTS = {
     "proposal": "proposal_packet",
     "idea": "brief",
     "script": "script",
+    "screenplay": "screenplay_treatment",
     "scene_plan": "scene_plan",
     "assets": "asset_manifest",
     "edit": "edit_decisions",

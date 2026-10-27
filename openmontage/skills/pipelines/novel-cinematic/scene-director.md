@@ -2,7 +2,9 @@
 
 ## Inputs
 
-- `script` artifact from breakdown.
+- `script` artifact: the enhanced script from the screenplay stage.
+- `screenplay_treatment` artifact: motifs, added beats, shot opportunities,
+  transitions, sound plan and fidelity ledger.
 - Approved reference assets already on disk
   (`projects/<id>/assets/refs/`), one file per character / location.
 
@@ -30,6 +32,9 @@
 
 ## Shot authoring rules
 
+0. Read the `screenplay_treatment` first. Every added beat in the treatment must
+   either become a shot or be explicitly dropped with a reason in the scene-plan
+   metadata. Do not flatten the treatment back into uniform coverage.
 1. One continuous take per shot. No internal cuts, no montage inside a shot.
 2. State the shot's `start_state` and `end_state`; the take must complete the authored
    action exactly once, with no pose reset.
@@ -62,6 +67,9 @@ character) so identity survives coverage.
 ## Self-check
 
 - [ ] Every script section maps to at least one shot
+- [ ] Every treatment added beat is shot or explicitly dropped with a reason
+- [ ] Visual motifs are planted and paid off in the planned shots
+- [ ] Shot sizes vary; no two adjacent shots repeat the same size without intent
 - [ ] Every shot has a matching `shots/<id>.json`
 - [ ] Reference files exist and belong to the approved set
 - [ ] No shot exceeds the model's tested duration envelope

@@ -113,6 +113,7 @@ Key capability families to look for in the output:
 | Typography | `creative/typography.md` | Font selection, text sizing, safe zones, caption styling | â€" |
 | ManimCE Usage | `creative/manim-usage.md` | Scene composition, animation timing, color usage | `manimce-best-practices` |
 | Image Gen Usage | `creative/image-gen-usage.md` | Prompt consistency, hero reference, batch strategy | `flux-best-practices`, `bfl-api` |
+| Character Asset Sheet | `docs/CHARACTER_ASSET_SHEET.md` | Two-view male/female lead reference sheets; prompt builder and single-body crop rule | `image-gen-usage` |
 | Image Provider Usage | `creative/image-provider-usage.md` | Provider selection (FLUX/Grok/OpenAI/Recraft/stock), cost-quality tradeoffs | `flux-best-practices`, `bfl-api`, `grok-media` |
 | 3D World Generation | `creative/3d-world-generation.md` | Semantic world planning, asset sourcing/generation, Blender assembly, and fidelity review | `3d-asset-generation`, `threejs-world-generation` |
 | B-Roll Planning | `creative/broll-planning.md` | Stock vs. generated decision, query construction, footage evaluation | — |
@@ -224,6 +225,19 @@ Stage director skills teach the agent HOW to execute each pipeline stage. Each s
 | Edit Director | `pipelines/cinematic/edit-director.md` | `edit` | Emotion-first pacing, reveal timing, audio-driven rhythm |
 | Compose Director | `pipelines/cinematic/compose-director.md` | `compose` | Grade and mix finishing, frame-treatment judgment |
 | Publish Director | `pipelines/cinematic/publish-director.md` | `publish` | Hero vs teaser packaging, poster-frame concepts |
+
+### Novel Cinematic Pipeline (`pipelines/novel-cinematic/`)
+
+| Skill | File | Stage | Key Capabilities |
+|-------|------|-------|-----------------|
+| **Executive Producer** | `pipelines/novel-cinematic/executive-producer.md` | `all` | Source fidelity, reference reuse, one-take-per-shot, human gates |
+| Novel Director | `pipelines/novel-cinematic/novel-director.md` | `breakdown` | Faithful base script, source paragraph mapping, runtime target |
+| Screenplay Director | `pipelines/novel-cinematic/screenplay-director.md` | `screenplay` | Cinematic enrichment, visual motifs, added beats, runtime-neutral treatment, fidelity ledger |
+| Scene Director | `pipelines/novel-cinematic/scene-director.md` | `scene_plan` | Shot coverage, blocking, screen direction, treatment-to-shot mapping |
+| Asset Director | `pipelines/novel-cinematic/asset-director.md` | `assets` | Ref2VA takes, character sheets, blocking guides, native audio |
+| Edit Director | `pipelines/novel-cinematic/edit-director.md` | `edit` | Cut handoffs, transition audit, typography windows |
+| Compose Director | `pipelines/novel-cinematic/compose-director.md` | `compose` | Picture/audio assembly, mix, final review |
+| Publish Director | `pipelines/novel-cinematic/publish-director.md` | `publish` | Delivery metadata, export package |
 
 ### Animation Pipeline (`pipelines/animation/`) — v2.0
 

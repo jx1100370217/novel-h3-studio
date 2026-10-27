@@ -11,6 +11,10 @@ silent downgrade to stills.
 
 1. **Source fidelity.** Every shot must cite `source_paragraph_ids`. Compress, never
    invent. If the source is ambiguous, keep the ambiguity visible in the edit.
+   The screenplay stage may add visual storytelling, but never new plot,
+   characters, locations, spoken words or a changed ending; every added beat
+   must cite its source paragraph and be paid for by compressing existing
+   coverage.
 2. **Approved references are reused.** Once a character/location image is approved,
    later shots reference the same file. Do not regenerate a face "for variety".
 3. **One continuous take per shot.** Native H3 audio is kept; no per-shot narration
@@ -22,11 +26,17 @@ silent downgrade to stills.
 
 ## Stage order
 
-`breakdown -> scene_plan -> assets -> edit -> compose -> publish`
+`breakdown -> screenplay -> scene_plan -> assets -> edit -> compose -> publish`
 
 Each stage is owned by its director skill. Run checkpoints per the manifest; the
 assets gate is the expensive one, so it must never be batched before the reference
 images are approved.
+
+`breakdown` writes the faithful base script. `screenplay` is the cinematic
+enrichment gate: it adds reaction shots, inserts, motifs and transitions while
+keeping the runtime and the source facts intact. `scene_plan` consumes both the
+enhanced script and the `screenplay_treatment`; it must not silently revert to
+flat coverage.
 
 ## Failure policy
 

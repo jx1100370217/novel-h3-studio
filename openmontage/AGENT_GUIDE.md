@@ -184,6 +184,11 @@ The agent itself orchestrates the production state machine:
 
 `research -> proposal -> script -> scene_plan -> assets -> edit -> compose`
 
+`novel-cinematic` inserts a cinematic enrichment gate after the faithful
+breakdown: `breakdown -> screenplay -> scene_plan -> assets -> edit -> compose`.
+The screenplay stage adds visual storytelling, not new plot or dialogue, and
+must pass `scripts/audit_screenplay.py`.
+
 The agent:
 
 1. Reads the pipeline manifest (`pipeline_defs/*.yaml`) to know the process
@@ -559,6 +564,7 @@ Each stage produces one canonical artifact that becomes the contract for the nex
 |------|---------------|------------------|------------------|
 | `idea` | `*-director.md` | `brief` | Clear hook, target platform, duration, tone, and user intent |
 | `script` | `*-director.md` | `script` | Structured sections, valid timing, coherent narration |
+| `screenplay` | `screenplay-director.md` | `screenplay_treatment` | Cinematic enrichment; no new plot/dialogue; runtime-neutral; enhanced script |
 | `scene_plan` | `*-director.md` | `scene_plan` | Ordered scenes, timings, asset requirements |
 | `assets` | `*-director.md` | `asset_manifest` | Provenance, paths, model/tool metadata, scene linkage |
 | `edit` | `*-director.md` | `edit_decisions` | Concrete cuts, overlays, subtitle/music decisions |

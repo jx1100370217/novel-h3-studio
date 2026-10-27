@@ -163,6 +163,7 @@ const STAGE_ARTIFACTS = {
   proposal: ["proposal_packet"],
   idea: ["brief"],
   script: ["script"],
+  screenplay: ["screenplay_treatment"],
   scene_plan: ["scene_plan"],
   assets: ["asset_manifest"],
   edit: ["edit_decisions"],
@@ -405,6 +406,24 @@ function artifactReviewContent(name, artifact) {
       el("p", { class: "approval-guidance" }, "The complete script preview is shown directly below."),
     ].filter(Boolean);
   }
+  if (name === "screenplay_treatment") {
+    const added = artifact.added_beats || [];
+    const motifs = artifact.visual_motifs || [];
+    return [
+      reviewFacts([
+        reviewFact("added beats", added.length),
+        reviewFact("motifs", motifs.length),
+        reviewFact("runtime", artifact.metadata && artifact.metadata.runtime_after_seconds != null
+          ? fmtDuration(artifact.metadata.runtime_after_seconds) : null),
+      ]),
+      titledItems(added.map((beat) => ({
+        title: beat.type || "added beat",
+        description: beat.description || beat.why_cinematic || "",
+      }))),
+      el("p", { class: "approval-guidance" },
+        "Review the added visual beats and fidelity ledger before approving shot coverage."),
+    ].filter(Boolean);
+  }
   if (name === "scene_plan") {
     const scenes = artifact.scenes || [];
     const end = scenes.reduce((max, scene) => Math.max(max, Number(scene.end_seconds) || 0), 0);
@@ -467,6 +486,7 @@ function artifactReviewTitle(name, artifact, s) {
     return (concept && concept.title) || "Production proposal";
   }
   if (name === "research_brief") return artifact.topic || "Research brief";
+  if (name === "screenplay_treatment") return "Screenplay treatment";
   if (name === "scene_plan") return "Scene plan";
   if (name === "asset_manifest") return "Generated assets";
   if (name === "edit_decisions") return "Edit decisions";

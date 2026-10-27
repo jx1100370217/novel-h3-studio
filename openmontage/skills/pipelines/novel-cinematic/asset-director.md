@@ -61,6 +61,28 @@ Call `fastvideo_h3_video` with:
 - The FastVideo service can hold a large host-memory working set after a
   3-reference long take; restart it between heavy shots if memory pressure appears.
 
+## Lead character reference sheets
+
+New stories must generate the male and female lead reference sheets with the
+two-view character-asset contract in
+[`docs/CHARACTER_ASSET_SHEET.md`](../../../../docs/CHARACTER_ASSET_SHEET.md):
+
+1. Write `projects/<id>/assets/character_sheets/<character>.json` with the
+   face, skin, body, hair, costume, accessories, palette and world.
+2. Build the prompt with
+   `scripts/build_character_sheet.py --spec ... --out ...`; do not hand-write a
+   one-off prompt.
+3. Generate the two-view sheet (left head-to-collarbone portrait, right front
+   full-body), review face/costume, then **crop the full-body view into a
+   single-body reference** at `assets/refs/<character>.png`.
+4. Use only the single-body crop in H3 Ref2VA. The two-view sheet is a
+   casting/design asset; feeding it directly to the video model can create a
+   second body.
+
+The sheet contract is: same person in both views, only two views, no side/back/
+3-4 view, no second person, neutral expression, neutral gray background, 85mm
+portrait lens, soft front/45-degree key with fill, no text, no black borders.
+
 ## Reference policy
 
 - Characters and locations already approved are **reused verbatim**.

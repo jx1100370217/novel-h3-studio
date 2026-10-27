@@ -10,7 +10,9 @@
 ## Output
 
 A schema-valid `script` artifact. Each section maps to one or more source paragraphs
-and one dramatic beat of the chapter.
+and one dramatic beat of the chapter. This is the **faithful base script**; the
+next stage (`screenplay-director`) adds cinematic visual beats without changing
+the source facts or spoken words.
 
 ## Process
 

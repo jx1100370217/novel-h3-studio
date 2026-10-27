@@ -152,6 +152,8 @@ const DICT = {
   "Play narration": "播放旁白",
   // stage names
   "breakdown": "剧本拆解",
+  "screenplay": "剧本优化",
+  "screenplay_treatment": "剧本优化方案",
   "scene_plan": "分镜计划",
   "assets": "素材生成",
   "edit": "剪辑决策",

@@ -106,8 +106,13 @@ class CodexImageTool(BaseTool):
 
     def execute(self, inputs: dict[str, Any]) -> ToolResult:
         start = time.time()
-        prompt = inputs["prompt"]
-        output_path = Path(inputs["output_path"]).expanduser()
+        prompt = inputs.get("prompt")
+        if not prompt:
+            return ToolResult(success=False, error="prompt is required")
+        output_path_value = inputs.get("output_path")
+        if not output_path_value:
+            return ToolResult(success=False, error="output_path is required")
+        output_path = Path(output_path_value).expanduser()
         if not output_path.is_absolute():
             output_path = Path.cwd() / output_path
         output_path = output_path.resolve()

@@ -76,6 +76,10 @@ assert ALL_MANIFESTS, "No pipeline manifests found"
 # an explicit reason. Everything else is required to follow the contract.
 _EXCLUDED_PIPELINES = {
     "framework-smoke": "minimal 2-stage smoke test, no compose stage",
+    "novel-cinematic": (
+        "source-first pipeline starts at breakdown; compose is fixed FFmpeg, "
+        "not a Remotion/HyperFrames runtime choice"
+    ),
 }
 
 
