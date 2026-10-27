@@ -314,6 +314,19 @@ def build_spec(shot: LockedShot) -> dict:
                'full-body or seated view of the same person are one person, never two. Do not add a second '
                'copy in the background, doorway, reflection, portrait, statue, silhouette, as a servant, '
                'guard, candidate, neighbor or any other unlisted person.')
+    detail += (' Costume continuity lock: every named person wears exactly the costume defined by their '
+               'reference image; do not change robe colour, collar, belt, hat or hair between shots unless '
+               'the description explicitly requests an authored costume change.')
+    if count >= 2 or shot.extras:
+        detail += (' Screen-direction lock: preserve each person\'s camera side and hand ownership across '
+                   'cuts; do not mirror the action. A hand entering from camera-right belongs to the person '
+                   'on camera-right, and a hand entering from camera-left belongs to the person on camera-left.')
+    if re.search(r'\b(hand|hands|finger|fingers|forearm|wrist|palm)\b', detail, re.I):
+        detail += (' Hand anatomy lock: each visible hand has exactly five fingers and one thumb, with one '
+                   'wrist; no extra, fused, duplicated, missing or branching digits and no second hand.')
+    if re.search(r'\bdesk\b', detail, re.I) and re.search(r'\b(behind|seated|sits|sitting)\b', detail, re.I):
+        detail += (' Lower-body occlusion lock: the desk is solid and hides the seated person\'s lap, legs '
+                   'and feet; no legs, knees, feet, stool or green cloth may appear below or under the desk.')
     if shot.framing:
         detail += ' Framing lock: ' + shot.framing
     detail += ' Reference bindings: ' + ' '.join(item['subject'] for item in visuals) + '.'

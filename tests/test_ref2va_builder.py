@@ -66,6 +66,24 @@ class Ref2VABuilderTests(unittest.TestCase):
                           spec['sections']['detailed_description'])
             self.assertTrue(spec['sections']['summary'].startswith(
                 '[video continuation + reference generation + audio reference]'))
+            self.assertIn('Costume continuity lock', spec['sections']['detailed_description'])
+            self.assertIn('Screen-direction lock', spec['sections']['detailed_description'])
+
+    def test_builder_adds_anatomy_and_desk_locks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            voices = (
+                VoiceBinding('zhang', VoiceRef('zhang', 'voice_zhang', root / 'zhang.wav'), 'zhang_sheng'),
+                VoiceBinding('songtao', VoiceRef('songtao', 'voice_songtao', root / 'song.wav'), 'songtao'),
+            )
+            shot = replace(
+                self.shot(voices),
+                visual_core='[Shot 1] Guandi sits behind the high desk; his hand rests on the paper.',
+            )
+            detail = build_spec(shot)['sections']['detailed_description']
+            self.assertIn('Hand anatomy lock', detail)
+            self.assertIn('Lower-body occlusion lock', detail)
+            self.assertIn('no legs, knees, feet, stool or green cloth', detail)
 
     def test_builder_binds_keyframe_anchor_for_sitting_state(self):
         with tempfile.TemporaryDirectory() as tmp:

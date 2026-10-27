@@ -90,6 +90,23 @@ not in the core code.
   old dialogue or audio, and it never replaces the `open_state` / `close_state`
   text contract. A declared `<Video N>` without a real `video_reference` in the
   request is a hard validation error.
+- Every hand/body-part insert declares exactly five fingers and one thumb per
+  visible hand; the compiler injects a hand-anatomy lock. Extra, fused,
+  duplicated or missing digits are a render defect, not a style choice.
+- Every named person keeps one costume across adjacent shots unless an authored
+  costume change is explicit; the compiler injects a costume-continuity lock.
+  A robe colour change between cuts is a continuity error.
+- Every multi-person or hand-only cut preserves camera side and hand ownership:
+  a hand entering from camera-right belongs to the person on camera-right. The
+  compiler injects a screen-direction lock; do not mirror an action in post to
+  hide a generation error.
+- A seated person behind a desk keeps the lower body hidden by the solid desk.
+  No legs, knees, feet, stool, cushion or green cloth may appear below the desk;
+  the compiler injects a lower-body occlusion lock.
+- If narration describes a physical action (dressing, eating, mounting,
+  drinking, etc.), the shot must visibly perform that action with the object in
+  frame. If the generated take cannot show it, change the narration or re-render;
+  do not leave the voiceover describing an action the picture omits.
 - A video reference does not guarantee the target's first frame. If a take
   still stages an earlier state (for example a second wake-up or a lie-down
   before sitting), trim the lead-in at the first frame that matches
