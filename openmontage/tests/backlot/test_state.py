@@ -166,10 +166,10 @@ class TestBoardState:
             "version": "1.0", "project_id": "rounds", "pipeline_type": "cinematic",
             "stage": "assets", "status": "in_progress",
             "timestamp": "2026-01-01T01:00:00Z", "artifacts": {},
-            "metadata": {"partial_progress": {"round": "v10"}},
+            "metadata": {"partial_progress": {"round": "v10.2"}},
         })
         s = load_board_state(p)
-        assert s["current_round"] == "v10"
+        assert s["current_round"] == "v10.2"
 
     def test_current_round_absent_is_none(self, projects_root):
         p = _make_project(projects_root, "no-round")

@@ -841,11 +841,12 @@ function renderRenders(s) {
   const liveProgress = assetsStage && assetsStage.status === "in_progress"
     ? assetsStage.partial_progress : null;
   const round = currentRound(s);
-  const hasCurrentRound = round
-    ? renders.some((r) => new RegExp(round, "i").test(r.path))
+  const roundMajor = round ? round.split(".")[0] : "";
+  const hasCurrentRound = roundMajor
+    ? renders.some((r) => new RegExp(roundMajor, "i").test(r.path))
     : renders.length > 0;
   if (liveProgress && !hasCurrentRound) {
-    const previous = renders.find((r) => !round || !new RegExp(round, "i").test(r.path)) || renders[0];
+    const previous = renders.find((r) => !roundMajor || !new RegExp(roundMajor, "i").test(r.path)) || renders[0];
     const prefix = round ? `${round} ` : "";
     return el("div", {},
       el("div", { class: "section-title" }, "Renders",

@@ -48,7 +48,7 @@ def _read_json(path: Path) -> Optional[dict]:
         return None
 
 
-_ROUND_RE = re.compile(r"(?i)(?:^|[/_.-])v(\d+)(?:$|[/_.-])")
+_ROUND_RE = re.compile(r"(?i)(?:^|[/_.-])v(\d+(?:\.\d+)?)(?:$|[/_.-])")
 
 
 def _round_from_value(value: Any) -> Optional[str]:
