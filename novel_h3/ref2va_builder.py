@@ -359,9 +359,7 @@ def build_spec(shot: LockedShot) -> dict:
             detail += f' At {mm:02d}:{ss:02d}.{ms:03d}, {speaker} speaks with {audio}, <d>[Chinese] {line.text}</d>'
             if shot.strong_no_text:
                 detail += ' The line is heard only and is never written on screen.'
-    detail += (' No subtitles, no captions, no on-screen text, no text overlays, no signboards and '
-               'no written characters of any language anywhere in the frame. The dialogue is audio '
-               'only and must never appear as a caption or subtitle band.')
+    detail += ' No subtitles, no captions, no on-screen text, no text overlays.'
 
     spoken_lines = [
         {'speaker': line.speaker, 'text': line.text,
