@@ -180,6 +180,10 @@ not in the core code.
   **260 frames (10.833 s)**. Split longer scenes into motivated cuts; do not
   raise the cap without a successful test. Restart the FastVideo service
   between heavy takes to release host memory.
+  The local FastVideo runtime is patched to delete the Qwen text encoder after
+  conditioning (`FASTVIDEO_H3_RELEASE_TEXT_ENCODER=1`, set by
+  `start_fastvideo.py`) so VAE decode has host memory headroom; re-apply the
+  patch if the runtime is reinstalled.
 - **Dialogue-first narrative (binding):** carry plot through character dialogue
   and visible action; narration is a last resort. Do not use a narrator to
   explain what the audience can see. Connective dialogue may dramatize existing
