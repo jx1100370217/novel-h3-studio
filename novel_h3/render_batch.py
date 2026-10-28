@@ -150,6 +150,8 @@ def main(argv: list[str] | None = None) -> int:
                         help='Abort a take (and stop the service) below this much free memory.')
     parser.add_argument('--abort-pressure', type=float, default=60.0,
                         help='Abort a take when memory PSI avg10 stays above this percent.')
+    parser.add_argument('--subtitle-audit', action=argparse.BooleanOptionalAction, default=True,
+                        help='OCR each finished take and flag burned-in subtitles.')
     parser.add_argument('--api', default=DEFAULT_API)
     parser.add_argument('--width', type=int, default=1344)
     parser.add_argument('--height', type=int, default=768)
@@ -231,11 +233,21 @@ def main(argv: list[str] | None = None) -> int:
                                                        args.takes_subdir, sid)
                 except Exception as exc:  # board copy must not fail the render
                     print(f'BOARD COPY WARNING {sid}: {exc}', flush=True)
+            subtitle_text = None
+            if args.subtitle_audit:
+                from .subtitle_audit import scan_take
+                clip = fastvideo_project / args.takes_subdir / sid / 'native.mp4'
+                if clip.is_file():
+                    subtitle_text = scan_take(clip, duration=int(spec['frames']) / 24)
             update_checkpoint(checkpoint, rendered, total, sid, 'render', {
-                'inference_time_s': receipt.get('inference_time_s'), 'sha256': receipt.get('sha256')},
+                'inference_time_s': receipt.get('inference_time_s'), 'sha256': receipt.get('sha256'),
+                'burned_in_subtitle': bool(subtitle_text and subtitle_text['verdict'] == 'text')},
                 live_assets=live_assets, live_assets_active=board_active, keep_manifest=keep_manifest,
                 event_name='finish')
             print(f'[{index}/{total}] {sid} {receipt.get("inference_time_s")}s', flush=True)
+            if subtitle_text and subtitle_text['verdict'] == 'text':
+                print(f'TEXT WARNING {sid}: burned-in subtitle at '
+                      f'{subtitle_text["hits"][0]["at_seconds"]}s', flush=True)
         if args.restart_every and index % args.restart_every == 0 and index < total:
             stop_service()
     if args.restart_every:

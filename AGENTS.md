@@ -57,6 +57,7 @@ not in a one-off version script:
 - voice references: `novel_h3/voice_refs.py`
 - shot-to-shot video continuation refs: `novel_h3/continuity_refs.py`
 - end cards: `novel_h3/end_card.py`
+- subtitle audit: `novel_h3/subtitle_audit.py`
 - Blender blocking guides: `novel_h3/previs.py` + `novel_h3/previs_render.py`
 - cast audit: `novel_h3/cast_audit.py`
 - transition audit: `novel_h3/transition_audit.py`
@@ -107,6 +108,10 @@ not in the core code.
 - Every hand/body-part insert declares exactly five fingers and one thumb per
   visible hand; the compiler injects a hand-anatomy lock. Extra, fused,
   duplicated or missing digits are a render defect, not a style choice.
+- Burned-in subtitles are a delivery defect. Every take is scanned with
+  `novel_h3.subtitle_audit` before it enters the cut; a flagged take is
+  re-rendered with a different seed and the text-free lock, never cropped or
+  painted over.
 - Every named person keeps one costume across adjacent shots unless an authored
   costume change is explicit; the compiler injects a costume-continuity lock.
   A robe colour change between cuts is a continuity error.
