@@ -131,6 +131,7 @@ def update_checkpoint(path: Path, done: int, total: int, current: str, phase: st
 
 def main(argv: list[str] | None = None) -> int:
     from .fastvideo_batch import load_spec, run_shot
+    from .memory_guard import MemoryGuard, read_available_gb
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project', type=Path, required=True, help='OpenMontage project that owns the checkpoint.')
@@ -143,6 +144,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--restart-every', type=int, default=1)
     parser.add_argument('--retry', type=int, default=1,
                         help='Re-run a failed shot this many times after restarting the service.')
+    parser.add_argument('--min-available-gb', type=float, default=6.0,
+                        help='Wait for this much free host memory before submitting a take.')
+    parser.add_argument('--abort-available-gb', type=float, default=0.6,
+                        help='Abort a take (and stop the service) below this much free memory.')
+    parser.add_argument('--abort-pressure', type=float, default=60.0,
+                        help='Abort a take when memory PSI avg10 stays above this percent.')
     parser.add_argument('--api', default=DEFAULT_API)
     parser.add_argument('--width', type=int, default=1344)
     parser.add_argument('--height', type=int, default=768)
@@ -175,6 +182,8 @@ def main(argv: list[str] | None = None) -> int:
     if not specs:
         parser.error('no shot specs found')
     total = args.total or len(specs)
+    guard = MemoryGuard(min_available_gb=args.abort_available_gb,
+                        max_pressure_avg10=args.abort_pressure)
     failures, rendered = [], args.base_done
     for index, path in enumerate(specs, 1):
         spec = load_spec(path)
@@ -186,10 +195,21 @@ def main(argv: list[str] | None = None) -> int:
         for attempt in range(1, max(0, args.retry) + 2):
             if not health(args.api):
                 start_service((args.service_project or fastvideo_project).resolve(), args.service_log)
+            if not guard.wait_for_headroom(args.min_available_gb):
+                print(f'{sid} SKIPPED: only {read_available_gb():.1f} GiB available', flush=True)
+                failures.append({'shot': sid, 'error': 'insufficient host memory before submit'})
+                update_checkpoint(checkpoint, rendered, total, sid, 'render',
+                                  {'error': 'insufficient host memory'}, live_assets=live_assets,
+                                  live_assets_active=board_active, keep_manifest=keep_manifest,
+                                  event_name='error')
+                break
             try:
-                receipt = run_shot(ROOT, fastvideo_project, spec, api=args.api,
-                                   width=args.width, height=args.height,
-                                   takes_subdir=args.takes_subdir)
+                with MemoryGuard(min_available_gb=args.abort_available_gb,
+                                 max_pressure_avg10=args.abort_pressure,
+                                 on_abort=stop_service):
+                    receipt = run_shot(ROOT, fastvideo_project, spec, api=args.api,
+                                       width=args.width, height=args.height,
+                                       takes_subdir=args.takes_subdir)
                 break
             except Exception as exc:  # noqa: BLE001
                 if attempt <= args.retry:
