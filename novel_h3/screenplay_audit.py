@@ -9,42 +9,47 @@ import re
 from typing import Any
 
 SPEAKER_RE = re.compile(
-    r"(?:^|(?<=[\s。！？；]))([A-Za-z][A-Za-z0-9_]*|[\u4e00-\u9fff]{1,8})\s*[:：]\s*"
+    r"(?:^|(?<=[\s。！？；]))([A-Za-z][A-Za-z0-9_]*|[\u4e00-\u9fff]{1,8})(?:（[^）]*）)?\s*[:：]\s*"
 )
 PUNCT_RE = re.compile(r"[\s，。！？；：、“”‘’（）()《》〈〉—…,.!?;:\-]")
-RUNTIME_TOLERANCE = 0.10
+RUNTIME_WARNING_PERCENT = 25.0
 
 
 VISUAL_LABELS = {
     "insert", "cut", "shot", "visual", "montage", "transition", "sound", "note",
     "action", "close", "wide", "medium", "title", "card",
+    "场景", "画面", "动作", "光", "声", "连续", "镜头", "转场", "插入",
+    "特写", "中景", "全景", "近景", "远景", "构图", "调度", "字幕",
 }
 
 
 def speaker_names(text: str) -> set[str]:
     """Return all marker labels (speakers and visual labels) in a text."""
-    return {match.group(1) for match in SPEAKER_RE.finditer(text)}
+    names: set[str] = set()
+    for line in text.splitlines():
+        names.update(match.group(1) for match in SPEAKER_RE.finditer(line))
+    return names
 
 
 def extract_spoken(text: str, speakers: set[str] | None = None) -> list[str]:
     """Return spoken segments introduced by ``speaker:`` markers.
 
+    Parsing is line-based so a dialogue line does not absorb the following
+    action paragraph. Multiple speakers on one line are still supported.
     When ``speakers`` is provided, only those labels count as speech. Visual
-    labels such as ``Insert:`` or ``Cut:`` are skipped, so an added visual beat
-    is not mistaken for a new line of dialogue.
+    labels such as ``Insert:`` or ``画面：`` are skipped.
     """
-    matches = list(SPEAKER_RE.finditer(text))
-    if not matches:
-        return []
     out: list[str] = []
-    for i, match in enumerate(matches):
-        if speakers is not None and match.group(1) not in speakers:
-            continue
-        start = match.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        value = text[start:end].strip()
-        if value:
-            out.append(value)
+    for line in text.splitlines():
+        matches = list(SPEAKER_RE.finditer(line))
+        for i, match in enumerate(matches):
+            if speakers is not None and match.group(1) not in speakers:
+                continue
+            start = match.end()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(line)
+            value = line[start:end].strip()
+            if value:
+                out.append(value)
     return out
 
 
@@ -59,8 +64,6 @@ def _section_ids(treatment: dict[str, Any]) -> list[str]:
 def audit_treatment(
     treatment: dict[str, Any],
     script: dict[str, Any] | None = None,
-    *,
-    runtime_tolerance: float = RUNTIME_TOLERANCE,
 ) -> dict[str, Any]:
     """Return ``status``/``issues``/``metrics`` for one treatment.
 
@@ -68,8 +71,10 @@ def audit_treatment(
     This function focuses on cross-artifact rules that a JSON schema cannot see.
     """
     issues: list[str] = []
+    warnings: list[str] = []
     sections = treatment.get("enhanced_sections") or []
     added_beats = treatment.get("added_beats") or []
+    added_dialogue = treatment.get("added_dialogue") or []
     motifs = treatment.get("visual_motifs") or []
     beats = treatment.get("beat_map") or []
     ledger = treatment.get("fidelity_ledger") or []
@@ -103,10 +108,10 @@ def audit_treatment(
         issues.append("metadata.runtime_target_seconds is missing or non-positive")
     else:
         delta_pct = (total - target) / target * 100
-        if abs(delta_pct) > runtime_tolerance * 100:
-            issues.append(
-                f"runtime {total:.3f}s is {delta_pct:+.1f}% from target {target:.3f}s "
-                f"(tolerance ±{runtime_tolerance * 100:.0f}%)"
+        if abs(delta_pct) > RUNTIME_WARNING_PERCENT:
+            warnings.append(
+                f"runtime {total:.3f}s is {delta_pct:+.1f}% from the planning estimate "
+                f"{target:.3f}s; confirm the story needs this length (no hard cap)."
             )
     if abs(after - total) > 0.1:
         issues.append(f"metadata.runtime_after_seconds {after:.3f}s does not match section sum {total:.3f}s")
@@ -171,23 +176,43 @@ def audit_treatment(
     if not treatment.get("approval_questions"):
         issues.append("approval_questions is empty")
 
-    # Spoken-word fidelity: no new dialogue or narration words.
+    # Dialogue fidelity: existing lines may be re-timed; new connective lines
+    # are allowed only when declared in added_dialogue with a source fact and a
+    # dramatic purpose.
     spoken_lines = 0
+    narrator_lines = 0
     if script:
         base_text = " ".join(str(s.get("text", "")) for s in script.get("sections", []))
         base_speakers = speaker_names(base_text)
         original_text = normalize_text(base_text)
+        declared_texts = {normalize_text(str(row.get("text", ""))) for row in added_dialogue}
+        declared_speakers = {str(row.get("speaker", "")) for row in added_dialogue if row.get("speaker")}
+        allowed_speakers = base_speakers | declared_speakers
+        for row in added_dialogue:
+            if not row.get("source_fact") or not row.get("purpose"):
+                issues.append(f"{row.get('line_id', '?')}: added dialogue needs source_fact and purpose")
+            if normalize_text(str(row.get("text", ""))) not in normalize_text(
+                    " ".join(str(s.get("text", "")) for s in sections)):
+                issues.append(f"{row.get('line_id', '?')}: declared added line is not present in the enhanced script")
         for section in sections:
             sid = section.get("id", "?")
-            for marker in speaker_names(str(section.get("text", ""))):
-                if marker not in base_speakers and marker.lower() not in VISUAL_LABELS:
-                    issues.append(f"{sid}: new speaker/dialogue marker {marker!r} is not in the base script")
-            for line in extract_spoken(str(section.get("text", "")), base_speakers):
+            text = str(section.get("text", ""))
+            narrator_lines += len(re.findall(r"(?:^|\s)narrator\s*[:：]", text))
+            for marker in speaker_names(text):
+                if marker not in allowed_speakers and marker.lower() not in VISUAL_LABELS:
+                    issues.append(f"{sid}: new speaker/dialogue marker {marker!r} is not declared")
+            for line in extract_spoken(text, allowed_speakers):
                 spoken_lines += 1
-                if normalize_text(line) not in original_text:
+                normalized = normalize_text(line)
+                if normalized not in original_text and normalized not in declared_texts:
                     issues.append(
-                        f"{sid}: spoken line is not in the base script: {line[:80]!r}"
+                        f"{sid}: spoken line is neither in the base script nor declared in added_dialogue: {line[:80]!r}"
                     )
+    if narrator_lines:
+        warnings.append(
+            f"{narrator_lines} narrator line(s) found; dialogue-first is preferred. "
+            "Keep narration only for an unwitnessable time jump."
+        )
     if meta.get("fidelity_status") not in ("pass", "revise"):
         issues.append("metadata.fidelity_status must be 'pass' or 'revise'")
     elif meta.get("fidelity_status") == "revise":
@@ -196,6 +221,7 @@ def audit_treatment(
     return {
         "status": "pass" if not issues else "revise",
         "issues": issues,
+        "warnings": warnings,
         "metrics": {
             "section_count": len(sections),
             "added_section_count": len(added_ids),
@@ -203,6 +229,8 @@ def audit_treatment(
             "runtime_target_seconds": round(target, 3),
             "runtime_delta_percent": round((total - target) / target * 100, 2) if target else None,
             "spoken_lines": spoken_lines,
+            "added_dialogue_lines": len(added_dialogue),
+            "narrator_lines": narrator_lines,
             "visual_motifs": len(motifs),
             "added_beats": len(added_beats),
         },

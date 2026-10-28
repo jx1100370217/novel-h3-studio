@@ -4,7 +4,7 @@
 
 - The source text (`.txt` or `.md`) with stable paragraph ids (for 聊斋志异-style
   anthologies: `s<NNNN>_p<NNNN>`).
-- A runtime target in seconds.
+- A planned runtime in seconds (a soft estimate, not a hard cap).
 - Any previously approved adaptation material for the same source.
 
 ## Output
@@ -23,8 +23,9 @@ the source facts or spoken words.
    `turn`, `change`, and a one-line `script`.
 4. Expand each scene into script sections whose `text` is the on-screen action, not
    prose summary. Keep the source's cause-and-effect order.
-5. Set `start_seconds`/`end_seconds` so the total matches the runtime target within
-   10 percent.
+5. Set `start_seconds`/`end_seconds` so the total serves the story. The planned
+   runtime is a soft estimate; expand or contract it when the material needs it.
+   There is no hard upper limit and no padding to hit a number.
 
 ## Fidelity rules
 
@@ -38,5 +39,5 @@ the source facts or spoken words.
 
 - [ ] Every section cites at least one source paragraph id
 - [ ] No new location, character, object or causal link
-- [ ] Runtime within 10 percent of target
+- [ ] Runtime is justified by the story (planned estimate, no hard cap)
 - [ ] Ending matches the source exactly

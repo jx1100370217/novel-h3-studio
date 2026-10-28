@@ -152,6 +152,17 @@ not in the core code.
 
 ## Rules
 
+- **Dialogue-first narrative (binding):** carry plot through character dialogue
+  and visible action; narration is a last resort. Do not use a narrator to
+  explain what the audience can see. Connective dialogue may dramatize existing
+  source facts, but every added line must be declared in the screenplay
+  treatment's `added_dialogue` ledger. Do not add new plot events, characters,
+  locations or endings.
+- **Story duration is not a hard cap (binding):** a runtime target is a planning
+  estimate, not a limit. Do not pad or truncate a film to hit it; let the story's
+  beats determine the final length. Record the planned and final runtime. A
+  longer cut is acceptable when the added time is story-driven, not filler; a
+  shorter cut is acceptable when the story is complete. There is no upper limit.
 - **Single-best-version retention (binding):** once the user explicitly states
   that a version looks better than the historical versions, delete the older
   versions' media, takes, board media, artifacts, checkpoints/history and old

@@ -46,22 +46,42 @@ outline. It consumes the faithful `script` artifact and the source text.
 ### Must not add
 
 - new named characters, servants, guards, crowds or background identities;
-- new dialogue, narration words, letters, signs or on-screen text;
 - new causal events, new locations, new props that change the plot;
 - a changed ending, a new reveal, or a new relationship;
 - fan-fiction explanations of an ambiguity the source keeps open;
 - a second body for a character, a reflection copy, or a portrait double.
 
-Dialogue and narration text are immutable. You may re-time, split, merge or
-assign existing words; never write new spoken words.
+### Dialogue-first, narration last
+
+Narrative films carry plot through what characters **say and do**, not through a
+narrator explaining the picture.
+
+- Convert base-script narration into character dialogue wherever a character
+  can plausibly say it.
+- Use visual action for what cannot be said: a hand, a threshold, a fire, a
+  river, a silence.
+- Keep the source's quoted dialogue as the spine.
+- You may write **connective dialogue** that dramatizes an existing source fact:
+  greetings, refusals, questions, warnings, jokes, farewells.
+- Every added line must be listed in `added_dialogue` with the source fact it
+  serves and its dramatic purpose. Undeclared new lines are a gate failure.
+- Do not add a new plot event, character, location or ending through dialogue.
+- Narration is allowed only for a time jump or an event no character can
+  witness. A narrator must never explain what the audience can see.
 
 ## Runtime contract
 
-- The enhanced script must stay within **±10%** of the approved runtime target.
-- Added beats must be **absorbed** by compressing, merging or re-timing existing
-  coverage. Do not simply append time.
+- The planned runtime is a **soft estimate, not a hard cap**. There is no upper
+  limit. Let the story determine the final length.
+- Do not pad to hit a number and do not truncate a complete scene to hit a
+  number. A longer cut is valid when the added time is story-driven; a shorter
+  cut is valid when the story is complete.
+- Record `metadata.runtime_target_seconds` (the planning estimate) and
+  `metadata.runtime_after_seconds` (the actual sum of the sections). The audit
+  checks consistency, not a ±10% band.
+- Added beats should still be **earned**: if a beat only repeats information or
+  decoration, cut it. If the story needs room, give it room.
 - Keep every shot on the H3 frame grid `17n+5` (124, 158, 243, ...).
-- If an added beat cannot fit, cut a lower-value beat or reject the idea.
 
 ## Process
 
@@ -128,17 +148,46 @@ For every added beat:
 - add it to `added_beats` and `enhanced_sections`;
 - add a fidelity-ledger row.
 
-### 6. Write the enhanced script
+### 6. Write the enhanced script and the shot contracts
 
-Update `artifacts/script.json`:
+Update `artifacts/script.json` as a **scene-based screenplay**, not a list of
+one-line beats:
 
-- keep existing section ids and their spoken text;
-- add new section ids for added beats;
-- make timings contiguous and within runtime;
-- keep `text` as on-screen action/narration, not prose summary;
-- do not add captions, signs or letters.
+- group the story into 8–14 dramatic scenes;
+- each scene has a place, a want, an obstacle and a turn;
+- carry the scene through character dialogue and visible action;
+- use narration only when no character can carry the information;
+- keep the source's plot order and facts;
+- add new section ids for added scenes/beats;
+- make timings contiguous and consistent with the actual scene length.
 
-### 7. Write the treatment artifact
+If the scene is already split into shots, write a shot contract for each one.
+If not, write scene-level camera/action notes now and leave the full shot
+contracts to the `scene_plan` stage. Never write a 60-second scene as a single
+H3 take. The shot contract is the unit the H3 scene stage turns into a Ref2VA
+request; a one-line scene is not enough.
+
+For **every** enhanced section, write one shot contract. The contract is the
+unit the H3 scene stage will turn into a Ref2VA request. A one-line section is
+not enough. The contract must specify:
+
+- `shot_id` / `section_id` / `title`;
+- `frames` on the H3 grid `17n+5` and the matching `duration_seconds`;
+- `shot_type` (`single_take`, `insert`, `reaction`, `montage`, `transition`,
+  `establishing`);
+- `camera`: shot size, lens, movement, height, composition;
+- `lighting`: key, fill, practicals, contrast, color temperature;
+- `blocking`: exact positions, entrances/exits, screen direction, eyeline;
+- `start_state` / `end_state`;
+- 2–6 timed `action_beats` inside the take;
+- `sound`: native ambience, physical sound, silence;
+- `cast` and `visible_cast_count`;
+- `props`, `costume`, `set_dressing`;
+- `continuity`: previous/next shot, axis, hand/prop ownership;
+- `h3_prompt_notes`: what the Ref2VA prompt must preserve or avoid;
+- `risk` and mitigation for the hard shot.
+
+### 7. Write the treatment and the human-readable shooting script
 
 Write `artifacts/screenplay_treatment.json` with:
 
@@ -146,10 +195,15 @@ Write `artifacts/screenplay_treatment.json` with:
 - 3–5 visual motifs with setup/payoff sections;
 - act map and beat map;
 - added beats and enhanced sections;
-- shot opportunities (size, lens, movement, composition, light, sound);
+- a `shot_contracts` array covering every enhanced section;
 - transition plan and sound plan;
 - fidelity ledger and not-added list;
 - production constraints and approval questions.
+
+Also write `artifacts/shooting_script.md` from the same contracts: a readable
+Chinese shooting script with one heading per shot and the camera, light,
+blocking, action beats, sound, continuity and H3 prompt notes. The JSON is the
+machine contract; the Markdown is what the director reviews.
 
 ### 8. Audit and gate
 
@@ -172,6 +226,51 @@ present:
 
 Do not start `scene_plan` in the same turn. Approval is per gate.
 
+## Shot contract example
+
+```json
+{
+  "shot_id": "A14",
+  "section_id": "A14",
+  "title": "午时",
+  "frames": 260,
+  "duration_seconds": 10.833333,
+  "shot_type": "single_take",
+  "camera": {
+    "shot_size": "medium_wide",
+    "lens_mm": 35,
+    "movement": "slow_push_in",
+    "height": "low, near the water",
+    "composition": "woman and baby enter from camera-left; river fills the right two-thirds"
+  },
+  "lighting": {
+    "key": "flat overcast noon",
+    "fill": "river bounce",
+    "practicals": "none",
+    "contrast": "low",
+    "color_temperature": "cold gray-green"
+  },
+  "blocking": "The woman carries the baby at camera-left, steps to the water's edge, slips; the baby is thrown onto the bank; she goes under at camera-right.",
+  "start_state": "Woman and baby stand at the bank, dry.",
+  "end_state": "Woman has climbed out; baby is on the bank, crying.",
+  "action_beats": [
+    "0.0-2.0s: woman and baby enter from camera-left",
+    "2.0-4.0s: her foot slips at the water's edge",
+    "4.0-7.0s: baby lands on the bank; she goes under",
+    "7.0-9.0s: she grabs the bank and climbs out"
+  ],
+  "sound": "River lap, a single splash, the baby's cry, no music.",
+  "cast": ["woman", "baby"],
+  "visible_cast_count": 2,
+  "props": ["wrapped baby bundle"],
+  "costume": "plain gray-blue peasant robe, wet at the hem",
+  "set_dressing": "mud bank, reeds, cold river mist",
+  "continuity": "Woman enters from camera-left; the baby stays camera-left on the bank; do not mirror.",
+  "h3_prompt_notes": "The baby is a wrapped bundle with no visible face; the woman is the only adult; exactly two bodies; no extra rescuers.",
+  "risk": "H3 may add a rescuer or a second woman; use a Blender blocking guide and re-render if the count exceeds two."
+}
+```
+
 ## Production-aware constraints (FastH3)
 
 - 1344x768, 24fps, 8 steps, one continuous take per shot.
@@ -190,7 +289,7 @@ Required top-level fields:
 
 `version`, `title`, `source_script`, `logline`, `dramatic_question`, `theme`,
 `visual_motifs`, `beat_map`, `added_beats`, `enhanced_sections`,
-`fidelity_ledger`, `metadata`.
+`shot_contracts`, `fidelity_ledger`, `metadata`.
 
 The full schema is
 `openmontage/schemas/artifacts/screenplay_treatment.schema.json`.
@@ -205,6 +304,12 @@ A fill-in skeleton is
 - [ ] No new spoken words, characters, locations or causal events
 - [ ] Every original section is represented in the enhanced script
 - [ ] Every added section has a matching entry in `added_beats`
+- [ ] Every enhanced section has one shot contract
+- [ ] Every contract's frames are on the `17n+5` grid and match its section duration
+- [ ] Every contract has camera, lighting, blocking, 2+ action beats, sound, cast and H3 prompt notes
+- [ ] Every new spoken line is declared in `added_dialogue`
+- [ ] Narration is absent or only used for an unwitnessable time jump
+- [ ] `artifacts/shooting_script.md` is generated from the contracts
 - [ ] Every added beat appears in the fidelity ledger
 - [ ] At least 3 visual motifs, each with a setup and payoff
 - [ ] Shot opportunities use different sizes and do not repeat coverage

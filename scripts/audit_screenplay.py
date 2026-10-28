@@ -38,6 +38,7 @@ def main() -> int:
         args.out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
     print(json.dumps({"status": report["status"], "issues": report["issues"],
+                      "warnings": report.get("warnings", []),
                       "metrics": report["metrics"]}, ensure_ascii=False, indent=2))
     return 0 if report["status"] == "pass" else 1
 

@@ -11,8 +11,12 @@
       "id": "M1",
       "name": "TBD",
       "description": "TBD",
-      "setup_sections": ["A01"],
-      "payoff_sections": ["A02"],
+      "setup_sections": [
+        "A01"
+      ],
+      "payoff_sections": [
+        "A02"
+      ],
       "camera_notes": "TBD"
     }
   ],
@@ -20,20 +24,25 @@
     {
       "act": "I",
       "purpose": "TBD",
-      "section_ids": ["A01"],
+      "section_ids": [
+        "A01"
+      ],
       "turn": "TBD"
     }
   ],
   "beat_map": [
     {
       "beat_id": "B1",
-      "section_ids": ["A01"],
+      "section_ids": [
+        "A01"
+      ],
       "function": "TBD",
       "escalation": "TBD",
       "visual_idea": "TBD"
     }
   ],
   "added_beats": [],
+  "added_dialogue": [],
   "enhanced_sections": [
     {
       "id": "A01",
@@ -42,7 +51,9 @@
       "text": "TBD",
       "start_seconds": 0,
       "end_seconds": 1,
-      "source_paragraph_ids": ["s0001_p0001"],
+      "source_paragraph_ids": [
+        "s0001_p0001"
+      ],
       "cinematic_function": "TBD",
       "visual_motif": "M1",
       "shot_opportunity": "TBD",
@@ -70,8 +81,12 @@
     }
   ],
   "sound_plan": {
-    "motifs": ["TBD"],
-    "silence_windows": ["TBD"],
+    "motifs": [
+      "TBD"
+    ],
+    "silence_windows": [
+      "TBD"
+    ],
     "diegetic_texture": "TBD",
     "music_policy": "TBD"
   },
@@ -92,7 +107,9 @@
     "1344x768 / 24fps / one continuous take per shot",
     "exact visible cast; individual character refs; no duplicate people"
   ],
-  "approval_questions": ["TBD"],
+  "approval_questions": [
+    "TBD"
+  ],
   "metadata": {
     "runtime_target_seconds": 1,
     "runtime_after_seconds": 1,

@@ -54,7 +54,7 @@ stages:
       - Section text covers the dramatic action, not just summary
     success_criteria:
       - Schema-valid script artifact
-      - total_duration_seconds within 10 percent of the approved runtime target
+      - total_duration_seconds reflects the story's needs; the planned runtime is a soft estimate, not a hard cap
 
   - name: screenplay
     skill: pipelines/novel-cinematic/screenplay-director
@@ -74,7 +74,7 @@ stages:
       - No new characters, locations, spoken words or changed ending
     success_criteria:
       - Schema-valid screenplay_treatment artifact
-      - Enhanced script keeps every original section and stays within runtime tolerance
+      - Enhanced script keeps every original section and has contiguous, story-justified timings (no hard runtime cap)
       - scripts/audit_screenplay.py reports pass
 
   - name: scene_plan

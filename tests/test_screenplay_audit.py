@@ -76,24 +76,44 @@ def test_new_spoken_words_fail():
     treatment["enhanced_sections"][2]["text"] = "wife: 你是谁？"
     report = audit_treatment(treatment, base_script())
     assert report["status"] == "revise"
-    assert any("not in the base script" in issue for issue in report["issues"])
+    assert any("neither in the base script nor declared" in issue for issue in report["issues"])
 
 
-def test_runtime_drift_fails():
+def test_declared_added_line_is_allowed():
     treatment = copy.deepcopy(base_treatment())
-    treatment["enhanced_sections"][2]["end_seconds"] = 12
-    treatment["metadata"]["runtime_after_seconds"] = 12
+    treatment["enhanced_sections"][2]["text"] = "wife: 你是谁？"
+    treatment["added_dialogue"] = [{
+        "line_id": "d-1", "scene_id": "A02", "speaker": "wife",
+        "text": "你是谁？", "source_fact": "The wife questions the stranger at the door.",
+        "purpose": "Externalize her fear without a narrator.",
+    }]
     report = audit_treatment(treatment, base_script())
-    assert report["status"] == "revise"
-    assert any("runtime" in issue for issue in report["issues"])
+    assert report["status"] == "pass", report["issues"]
 
 
-def test_new_speaker_marker_fails():
+def test_undeclared_new_speaker_fails():
     treatment = copy.deepcopy(base_treatment())
-    treatment["enhanced_sections"][1]["text"] = "stranger: 开门。"
+    treatment["enhanced_sections"][2]["text"] = "stranger: 开门。"
     report = audit_treatment(treatment, base_script())
     assert report["status"] == "revise"
     assert any("new speaker" in issue for issue in report["issues"])
+
+
+def test_runtime_drift_is_allowed():
+    treatment = copy.deepcopy(base_treatment())
+    treatment["enhanced_sections"][2]["end_seconds"] = 14
+    treatment["metadata"]["runtime_after_seconds"] = 14
+    report = audit_treatment(treatment, base_script())
+    assert report["status"] == "pass", report["issues"]
+    assert any("planning estimate" in warning for warning in report["warnings"])
+
+
+def test_runtime_metadata_mismatch_fails():
+    treatment = copy.deepcopy(base_treatment())
+    treatment["metadata"]["runtime_after_seconds"] = 9
+    report = audit_treatment(treatment, base_script())
+    assert report["status"] == "revise"
+    assert any("runtime_after_seconds" in issue for issue in report["issues"])
 
 
 def test_missing_source_ref_fails():
@@ -111,3 +131,11 @@ def test_dropped_original_section_fails():
     report = audit_treatment(treatment, base_script())
     assert report["status"] == "revise"
     assert any("A02" in issue and "not represented" in issue for issue in report["issues"])
+
+
+def test_narrator_line_warns_but_does_not_fail():
+    treatment = copy.deepcopy(base_treatment())
+    treatment["enhanced_sections"][0]["text"] = "narrator: 那年冬天，我病了很久。"
+    report = audit_treatment(treatment, base_script())
+    assert report["status"] == "pass", report["issues"]
+    assert any("narrator" in warning for warning in report["warnings"])
