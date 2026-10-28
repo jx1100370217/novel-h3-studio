@@ -55,6 +55,7 @@ not in a one-off version script:
 
 - shot construction: `novel_h3/ref2va_builder.py`
 - voice references: `novel_h3/voice_refs.py`
+- shot-to-shot video continuation refs: `novel_h3/continuity_refs.py`
 - Blender blocking guides: `novel_h3/previs.py` + `novel_h3/previs_render.py`
 - cast audit: `novel_h3/cast_audit.py`
 - transition audit: `novel_h3/transition_audit.py`

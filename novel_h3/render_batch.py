@@ -21,7 +21,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_API = 'http://127.0.0.1:8195'
-DEFAULT_SERVICE_PROJECT = ROOT / 'projects/liaozhai-zhiyi-video-comparison'
 
 
 def health(api: str, timeout: float = 3.0) -> bool:
@@ -138,7 +137,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--fastvideo-project', type=Path, required=True)
     parser.add_argument('--specs-dir', type=Path, default=None)
     parser.add_argument('--takes-subdir', default='takes')
-    parser.add_argument('--service-project', type=Path, default=DEFAULT_SERVICE_PROJECT)
+    parser.add_argument('--service-project', type=Path, default=None,
+                        help='Project config for the FastVideo service; defaults to --fastvideo-project.')
     parser.add_argument('--shots', default='')
     parser.add_argument('--restart-every', type=int, default=1)
     parser.add_argument('--api', default=DEFAULT_API)
@@ -181,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
                           live_assets_active=board_active, keep_manifest=keep_manifest,
                           event_name='start')
         if not health(args.api):
-            start_service(args.service_project.resolve(), args.service_log)
+            start_service((args.service_project or fastvideo_project).resolve(), args.service_log)
         try:
             receipt = run_shot(ROOT, fastvideo_project, spec, api=args.api,
                                width=args.width, height=args.height,
