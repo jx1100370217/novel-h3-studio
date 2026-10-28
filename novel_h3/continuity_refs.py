@@ -13,7 +13,7 @@ from typing import Iterable, Mapping
 
 from .ref2va_builder import VideoRef
 
-DEFAULT_TAIL_SECONDS = 3.0
+DEFAULT_TAIL_SECONDS = 2.0
 
 
 def continuation_ref(previous: Mapping[str, str] | None, previous_section: str | None,

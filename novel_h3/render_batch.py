@@ -141,6 +141,8 @@ def main(argv: list[str] | None = None) -> int:
                         help='Project config for the FastVideo service; defaults to --fastvideo-project.')
     parser.add_argument('--shots', default='')
     parser.add_argument('--restart-every', type=int, default=1)
+    parser.add_argument('--retry', type=int, default=1,
+                        help='Re-run a failed shot this many times after restarting the service.')
     parser.add_argument('--api', default=DEFAULT_API)
     parser.add_argument('--width', type=int, default=1344)
     parser.add_argument('--height', type=int, default=768)
@@ -180,12 +182,28 @@ def main(argv: list[str] | None = None) -> int:
         update_checkpoint(checkpoint, rendered, total, sid, 'render', live_assets=live_assets,
                           live_assets_active=board_active, keep_manifest=keep_manifest,
                           event_name='start')
-        if not health(args.api):
-            start_service((args.service_project or fastvideo_project).resolve(), args.service_log)
-        try:
-            receipt = run_shot(ROOT, fastvideo_project, spec, api=args.api,
-                               width=args.width, height=args.height,
-                               takes_subdir=args.takes_subdir)
+        receipt = None
+        for attempt in range(1, max(0, args.retry) + 2):
+            if not health(args.api):
+                start_service((args.service_project or fastvideo_project).resolve(), args.service_log)
+            try:
+                receipt = run_shot(ROOT, fastvideo_project, spec, api=args.api,
+                                   width=args.width, height=args.height,
+                                   takes_subdir=args.takes_subdir)
+                break
+            except Exception as exc:  # noqa: BLE001
+                if attempt <= args.retry:
+                    # Host-memory OOM and provider hickups are transient; a
+                    # fresh service plus one retry is cheaper than a re-plan.
+                    print(f'RETRY {sid} ({attempt}/{args.retry}): {exc}', flush=True)
+                    stop_service()
+                    continue
+                failures.append({'shot': sid, 'error': str(exc), 'attempts': attempt})
+                update_checkpoint(checkpoint, rendered, total, sid, 'render', {'error': str(exc)},
+                                  live_assets=live_assets, live_assets_active=board_active,
+                                  keep_manifest=keep_manifest, event_name='error')
+                print(f'[{index}/{total}] {sid} FAILED: {exc}', flush=True)
+        if receipt is not None:
             rendered += 1
             if board_active:
                 try:
@@ -198,12 +216,6 @@ def main(argv: list[str] | None = None) -> int:
                 live_assets=live_assets, live_assets_active=board_active, keep_manifest=keep_manifest,
                 event_name='finish')
             print(f'[{index}/{total}] {sid} {receipt.get("inference_time_s")}s', flush=True)
-        except Exception as exc:  # noqa: BLE001
-            failures.append({'shot': sid, 'error': str(exc)})
-            update_checkpoint(checkpoint, rendered, total, sid, 'render', {'error': str(exc)},
-                              live_assets=live_assets, live_assets_active=board_active,
-                              keep_manifest=keep_manifest, event_name='error')
-            print(f'[{index}/{total}] {sid} FAILED: {exc}', flush=True)
         if args.restart_every and index % args.restart_every == 0 and index < total:
             stop_service()
     if args.restart_every:

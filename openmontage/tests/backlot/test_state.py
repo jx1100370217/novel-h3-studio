@@ -116,6 +116,31 @@ class TestBoardState:
         script_stage2 = next(x for x in s2["stages"] if x["name"] == "script")
         assert script_stage2["gate_skipped"] is False
 
+    def test_render_progress_from_checkpoint_and_takes(self, projects_root):
+        p = _make_project(projects_root, "rendering")
+        _write(p / "artifacts" / "scene_plan.json", SCENE_PLAN)
+        take = p / "takes_all" / "sc1" / "native.mp4"
+        take.parent.mkdir(parents=True)
+        take.write_bytes(b"x")
+        _write(p / "checkpoint_batch1.json", {
+            "version": "1.0", "project_id": "rendering", "pipeline_type": "cinematic",
+            "stage": "assets", "status": "in_progress",
+            "timestamp": "2026-01-01T01:00:00Z",
+            "metadata": {"partial_progress": {
+                "phase": "render", "done": 1, "total": 2,
+                "current": "sc2", "updated_at": time.time()}},
+        })
+        s = load_board_state(p)
+        progress = s["render_progress"]
+        assert progress["done"] == 1 and progress["total"] == 2
+        assert progress["current"] == "sc2"
+        cards = {c["id"]: c for c in s["storyboard"]["scenes"]}
+        assert cards["sc1"]["render_status"] == "done"
+        assert cards["sc1"]["live_take"] is True
+        assert cards["sc2"]["render_status"] == "rendering"
+        # the render ledger is progress, not an undeclared pipeline stage
+        assert all(stage["name"] != "batch1" for stage in s["stages"])
+
     def test_generating_state_from_events(self, projects_root):
         p = _make_project(projects_root, "live")
         _write(p / "artifacts" / "scene_plan.json", SCENE_PLAN)

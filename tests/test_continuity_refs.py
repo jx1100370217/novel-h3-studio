@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from novel_h3.continuity_refs import continuation_ref, missing_continuations
+from novel_h3.continuity_refs import DEFAULT_TAIL_SECONDS, continuation_ref, missing_continuations
 
 
 class ContinuityRefTests(unittest.TestCase):
@@ -12,7 +12,7 @@ class ContinuityRefTests(unittest.TestCase):
         self.assertIsNotNone(ref)
         self.assertEqual(ref.asset_id, 'S01A1')
         self.assertEqual(ref.task_type, 'video continuation')
-        self.assertEqual(ref.tail_seconds, 3.0)
+        self.assertEqual(ref.tail_seconds, DEFAULT_TAIL_SECONDS)
         self.assertTrue(ref.path.endswith('takes/S01A1/native.mp4'))
         self.assertIn('Xu sits on the boat.', ref.definition)
 

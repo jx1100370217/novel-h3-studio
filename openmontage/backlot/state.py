@@ -37,6 +37,10 @@ LIVE_WINDOW_SECONDS = 5 * 60
 # heartbeat checkpoints and tool events both reset the clock).
 STALL_WINDOW_SECONDS = 10 * 60
 
+# One H3 take plus a service restart takes 5-8 minutes, so a render queue is
+# only stalled well after a normal take would have finished.
+RENDER_STALL_WINDOW_SECONDS = 20 * 60
+
 
 def _read_json(path: Path) -> Optional[dict]:
     """Read a JSON file, returning None on any failure."""
@@ -194,6 +198,77 @@ def _collect_history(project_dir: Path) -> dict[str, list[dict]]:
     return out
 
 
+RENDER_PHASES = ("render", "render_done")
+
+
+def _render_progress(project_dir: Path, checkpoints: dict[str, dict]) -> Optional[dict]:
+    """Per-shot asset render progress, merged from checkpoints and takes.
+
+    ``render_batch`` writes an ``assets`` checkpoint per shot, and the takes
+    land under ``takes*/<shot>/native.mp4``. The newest render checkpoint gives
+    the queue position; the files on disk give the truth about what is done.
+    """
+    import time
+
+    best: Optional[tuple[float, str, dict]] = None
+    for name, cp in checkpoints.items():
+        progress = (cp.get("metadata") or {}).get("partial_progress") or {}
+        if progress.get("phase") not in RENDER_PHASES:
+            continue
+        updated = float(progress.get("updated_at") or cp.get("_mtime") or 0)
+        if best is None or updated > best[0]:
+            best = (updated, name, progress)
+
+    scene_plan = _read_json(project_dir / "artifacts" / "scene_plan.json") or {}
+    scenes = [s for s in scene_plan.get("scenes") or [] if isinstance(s, dict)]
+    durations = {
+        str(s["id"]): max(0.0, float(s.get("end_seconds") or 0) - float(s.get("start_seconds") or 0))
+        for s in scenes if s.get("id") is not None
+    }
+    takes_dirs = sorted((d for d in project_dir.glob("takes*") if d.is_dir()),
+                        key=lambda d: d.stat().st_mtime, reverse=True)
+    shots: dict[str, dict] = {}
+    for sid in durations:
+        for takes_dir in takes_dirs:
+            clip = takes_dir / sid / "native.mp4"
+            if clip.is_file():
+                shots[sid] = {
+                    "status": "done",
+                    "path": _rel(project_dir, clip),
+                    "duration_seconds": round(durations[sid], 3) or None,
+                    "mtime": clip.stat().st_mtime,
+                }
+                break
+
+    if best is None and not shots:
+        return None
+    progress = best[2] if best else {}
+    total = len(durations) or int(progress.get("total") or 0)
+    current = progress.get("current") or None
+    if current and current in shots:
+        current = None  # finished takes win over a stale queue pointer
+    now = time.time()
+    mtimes = [v["mtime"] for v in shots.values()]
+    started_at = min(mtimes) if mtimes else None
+    eta_seconds = None
+    done = len(shots)
+    if started_at and done and total > done and now > started_at:
+        eta_seconds = int((now - started_at) / done * (total - done))
+    for sid in shots:
+        # A take already on disk is a take, whatever the queue says.
+        shots[sid].pop("mtime", None)
+    return {
+        "checkpoint": best[1] if best else None,
+        "done": done,
+        "total": total,
+        "current": current,
+        "updated_at": best[0] if best else None,
+        "started_at": started_at,
+        "eta_seconds": eta_seconds,
+        "shots": shots,
+    }
+
+
 def _build_stage_rail(
     pipeline_meta: dict,
     checkpoints: dict[str, dict],
@@ -243,6 +318,10 @@ def _build_stage_rail(
     canon = {name: i for i, name in enumerate(FALLBACK_STAGES)}
     for name, cp in checkpoints.items():
         if name in manifest_stage_names:
+            continue
+        if ((cp.get("metadata") or {}).get("partial_progress") or {}).get("phase") in RENDER_PHASES:
+            # Render-batch checkpoints are progress ledgers, not pipeline
+            # stages; their state is surfaced as render_progress instead.
             continue
         entry = {
             "name": name,
@@ -463,10 +542,13 @@ def _build_storyboard(
     keep_manifest: Optional[set[str]] = None,
     current_scene: Optional[str] = None,
     assets_in_progress: bool = False,
+    render_shots: Optional[dict] = None,
+    render_current: Optional[str] = None,
 ) -> Optional[dict]:
     """Scene cards: scene_plan × script × asset_manifest × live round takes."""
     live_assets = live_assets or {}
     keep_manifest = keep_manifest or set()
+    render_shots = render_shots or {}
     scene_plan = artifacts.get("scene_plan")
     if not scene_plan or not isinstance(scene_plan.get("scenes"), list):
         return None
@@ -505,6 +587,9 @@ def _build_storyboard(
         sid = scene_key(scene.get("id"))
         section = _find_script_section(scene, sections)
         live = live_assets.get(sid) if isinstance(live_assets.get(sid), dict) else None
+        if not live:
+            disk = render_shots.get(sid)
+            live = disk if isinstance(disk, dict) and disk.get("path") else None
         if live and live.get("path"):
             live_entry = _asset_entry(project_dir, {
                 "id": f"live_{sid}", "type": "video", "scene_id": sid,
@@ -544,8 +629,10 @@ def _build_storyboard(
                 else missing[-1] if missing
                 else _find_scene_snapshot(project_dir, sid)
             )
-        is_generating = generating.get(sid) is not None or (
-            live_assets_active and assets_in_progress and current_scene == sid
+        is_generating = (not live) and (
+            generating.get(sid) is not None
+            or (live_assets_active and assets_in_progress and current_scene == sid)
+            or render_current == sid
         )
         cards.append({
             "id": sid,
@@ -573,6 +660,12 @@ def _build_storyboard(
             "generating_tool": (generating.get(sid) or {}).get("tool") or ("fastvideo_h3_video" if is_generating else None),
             "live_take": bool(live),
             "live_pending": bool(live_assets_active and assets_in_progress and not live and sid not in keep_manifest),
+            "render_status": (
+                "done" if live and live.get("path")
+                else "rendering" if render_current == sid
+                else "pending" if (assets_in_progress or render_shots)
+                else None
+            ),
         })
 
     total = scene_plan.get("metadata", {}).get("total_duration_seconds")
@@ -706,6 +799,7 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
     events = read_events(project_dir, limit=250)
     assets_cp = checkpoints.get('assets') or {}
     assets_meta = assets_cp.get('metadata') or {}
+    render_progress = _render_progress(project_dir, checkpoints)
     storyboard = _build_storyboard(
         project_dir, artifacts, events,
         live_assets=assets_meta.get('live_assets') or {},
@@ -713,10 +807,24 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
         keep_manifest=set(assets_meta.get('keep_manifest') or []),
         current_scene=(assets_meta.get('partial_progress') or {}).get('current') or None,
         assets_in_progress=assets_cp.get('status') == 'in_progress',
+        render_shots=(render_progress or {}).get('shots') or {},
+        render_current=(render_progress or {}).get('current'),
     )
     media = _scan_media(project_dir)
 
     stages = _build_stage_rail(pipeline_meta, checkpoints, history)
+    if render_progress:
+        for stage_entry in stages:
+            if stage_entry["name"] == "assets" and stage_entry["status"] == "in_progress":
+                stage_entry["partial_progress"] = {
+                    **(stage_entry.get("partial_progress") or {}),
+                    "phase": "render",
+                    "done": render_progress["done"],
+                    "total": render_progress["total"],
+                    "current": render_progress["current"],
+                    "eta_seconds": render_progress["eta_seconds"],
+                    "updated_at": render_progress["updated_at"],
+                }
 
     # Cost: latest checkpoint snapshot wins; fall back to manifest total.
     cost = None
@@ -735,10 +843,13 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
 
     # Stall detection: an in_progress stage that stopped writing anything.
     for stage_entry in stages:
+        window = (RENDER_STALL_WINDOW_SECONDS
+                  if stage_entry["name"] == "assets" and render_progress
+                  else STALL_WINDOW_SECONDS)
         if (
             stage_entry["status"] == "in_progress"
             and last_activity
-            and (now - last_activity) > STALL_WINDOW_SECONDS
+            and (now - last_activity) > window
         ):
             stage_entry["stalled"] = True
             stage_entry["stalled_minutes"] = int((now - last_activity) / 60)
@@ -755,6 +866,7 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
         "stages": stages,
         "artifacts": artifacts,
         "storyboard": storyboard,
+        "render_progress": render_progress,
         "media": media,
         "events": events,
         "cost": cost,

@@ -108,6 +108,14 @@ function renderSlate(s) {
 // stage rail
 // ---------------------------------------------------------------------------
 
+// Long render queues run for hours; m:ss reads as nonsense at that scale.
+function fmtSpan(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.round((total % 3600) / 60);
+  return hours ? `${hours}h${String(minutes).padStart(2, "0")}m` : `${minutes}m`;
+}
+
 function stageSub(st) {
   if (st.status === "awaiting_human") return "awaiting your approval\nreply in chat to continue";
   if (st.status === "in_progress" && st.stalled) {
@@ -116,6 +124,11 @@ function stageSub(st) {
   if (st.status === "in_progress" && st.partial_progress) {
     const done = st.partial_progress.completed_scene_ids;
     if (Array.isArray(done)) return `${done.length} scene${done.length === 1 ? "" : "s"} done`;
+    const p = st.partial_progress;
+    if (p.total) {
+      return `${p.done || 0}/${p.total} done${p.current ? `\nnow ${p.current}` : ""}`
+        + (p.eta_seconds ? ` · ~${fmtSpan(p.eta_seconds)} left` : "");
+    }
     return "in progress";
   }
   if (st.status === "in_progress") return "in progress";
@@ -787,6 +800,21 @@ function sceneCard(s, card) {
   }
   wrap.append(thumb);
 
+  if (card.render_status) {
+    const statusMap = {
+      done: ["✓", "已生成", "var(--green)"],
+      rendering: ["◉", "生成中", "var(--amber)"],
+    };
+    // Pending cards already read "待生成" in the visual slot; a second chip
+    // would just repeat it.
+    const [icon, label, color] = statusMap[card.render_status] || [];
+    if (label) {
+      wrap.append(el("div", {
+        style: "display:flex;align-items:center;gap:5px;padding:6px 2px 0;font-family:var(--mono);font-size:calc(9px * var(--fs-scale));letter-spacing:.06em;color:" + color,
+      }, el("span", {}, icon), el("span", {}, label)));
+    }
+  }
+
   // shot language chips
   const sl = card.shot_language;
   if (sl) {
@@ -843,10 +871,16 @@ function renderStoryboard(s) {
   if (!board) return null;
   const strip = el("div", { class: "filmstrip" });
   for (const card of board.scenes) strip.append(sceneCard(s, card));
+  const rp = s.render_progress;
+  const progress = rp && rp.total
+    ? ` · 素材 ${rp.done}/${rp.total}`
+      + (rp.current ? ` · 当前 ${rp.current}` : "")
+      + (rp.eta_seconds ? ` · 剩余约 ${fmtSpan(rp.eta_seconds)}` : "")
+    : "";
   return el("div", {},
     el("div", { class: "section-title" }, "Storyboard",
       el("span", { class: "meta" },
-        `${board.scenes.length} scenes${board.total_duration_seconds ? ` · ${fmtDuration(board.total_duration_seconds)}` : ""} · card width ∝ duration`)),
+        `${board.scenes.length} scenes${board.total_duration_seconds ? ` · ${fmtDuration(board.total_duration_seconds)}` : ""} · card width ∝ duration${progress}`)),
     el("div", { class: "strip-outer" }, strip));
 }
 
@@ -858,8 +892,12 @@ function renderRenders(s) {
   const renders = s.media.renders;
   if (!renders.length) return null;
   const assetsStage = (s.stages || []).find((st) => st.name === "assets");
-  const liveProgress = assetsStage && assetsStage.status === "in_progress"
-    ? assetsStage.partial_progress : null;
+  const renderProgress = s.render_progress;
+  const liveProgress = renderProgress && renderProgress.current
+    ? renderProgress
+    : assetsStage && assetsStage.status === "in_progress"
+      ? assetsStage.partial_progress
+      : null;
   const round = currentRound(s);
   const roundMajor = round ? round.split(".")[0] : "";
   const hasCurrentRound = roundMajor
@@ -876,6 +914,7 @@ function renderRenders(s) {
         el("span", {},
           el("b", {}, `${prefix}素材生成中 · ${liveProgress.done || 0}/${liveProgress.total || 0}`),
           liveProgress.current ? ` · 当前 ${liveProgress.current}` : "",
+          liveProgress.eta_seconds ? ` · 剩余约 ${fmtSpan(liveProgress.eta_seconds)}` : "",
           ` · ${prefix}尚未合成，完成前不再用旧成片冒充当前版本。`)),
       previous ? el("div", { class: "render-meta" },
         el("a", { href: mediaURL(s.project_id, previous.path), target: "_blank", style: "color:var(--text-3)" },
@@ -1201,5 +1240,8 @@ refresh().catch((err) => {
 // ?static=1 disables the live feed (screenshots, static exports).
 if (!new URLSearchParams(location.search).has("static")) {
   subscribe(`/api/project/${encodeURIComponent(projectId)}/events`, () => refresh().catch(console.error));
+  // Render progress lives in a checkpoint that only changes once per take;
+  // poll so elapsed time and ETA stay live while a take is rendering.
+  setInterval(() => { if (!document.hidden) refresh().catch(() => {}); }, 15000);
 }
 startI18n();
