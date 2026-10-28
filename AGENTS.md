@@ -56,6 +56,7 @@ not in a one-off version script:
 - shot construction: `novel_h3/ref2va_builder.py`
 - voice references: `novel_h3/voice_refs.py`
 - shot-to-shot video continuation refs: `novel_h3/continuity_refs.py`
+- end cards: `novel_h3/end_card.py`
 - Blender blocking guides: `novel_h3/previs.py` + `novel_h3/previs_render.py`
 - cast audit: `novel_h3/cast_audit.py`
 - transition audit: `novel_h3/transition_audit.py`
@@ -125,6 +126,11 @@ not in the core code.
   (attack 250 ms, release 700 ms), and keep the final mix at -16 LUFS with true
   peak at or below -2 dBFS. Do not use one 5-minute loop for the whole film when
   the story changes act; use a cue map. Human listening remains the final gate.
+- Every delivered cut ends on one end card whose production credit is this
+  project, never the workflow tool: `改编 / 制作
+  https://github.com/jx1100370217/novel-h3-studio`. Render it with
+  `novel_h3.end_card.build_end_card` or a compose spec's `end_card` block;
+  never bake a one-off card into a cut with ad-hoc ffmpeg text.
 - A video reference does not guarantee the target's first frame. If a take
   still stages an earlier state (for example a second wake-up or a lie-down
   before sitting), trim the lead-in at the first frame that matches

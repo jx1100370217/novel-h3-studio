@@ -149,6 +149,24 @@ def compose(spec_path: Path) -> dict:
     order = [s for section in script['sections'] for s in section['shots']]
     shots = {sid: json.loads((resolve(spec['shots_dir']) / f'{sid}.json').read_text(encoding='utf-8')) for sid in order}
     lines = json.loads(resolve(spec['lines']).read_text(encoding='utf-8'))['lines']
+    card = spec.get('end_card')
+    if card:
+        from .end_card import PROJECT_CREDIT, build_end_card
+        card_seconds = float(card.get('duration_seconds', 3.0))
+        card_path = resolve(spec['work_dir']) / f'end_card_{spec.get("tag", "cut")}.mp4'
+        build_end_card(
+            card_path, title=card['title'], source=card.get('source', ''),
+            credits=tuple(card.get('credits') or ()),
+            credit=card.get('credit') or PROJECT_CREDIT,
+            duration_seconds=card_seconds,
+            width=int(spec.get('width', 1344)), height=int(spec.get('height', 768)),
+            fps=int(spec.get('fps', 24)),
+        )
+        spec.setdefault('graphics', {})['__end_card__'] = str(card_path)
+        order = [*order, '__end_card__']
+        shots['__end_card__'] = {'duration_seconds': card_seconds}
+        spec['target_duration'] = float(spec['target_duration']) + card_seconds
+        print('CARD', card_path, f'{card_seconds:.1f}s', flush=True)
     bounds, cursor = {}, 0.0
     for sid in order:
         bounds[sid] = cursor
