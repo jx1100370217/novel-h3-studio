@@ -152,6 +152,17 @@ not in the core code.
 
 ## Rules
 
+- **Every novel-cinematic story runs the screenplay stage (binding):** after
+  the faithful breakdown, the story must pass the `screenplay` gate. Do not
+  skip it or go straight to shot planning.
+- **Scene-based screenplay (binding):** the screenplay is 8–14 dramatic scenes,
+  not a list of one-line shots. Each scene has a want, an obstacle and a turn;
+  dialogue carries the story. Narration is only for an unwitnessable time jump.
+- **Scene plan splits into shots (binding):** `scene_plan` must split every
+  screenplay scene into 3–7 H3 shots (typically 3–5). Each shot gets exact frames on the
+  `17n+5` grid, camera, lens, movement, lighting, blocking, dialogue,
+  continuity and H3 prompt notes. Never render a whole 60-second scene as one
+  take.
 - **Dialogue-first narrative (binding):** carry plot through character dialogue
   and visible action; narration is a last resort. Do not use a narrator to
   explain what the audience can see. Connective dialogue may dramatize existing

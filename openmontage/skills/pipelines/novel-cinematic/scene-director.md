@@ -30,6 +30,22 @@
 }
 ```
 
+## Shot splitting
+
+Each screenplay scene is a dramatic unit, not a single H3 take. Split every
+scene into **3–7 shots (typically 3–5)**:
+
+- an establishing/orienting shot;
+- the dialogue exchange, often in two alternating sizes;
+- a reaction or insert that carries the emotional turn;
+- an exit/transition shot when the scene changes place or time.
+
+No shot should be a 60-second take. Every shot gets a project-local contract at
+`projects/<id>/shots/<shot_id>.json` with frames on the `17n+5` grid, camera,
+lens, movement, lighting, blocking, dialogue lines, continuity and H3 prompt
+notes. The scene plan's `description` must describe that shot, not repeat the
+whole scene.
+
 ## Shot authoring rules
 
 0. Read the `screenplay_treatment` first. Every added beat in the treatment must
@@ -67,6 +83,8 @@ character) so identity survives coverage.
 ## Self-check
 
 - [ ] Every script section maps to at least one shot
+- [ ] Every screenplay scene is split into 3–7 shots (typically 3–5)
+- [ ] Every shot has a contract with frames, camera, light, blocking, dialogue, continuity and H3 notes
 - [ ] Every treatment added beat is shot or explicitly dropped with a reason
 - [ ] Visual motifs are planted and paid off in the planned shots
 - [ ] Shot sizes vary; no two adjacent shots repeat the same size without intent

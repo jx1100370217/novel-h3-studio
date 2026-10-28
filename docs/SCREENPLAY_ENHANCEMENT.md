@@ -1,5 +1,8 @@
 # 剧本影视化优化：调研与工作流整合
 
+> **全局生效。** 本规范适用于所有 `novel-cinematic` 故事，不是王六郎项目
+> 专用；以后每个故事都必须经过 `screenplay` 门禁和 `scene_plan` 镜头拆分。
+
 ## 调研结论
 
 仓库里已有三类相邻能力，但没有一个专门做“在忠实剧本基础上增加影视化镜头”的 skill：
@@ -42,8 +45,8 @@
 
 - 可以加：反应镜头、物件插入、门槛/出入画、母题 setup/payoff、声音桥、
   负空间、静默、镜头语言、已隐含的天气/光线/质感。
-- 不可以加：新角色、新地点、新台词/旁白文字、新因果事件、改结局、把原文
-  留白解释成新事实。
+- 不可以加：新角色、新地点、新剧情事件、改结局、把原文留白解释成新事实。
+- 连接性对白可以写，但必须登记在 `added_dialogue`，不能借对白新增剧情事实。
 - 新增镜头必须引用原文段落；如果它只是重复信息或装饰，就删掉；如果剧情
   需要呼吸，就允许成片变长。没有硬性时长上限。
 - 每个新增镜头都要在 fidelity ledger 里有一行。
@@ -56,8 +59,9 @@ breakdown -> screenplay -> scene_plan -> assets -> edit -> compose -> publish
 
 - `breakdown` 仍由 `novel-director` 写忠实基础剧本；
 - `screenplay` 是新的影视化优化门禁，必须人工批准；
-- `scene_plan` 同时读取增强 `script` 和 `screenplay_treatment`，把新增
-  beat 变成镜头；不能悄悄退回平均覆盖。
+- `scene_plan` 同时读取增强 `script` 和 `screenplay_treatment`，把每个
+  scene 拆成 **3–7 个 H3 镜头（通常 3–5 个）**；每个镜头写清帧数、机位、
+  光、走位、对白、连续性和 H3 提示；不能把整场塞进一个长 take。
 
 ## 命令
 
@@ -65,7 +69,7 @@ breakdown -> screenplay -> scene_plan -> assets -> edit -> compose -> publish
 # 审计 treatment（schema + runtime + coverage + 台词保真）
 PYTHONPATH=.:openmontage .venv-openmontage/bin/python scripts/audit_screenplay.py \
   --treatment projects/<id>/artifacts/screenplay_treatment.json \
-  --script projects/<id>/artifacts/script.json \
+  --script projects/<id>/artifacts/script_breakdown.json \
   --out projects/<id>/artifacts/screenplay_audit.json
 ```
 
@@ -73,7 +77,7 @@ PYTHONPATH=.:openmontage .venv-openmontage/bin/python scripts/audit_screenplay.p
 
 - 3–5 个最高价值新增镜头；
 - 每个的 fidelity risk；
-- runtime delta；
+- runtime 与规划估计的差异（只提示，不设上限）；
 - 需要用户拍板的问题。
 
 ## 模板

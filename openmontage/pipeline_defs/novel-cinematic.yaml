@@ -67,15 +67,16 @@ stages:
     checkpoint_required: true
     human_approval_default: true
     review_focus:
-      - Added beats are visual storytelling, not new plot or dialogue
-      - Every added beat cites source paragraph ids and is paid for by compression
-      - Runtime stays within 10 percent of the approved target
-      - Visual motifs, transitions and shot opportunities are production-aware
-      - No new characters, locations, spoken words or changed ending
+      - Dialogue carries the story; narration is absent or only for an unwitnessable time jump
+      - Every new line is declared in added_dialogue with a source fact and a dramatic purpose
+      - Scenes are 8–14 dramatic units with a want, obstacle and turn, not one-line beats
+      - Added visual beats are not new plot; connective dialogue is allowed when declared
+      - No new characters, locations, plot events or changed ending
     success_criteria:
       - Schema-valid screenplay_treatment artifact
-      - Enhanced script keeps every original section and has contiguous, story-justified timings (no hard runtime cap)
-      - scripts/audit_screenplay.py reports pass
+      - Enhanced script is scene-based and dialogue-first; source facts are preserved
+      - scripts/audit_screenplay.py reports pass with zero undeclared lines
+      - Runtime follows the story; no hard cap
 
   - name: scene_plan
     skill: pipelines/novel-cinematic/scene-director
@@ -88,12 +89,14 @@ stages:
     checkpoint_required: true
     human_approval_default: true
     review_focus:
-      - Shot coverage answers the dramatic question and turning point
-      - Each shot has a start state, end state, camera and eyeline
+      - Every screenplay scene is split into 3–7 H3 shots (typically 3–5); no 60-second single take
+      - Each shot has exact frames on the 17n+5 grid, camera, lens, movement, lighting, blocking, dialogue, continuity and H3 notes
+      - Shot coverage answers the dramatic question and the scene turn
       - Screen direction and axis stay coherent across shots
     success_criteria:
       - Schema-valid scene_plan artifact
-      - Every script section maps to at least one scene
+      - Every screenplay scene maps to 3–7 shots (typically 3–5)
+      - Every shot has a project-local contract with legal frames and dialogue
 
   - name: assets
     skill: pipelines/novel-cinematic/asset-director

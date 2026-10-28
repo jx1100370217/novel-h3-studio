@@ -30,8 +30,9 @@ the source facts or spoken words.
 ## Fidelity rules
 
 - Characters keep the source's names, titles, ages and relationships.
-- Dialogue is only used when the source quotes it; otherwise shots are wordless and
-  the H3 native audio carries ambience and physical sound.
+- At breakdown, do not invent dialogue: use source quotes and wordless coverage.
+  The next `screenplay` stage may add connective dialogue that dramatizes an
+  existing source fact; every added line must be declared in `added_dialogue`.
 - The author's closing note (if any) stays in `metadata.source_notes`; it is not filmed.
 - Do not merge two source events into one shot if that changes who learns what.
 

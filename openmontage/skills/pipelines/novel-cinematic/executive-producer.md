@@ -17,8 +17,10 @@ silent downgrade to stills.
    coverage.
 2. **Approved references are reused.** Once a character/location image is approved,
    later shots reference the same file. Do not regenerate a face "for variety".
-3. **One continuous take per shot.** Native H3 audio is kept; no per-shot narration
-   unless the source has narration.
+3. **One continuous take per H3 shot.** Character dialogue and native H3 audio
+   carry the scene. Narration is a last resort and is allowed only for an
+   unwitnessable time jump; never use a narrator to explain what the audience
+   can see.
 4. **Cost honesty.** Video generation is local (free but slow); image generation uses
    the operator's Codex subscription. Report wall-clock time, not fake dollar costs.
 5. **Human gate on faces and voices.** Still review after the assets stage is required:
