@@ -50,8 +50,16 @@ def build_picture(spec: dict, order: list[str], shots: dict) -> Path:
             raise FileNotFoundError(f'missing picture source for {sid}: {source}')
         frames = round(float(shots[sid]['duration_seconds']) * fps)
         out = clips / f'{sid}.mp4'
+        filters = f'scale={width}:{height}:flags=lanczos,fps={fps},format=yuv420p'
+        subtitles = spec.get('subtitles')
+        if subtitles is not None and sid not in (subtitles.get('skip_shots') or []) and sid not in graphics:
+            from .subtitles import build_shot_ass
+            ass = build_shot_ass(shots[sid], work / 'subs' / f'{sid}.ass',
+                                 width=width, height=height, style=subtitles.get('style'))
+            if ass is not None:
+                filters += ',ass=' + str(ass).replace('\\', '/').replace(':', '\\:')
         run(['ffmpeg', '-y', '-loglevel', 'error', '-i', str(source), '-an',
-             '-vf', f'scale={width}:{height}:flags=lanczos,fps={fps},format=yuv420p',
+             '-vf', filters,
              '-frames:v', str(frames), '-c:v', 'libx264', '-preset', 'veryfast',
              '-crf', '16', '-x264-params', 'keyint=48:min-keyint=48:scenecut=0',
              '-video_track_timescale', '24000', str(out)])

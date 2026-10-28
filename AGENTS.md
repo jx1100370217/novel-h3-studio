@@ -108,10 +108,12 @@ not in the core code.
 - Every hand/body-part insert declares exactly five fingers and one thumb per
   visible hand; the compiler injects a hand-anatomy lock. Extra, fused,
   duplicated or missing digits are a render defect, not a style choice.
-- Burned-in subtitles are a delivery defect. Every take is scanned with
-  `novel_h3.subtitle_audit` before it enters the cut; a flagged take is
-  re-rendered with a different seed and the text-free lock, never cropped or
-  painted over.
+- Every delivered cut carries one consistent dialogue subtitle per shot,
+  burned from the authored dialogue by `novel_h3/subtitles.py` (the compose
+  stage does this when the spec has a `subtitles` block). H3 sometimes paints
+  the line into a take by itself; `novel_h3.subtitle_audit` records those
+  shots, and a native caption is accepted rather than re-rendered — the
+  production decision is uniform subtitles, not subtitle-free frames.
 - Every named person keeps one costume across adjacent shots unless an authored
   costume change is explicit; the compiler injects a costume-continuity lock.
   A robe colour change between cuts is a continuity error.
