@@ -54,6 +54,10 @@ Call `fastvideo_h3_video` with:
 - One shot at a time; the local GPU cannot run two H3 jobs at once.
 - Frame counts must land on the H3 causal-VAE grid `17n+5`
   (`124` = 5.1667s, `158` = 6.5833s, `243` = 10.125s).
+- **Cap each H3 take at 260 frames (10.833s) on the current host.** A 328-frame
+  take OOMs during VAE decode (host RSS >40 GB). Split long dialogue scenes
+  into motivated cuts; restart the FastVideo service between heavy takes to
+  release host memory.
 - Character dialogue and sound effects are **native H3 audio**; do not replace
   them with TTS. Narration is handled in compose.
 - After each render, verify with ffprobe: exact frame count, a video stream, and

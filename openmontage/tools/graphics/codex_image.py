@@ -69,6 +69,11 @@ class CodexImageTool(BaseTool):
                 ),
             },
             "timeout_seconds": {"type": "integer", "default": 900},
+            "model": {
+                "type": "string",
+                "default": "gpt-6-luna",
+                "description": "Codex model that can call the built-in image_gen tool.",
+            },
             "codex_bin": {"type": "string", "default": "codex"},
             "extra_instructions": {"type": "string"},
         },
@@ -134,6 +139,7 @@ class CodexImageTool(BaseTool):
         )
 
         workdir = output_path.parent if os.access(output_path.parent, os.W_OK) else Path("/tmp")
+        model = str(inputs.get("model") or "gpt-6-luna")
         cmd = [
             codex_bin,
             "exec",
@@ -146,6 +152,8 @@ class CodexImageTool(BaseTool):
             str(workdir),
             "--add-dir",
             str(workdir),
+            "-m",
+            model,
         ]
         for ref in references:
             cmd += ["-i", ref]
@@ -202,6 +210,7 @@ class CodexImageTool(BaseTool):
                 "bytes": output_path.stat().st_size,
                 "sha256": data,
                 "provider": "codex_subscription",
+                "model": model,
                 "model": "gpt-image-2.5",
                 "reference_count": len(references),
             },

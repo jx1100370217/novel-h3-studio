@@ -159,10 +159,15 @@ not in the core code.
   not a list of one-line shots. Each scene has a want, an obstacle and a turn;
   dialogue carries the story. Narration is only for an unwitnessable time jump.
 - **Scene plan splits into shots (binding):** `scene_plan` must split every
-  screenplay scene into 3–7 H3 shots (typically 3–5). Each shot gets exact frames on the
-  `17n+5` grid, camera, lens, movement, lighting, blocking, dialogue,
-  continuity and H3 prompt notes. Never render a whole 60-second scene as one
-  take.
+  screenplay scene into 3–12 H3 shots (typically 3–7). Each shot gets exact
+  frames on the `17n+5` grid, camera, lens, movement, lighting, blocking,
+  dialogue, continuity and H3 prompt notes. Never render a whole 60-second
+  scene as one take.
+- **H3 take length cap (binding):** on the current 61 GB host, a 260-frame
+  take is safe; a 328-frame take OOMs during VAE decode. Cap each H3 take at
+  **260 frames (10.833 s)**. Split longer scenes into motivated cuts; do not
+  raise the cap without a successful test. Restart the FastVideo service
+  between heavy takes to release host memory.
 - **Dialogue-first narrative (binding):** carry plot through character dialogue
   and visible action; narration is a last resort. Do not use a narrator to
   explain what the audience can see. Connective dialogue may dramatize existing
