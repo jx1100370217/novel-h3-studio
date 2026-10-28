@@ -68,18 +68,23 @@ def render_card_image(output: Path, *, title: str, source: str = '', credits: tu
 
 def build_end_card(output: Path, *, title: str, source: str = '', credits: tuple[str, ...] = (),
                    credit: str = PROJECT_CREDIT, end_mark: str = '全片完',
-                   duration_seconds: float = 3.0, width: int = 1344, height: int = 768,
-                   fps: int = 24) -> Path:
+                   duration_seconds: float = 3.0, fade_in_seconds: float = 0.0,
+                   frames: int | None = None,
+                   width: int = 1344, height: int = 768, fps: int = 24) -> Path:
     """Render the card still and turn it into a silent clip for the cut."""
     output = Path(output)
     still = output.with_suffix('.png')
     render_card_image(still, title=title, source=source, credits=credits, credit=credit,
                       end_mark=end_mark, width=width, height=height)
     output.parent.mkdir(parents=True, exist_ok=True)
+    filters = f'scale={width}:{height}:flags=lanczos,format=yuv420p'
+    if fade_in_seconds > 0:
+        filters += f',fade=t=in:st=0:d={fade_in_seconds:.3f}'
+    length = ['-frames:v', str(frames)] if frames else ['-t', f'{duration_seconds:.3f}']
     subprocess.run(
         ['ffmpeg', '-y', '-loglevel', 'error', '-loop', '1', '-i', str(still),
-         '-t', f'{duration_seconds:.3f}', '-r', str(fps),
-         '-vf', f'scale={width}:{height}:flags=lanczos,format=yuv420p',
+         *length, '-r', str(fps),
+         '-vf', filters,
          '-c:v', 'libx264', '-preset', 'medium', '-crf', '16',
          '-x264-params', 'keyint=48:min-keyint=48:scenecut=0',
          '-video_track_timescale', '24000', str(output)],

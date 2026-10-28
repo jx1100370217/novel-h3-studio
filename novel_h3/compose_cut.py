@@ -159,6 +159,7 @@ def compose(spec_path: Path) -> dict:
             credits=tuple(card.get('credits') or ()),
             credit=card.get('credit') or PROJECT_CREDIT,
             duration_seconds=card_seconds,
+            fade_in_seconds=float(card.get('fade_in_seconds', 0.0)),
             width=int(spec.get('width', 1344)), height=int(spec.get('height', 768)),
             fps=int(spec.get('fps', 24)),
         )
