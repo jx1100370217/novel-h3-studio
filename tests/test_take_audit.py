@@ -14,7 +14,8 @@ class DialogueTextTests(unittest.TestCase):
 
 class SimilarityTests(unittest.TestCase):
     def test_normalise_keeps_only_cjk(self):
-        self.assertEqual(normalise('许某：河里各位，天冷了！'), '河里各位天冷了')
+        self.assertEqual(normalise('许某：河里各位，天冷了！'), '许某河里各位天冷了')
+        self.assertEqual(normalise('河里各位，天冷了！'), '河里各位天冷了')
 
     def test_similarity_tolerates_asr_mishearing(self):
         authored = normalise('河里各位天冷了喝一口')
