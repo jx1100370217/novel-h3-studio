@@ -33,6 +33,13 @@ class AlignWordsTests(unittest.TestCase):
         self.assertAlmostEqual(cues[0][0], 8.43)
         self.assertGreater(cues[0][1], 12.5)
 
+    def test_homophone_asr_still_aligns(self):
+        words = [{'start': 4.11, 'end': 4.67, 'text': '啦'}]
+        lines = [{'speaker': 'wang', 'text': '……辣。'}]
+        cues = align_words(lines, words, 5.17)
+        self.assertAlmostEqual(cues[0][0], 4.06)
+        self.assertAlmostEqual(cues[0][1], 4.92)
+
     def test_no_speech_falls_back_to_none(self):
         self.assertEqual(align_words([{'speaker': 'a', 'text': '啊？'}], [], 5.0), [None])
 

@@ -71,6 +71,14 @@ def transcribe_words(path: Path, model) -> list[dict]:
     return words
 
 
+def _phonetic(text: str) -> str:
+    try:
+        from pypinyin import lazy_pinyin
+    except ImportError:
+        return ''
+    return ''.join(lazy_pinyin(text))
+
+
 def align_words(lines: list[dict], words: list[dict], duration: float) -> list[list[float] | None]:
     """Monotonically align authored lines to the words actually spoken.
 
@@ -94,6 +102,11 @@ def align_words(lines: list[dict], words: list[dict], duration: float) -> list[l
                     break
                 blocks = SequenceMatcher(None, target, span).get_matching_blocks()
                 covered = sum(block.size for block in blocks) / len(target)
+                if covered < 0.5 and len(target) <= 3:
+                    # ASR homophones: 辣/啦, 坐/做, 河上/和尚. Compare pinyin
+                    # before falling back to the nominal cue.
+                    covered = max(covered, SequenceMatcher(
+                        None, _phonetic(target), _phonetic(span)).ratio())
                 penalty = 0.02 * max(0, len(span) - len(target)) / len(target)
                 score = covered - penalty
                 if score > best[0] + 1e-9:
