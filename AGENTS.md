@@ -123,7 +123,10 @@ not in the core code.
   light and screen direction; it must not copy framing, cuts, camera movement,
   old dialogue or audio, and it never replaces the `open_state` / `close_state`
   text contract. A declared `<Video N>` without a real `video_reference` in the
-  request is a hard validation error.
+  request is a hard validation error. Every same-scene shot after the first
+  must carry a `<Video N>` tail or a previs blocking guide; a bare cast/scene
+  reference is a position-jump defect. `build_spec(continuity_required=True)`
+  enforces this. See [`docs/CONTINUITY_CONTRACT.md`](docs/CONTINUITY_CONTRACT.md).
 - Every hand/body-part insert declares exactly five fingers and one thumb per
   visible hand; the compiler injects a hand-anatomy lock. Extra, fused,
   duplicated or missing digits are a render defect, not a style choice.

@@ -112,6 +112,7 @@ class LockedShot:
     blocking: str = ''
     strong_no_text: bool = False
     allow_multi_speaker: bool = False
+    continuity_required: bool = False
     width: int = 1344
     height: int = 768
 
@@ -148,6 +149,10 @@ def _people(count: int) -> str:
 
 def build_spec(shot: LockedShot) -> dict:
     """Build and officially validate one locked Ref2VA shot spec."""
+    if shot.continuity_required and not shot.videos and not shot.previs_path:
+        raise ValueError(
+            f'{shot.shot_id}: a same-scene continuation needs a <Video N> tail or a '
+            'previs blocking guide; a bare cast/scene reference lets positions jump')
     lines = sorted(shot.lines, key=lambda item: item.offset)
     by_role = {voice.role: voice for voice in shot.voices}
     speaking = list(dict.fromkeys(line.speaker for line in lines))

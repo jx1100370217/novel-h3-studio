@@ -49,6 +49,17 @@ class Ref2VABuilderTests(unittest.TestCase):
             self.assertIn('<Audio 2> is the voice reference for <Subject 2> (S2), Song Tao',
                           spec['sections']['subject_definitions'])
 
+    def test_same_scene_shot_requires_a_continuity_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            voices = (
+                VoiceBinding('zhang', VoiceRef('zhang', 'voice_zhang', root / 'zhang.wav'), 'zhang_sheng'),
+                VoiceBinding('songtao', VoiceRef('songtao', 'voice_songtao', root / 'song.wav'), 'songtao'),
+            )
+            shot = replace(self.shot(voices), continuity_required=True)
+            with self.assertRaisesRegex(ValueError, 'continuation'):
+                build_spec(shot)
+
     def test_multi_speaker_shot_requires_single_speaker_split(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

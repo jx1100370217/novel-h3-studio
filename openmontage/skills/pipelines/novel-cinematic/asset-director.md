@@ -49,6 +49,7 @@ Call `fastvideo_h3_video` with:
 - Every speaking character must have a dedicated voice reference in `voices`; `fastvideo_h3_video` rejects a speaker with no voice reference.
 - **Voice binding is cast-ordered.** `<Audio N>` is the Nth file in the request's `voices` list and must bind `<Subject N>` for every visible speaker. Build with `build_spec`; `fastvideo_batch.load_spec` runs `novel_h3.spec_audit` and refuses a swapped spec before GPU time. Never number voices by dialogue order or hand-edit the payload.
 - **One speaking character per H3 take.** Multi-person framing is allowed, but only one visible person speaks; the others carry the silent lock. Split dialogue scenes into shot/reverse-shot coverage. `build_spec` rejects multiple speakers unless a legacy take is explicitly flagged and has passed `voice_audit`. H3 can carry the previous speaker's timbre into a returning speaker's line even with correct labels.
+- **Same-scene continuity is mandatory.** Every shot after the first in a scene carries a `<Video N>` tail (2–4 s of the previous story-state take) or a previs blocking guide. A bare cast/scene reference is a position-jump defect; `build_spec(continuity_required=True)` rejects it. Insert shots may anchor to the last story-state shot.
 - Every take is scanned for native captions before it enters a chapter (96 frames, bright-text prefilter, `psm 6`). Record the verdict; a shot with native text keeps the native caption and skips post subtitles for the whole shot.
 - Every multi-person shot must use a `blender_previs` guide. The guide fixes only body count, positions, poses, screen direction and camera; identity/costume/lighting come from the approved references.
 - Use `python -m novel_h3.render_batch ... --board-media-dir board_media/v5` so Backlot sees each completed revision take immediately; do not point the board at the previous cut.
@@ -113,6 +114,7 @@ portrait lens, soft front/45-degree key with fill, no text, no black borders.
 - [ ] Every speaking character is bound to a dedicated voice reference
 - [ ] Each take has at most one speaker; legacy multi-speaker takes have a passing `voice_audit`
 - [ ] Every spec passes `python -m novel_h3.spec_audit --specs-dir <specs>`; `<Audio N>` order and `<Subject N>` agree
+- [ ] Every same-scene shot after the first has a `<Video N>` tail or previs guide
 - [ ] Every take's native-caption scan is recorded; no shot carries both a native caption and a post subtitle
 - [ ] Every multi-person shot has a Blender blocking guide and exactly the authored body count
 - [ ] Instance lock is present: no close-up + full-body duplicate, no unlisted servant/guard/silhouette
