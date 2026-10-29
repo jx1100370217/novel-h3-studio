@@ -14,16 +14,16 @@ LINE_RE = re.compile(r'^([\u4e00-\u9fff]{1,6})(?:（[^）]*）)?：(.+)$')
 
 STYLE = {
     'font': 'Noto Sans CJK SC',
-    'size': 56,
+    'size': 72,
     'primary': '&H00FFFFFF',
     'outline_colour': '&H00000000',
     'outline': 2.5,
     'shadow': 0,
-    'margin_v': 30,
+    'margin_v': 45,
 }
 
 
-def shot_cues(shot: dict) -> list[dict]:
+def shot_cues(shot: dict, timing: list | None = None) -> list[dict]:
     """Timed dialogue cues for one shot, in shot-local seconds."""
     duration = float(shot.get('frames') or 0) / 24 or float(shot.get('duration_seconds') or 0)
     parsed = []
@@ -34,6 +34,10 @@ def shot_cues(shot: dict) -> list[dict]:
     count = len(parsed)
     cues = []
     for index, text in enumerate(parsed):
+        if timing and index < len(timing):
+            start, end = timing[index]
+            cues.append({'start': round(float(start), 3), 'end': round(float(end), 3), 'text': text})
+            continue
         if count == 1:
             start = 1.5
         else:
@@ -88,8 +92,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 def build_shot_ass(shot: dict, path: Path, *, width: int = 1344, height: int = 768,
-                   style: dict | None = None) -> Path | None:
-    cues = shot_cues(shot)
+                   style: dict | None = None, timing: list | None = None) -> Path | None:
+    cues = shot_cues(shot, timing=timing)
     if not cues:
         return None
     return write_ass(cues, path, width=width, height=height, style=style)
