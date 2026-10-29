@@ -77,7 +77,7 @@ def compose_chapter(project: Path, scene_id: str, *, takes_subdir: str = 'takes_
         take = takes_dir / sid / 'native.mp4'
         if take.is_file():
             try:
-                scan = scan_take(take, duration=int(shots[sid]['frames']) / 24, samples=48)
+                scan = scan_take(take, duration=int(shots[sid]['frames']) / 24, samples=96)
                 if scan['verdict'] == 'text':
                     skip.append(sid)
             except Exception:
@@ -98,4 +98,12 @@ def compose_chapter(project: Path, scene_id: str, *, takes_subdir: str = 'takes_
     }
     spec_path = work / 'compose.json'
     spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    return compose(spec_path)
+    result = compose(spec_path)
+    from .subtitle_qc import scan_duplicate_captions
+    qc = scan_duplicate_captions(Path(result['output']), duration=float(result['duration']))
+    (work / 'subtitle_qc.json').write_text(
+        json.dumps(qc, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    print('SUBTITLE QC', qc['verdict'],
+          f"{len(qc['hits'])} duplicate frames" if qc['hits'] else '', flush=True)
+    result['subtitle_qc'] = qc
+    return result

@@ -25,6 +25,10 @@ silent downgrade to stills.
    the operator's Codex subscription. Report wall-clock time, not fake dollar costs.
 5. **Human gate on faces and voices.** Still review after the assets stage is required:
    identity, costume, and any audible speech-like audio.
+6. **Voice and subtitle gates are hard.** Every spec passes `novel_h3.spec_audit`
+   before GPU time; every take passes `novel_h3.voice_audit` or has a recorded
+   human re-listen; every chapter passes `novel_h3.subtitle_qc` with no
+   double-caption frame. A `review` verdict is not a delivery approval.
 
 ## Stage order
 

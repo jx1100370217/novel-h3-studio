@@ -21,6 +21,7 @@ class Ref2VABuilderTests(unittest.TestCase):
                 CastMember('zhang_sheng', 'Zhang Sheng', 'younger clean-shaven man in a pale blue robe', 'projects/p/zhang.png', x=1, y=1),
             ),
             scene=SceneRef('hall', 'the hall', 'red columns and stone floor', 'projects/p/hall.png'),
+            allow_multi_speaker=True,
             voices=voices,
             lines=(
                 ShotLine('zhang', '兄台也是来应考的？', 1.9, 'zhang_sheng'),
@@ -37,16 +38,27 @@ class Ref2VABuilderTests(unittest.TestCase):
             )
             spec = build_spec(self.shot(voices))
             self.assertEqual(len(spec['voices']), 2)
-            # Audio references follow subject/cast order so H3 cannot pair the
-            # first audio with the first subject while a later cast member speaks.
+            # Audio references follow the speaking cast order so H3 cannot
+            # pair the first audio with the wrong subject.
             self.assertEqual([v['subject'] for v in spec['voices']], ['<Subject 1>', '<Subject 2>'])
             self.assertEqual([v['audio'] for v in spec['voices']], ['<Audio 1>', '<Audio 2>'])
-            self.assertIn('<Subject 2> (S1) speaks with <Audio 2>', spec['sections']['detailed_description'])
-            self.assertIn('<Subject 1> (S2) speaks with <Audio 1>', spec['sections']['detailed_description'])
-            self.assertIn('<Audio 1> is the voice reference for <Subject 1> (S2), Song Tao',
+            self.assertIn('<Subject 1> (S1) speaks with <Audio 1>', spec['sections']['detailed_description'])
+            self.assertIn('<Subject 2> (S2) speaks with <Audio 2>', spec['sections']['detailed_description'])
+            self.assertIn('<Audio 1> is the voice reference for <Subject 1> (S1), Zhang Sheng',
                           spec['sections']['subject_definitions'])
-            self.assertIn('<Audio 2> is the voice reference for <Subject 2> (S1), Zhang Sheng',
+            self.assertIn('<Audio 2> is the voice reference for <Subject 2> (S2), Song Tao',
                           spec['sections']['subject_definitions'])
+
+    def test_multi_speaker_shot_requires_single_speaker_split(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            voices = (
+                VoiceBinding('zhang', VoiceRef('zhang', 'voice_zhang', root / 'zhang.wav'), 'zhang_sheng'),
+                VoiceBinding('songtao', VoiceRef('songtao', 'voice_songtao', root / 'song.wav'), 'songtao'),
+            )
+            shot = replace(self.shot(voices), allow_multi_speaker=False)
+            with self.assertRaisesRegex(ValueError, 'single-speaker'):
+                build_spec(shot)
 
     def test_builder_rejects_missing_speaker_voice(self):
         with tempfile.TemporaryDirectory() as tmp:

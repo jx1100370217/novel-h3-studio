@@ -24,6 +24,7 @@ from pathlib import Path
 from .fastvideo import request_payload
 from .ref2va import validate, with_population
 from .safety import check_paused, check_power_cap
+from .spec_audit import audit_spec
 
 DEFAULT_API = 'http://127.0.0.1:8195'
 DEFAULT_WIDTH = 1344
@@ -41,6 +42,9 @@ def load_spec(path: Path) -> dict:
             raise ValueError(f'{path}: missing {key}')
     if not frame_grid_valid(int(spec['frames'])):
         raise ValueError(f"{path}: num_frames must be on the 17n+5 grid, got {spec['frames']}")
+    issues = audit_spec(spec)
+    if issues:
+        raise ValueError(f'{path}: voice binding audit failed: ' + '; '.join(issues))
     return spec
 
 

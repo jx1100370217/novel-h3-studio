@@ -32,13 +32,24 @@ does not select Remotion or HyperFrames.
    - narration: the existing TTS files, placed on the v4 timeline;
    - music: the approved bed, ducked under speech.
    Do not replace character dialogue with TTS.
-4. **Audio QC gate.** Run `audio_qc` with the v4 script, narration manifest,
+4. **Voice identity audit.** Run
+   `python scripts/audit_voices.py --specs-dir ... --takes-dir ...` before
+   delivery. Every `review` line means the take's timbre is closer to another
+   character's reference; re-listen or re-render that shot. This is triage for
+   the human listening pass, not a replacement for it.
+5. **Audio QC gate.** Run `audio_qc` with the v4 script, narration manifest,
    shots directory, native take root, and report path. The compose stage must
    not deliver while the report is `revise` unless every issue is explicitly
    resolved and recorded.
-5. **Encode.** Final file must be `libx264`, `yuv420p`, AAC stereo, faststart,
+6. **Subtitle gate.** Align every authored line to the native speech with
+   word-level ASR (`novel_h3.dialogue_audit.align_words`); never place a cue by
+   nominal offset. A line split by pauses starts at its first word. If a take
+   carries a native H3 caption, skip post subtitles for that whole shot.
+   After composing a chapter, `novel_h3.subtitle_qc.scan_duplicate_captions`
+   must report `clean`; a two-row frame is a delivery defect.
+7. **Encode.** Final file must be `libx264`, `yuv420p`, AAC stereo, faststart,
    `1344x768`, 24fps.
-6. **Self-review.** ffprobe the final file, extract one frame per shot, confirm
+8. **Self-review.** ffprobe the final file, extract one frame per shot, confirm
    no black/duplicate frames, and write `final_review`.
 
 ## Hard rules
@@ -50,5 +61,10 @@ does not select Remotion or HyperFrames.
   final gate and must be recorded as `human_listening_confirmed`.
 - If a take fails QC, fix the shot in the assets stage and re-stitch; never hide
   a broken take under an overlay or a louder music bed.
+- Never burn a post subtitle on a shot that already has a native H3 caption;
+  skip the whole shot and keep the native caption. Two caption rows in one
+  frame is a delivery defect.
+- A subtitle cue must start at the first spoken word and end at the last;
+  nominal offsets and single-segment ASR matches are not acceptable.
 - Report the human audio-review warning as-is when the native track contains
   speech-like material.

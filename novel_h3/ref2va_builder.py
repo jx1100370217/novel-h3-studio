@@ -111,6 +111,7 @@ class LockedShot:
     framing: str = ''
     blocking: str = ''
     strong_no_text: bool = False
+    allow_multi_speaker: bool = False
     width: int = 1344
     height: int = 768
 
@@ -147,11 +148,32 @@ def _people(count: int) -> str:
 
 def build_spec(shot: LockedShot) -> dict:
     """Build and officially validate one locked Ref2VA shot spec."""
+    lines = sorted(shot.lines, key=lambda item: item.offset)
+    by_role = {voice.role: voice for voice in shot.voices}
+    speaking = list(dict.fromkeys(line.speaker for line in lines))
+    for role in speaking:
+        if role not in by_role:
+            raise ValueError(f'{shot.shot_id}: speaker {role!r} has no voice reference')
+    speaker_assets: list[str] = []
+    for role in speaking:
+        asset = by_role[role].subject_asset
+        if asset and asset not in speaker_assets:
+            speaker_assets.append(asset)
+    # H3 pairs the Nth audio reference with the Nth visible subject. Put the
+    # speaking cast first, in first-vocal order, so <Audio N> and <Subject N>
+    # always describe the same person; silent visible cast follows, and
+    # off-screen voices are appended after the visible cast.
+    def _cast_key(item: CastMember) -> tuple[int, int]:
+        if item.kind == 'character' and item.asset_id in speaker_assets:
+            return (0, speaker_assets.index(item.asset_id))
+        return (1, 0)
+
+    cast = tuple(sorted(shot.cast, key=_cast_key))
     subject: dict[str, str] = {}
     visuals: list[dict] = []
     defs: list[str] = []
     retention: list[str] = []
-    for i, item in enumerate(shot.cast, 1):
+    for i, item in enumerate(cast, 1):
         label, picture = f'<Subject {i}>', f'<Picture {i}>'
         subject[item.asset_id] = label
         visuals.append({
@@ -170,8 +192,8 @@ def build_spec(shot: LockedShot) -> dict:
                 f'{label} (appears in [Shot 1]): fully_preserved - preserve face, age, hair, costume and '
                 f'identity; {'exactly one body, appearing once' if item.instances == 1 else f'exactly {item.instances} distinct bodies, each appearing once'}.'
             )
-    scene_label = f'<Subject {len(shot.cast) + 1}>'
-    scene_picture = f'<Picture {len(shot.cast) + 1}>'
+    scene_label = f'<Subject {len(cast) + 1}>'
+    scene_picture = f'<Picture {len(cast) + 1}>'
     visuals.append({
         'asset_id': shot.scene.asset_id, 'subject': scene_label, 'picture': scene_picture,
         'kind': 'scene', 'visible': True, 'generation_path': shot.scene.image_path,
@@ -184,9 +206,9 @@ def build_spec(shot: LockedShot) -> dict:
 
     previs_label = None
     if shot.previs_path:
-        previs_label = f'<Subject {len(shot.cast) + 2}>'
-        previs_picture = f'<Picture {len(shot.cast) + 2}>'
-        count = sum(item.instances for item in shot.cast if item.kind == 'character') + len(shot.extras)
+        previs_label = f'<Subject {len(cast) + 2}>'
+        previs_picture = f'<Picture {len(cast) + 2}>'
+        count = sum(item.instances for item in cast if item.kind == 'character') + len(shot.extras)
         visuals.append({
             'asset_id': f'previs_{shot.shot_id}', 'subject': previs_label, 'picture': previs_picture,
             'kind': 'prop', 'visible': True, 'generation_path': shot.previs_path,
@@ -204,7 +226,7 @@ def build_spec(shot: LockedShot) -> dict:
 
     anchor_label = anchor_picture = None
     if shot.anchor_image:
-        index = len(shot.cast) + (3 if shot.previs_path else 2)
+        index = len(cast) + (3 if shot.previs_path else 2)
         anchor_label, anchor_picture = f'<Subject {index}>', f'<Picture {index}>'
         visuals.append({
             'asset_id': shot.anchor_image.asset_id, 'subject': anchor_label,
@@ -237,19 +259,14 @@ def build_spec(shot: LockedShot) -> dict:
     defs.extend(video_defs)
     retention.extend(video_ret)
 
-    lines = sorted(shot.lines, key=lambda item: item.offset)
-    by_role = {voice.role: voice for voice in shot.voices}
-    speaking = list(dict.fromkeys(line.speaker for line in lines))
-    for role in speaking:
-        if role not in by_role:
-            raise ValueError(f'{shot.shot_id}: speaker {role!r} has no voice reference')
-    # H3 pairs the Nth audio reference with the Nth visible subject. Numbering
-    # voices by dialogue order swapped them whenever the later cast member
-    # spoke first, so bind <Audio N> to <Subject N> in cast order and append
-    # off-screen speakers afterwards in line order.
-    cast_roles = [item.asset_id for item in shot.cast if item.kind == 'character']
-    speaker_order = [role for role in cast_roles if role in speaking]
+    cast_roles = [item.asset_id for item in cast if item.kind == 'character']
+    speaker_order = [role for role in speaking if by_role[role].subject_asset in cast_roles]
     speaker_order += [role for role in speaking if role not in speaker_order]
+    if len(speaker_order) > 1 and not shot.allow_multi_speaker:
+        raise ValueError(
+            f'{shot.shot_id}: {len(speaker_order)} speaking characters in one take; '
+            'split the dialogue into single-speaker shots (shot/reverse-shot) or set '
+            'allow_multi_speaker=True only for a legacy take that passed voice_audit')
     # The official contract keeps (S1), (S2) in actual first-vocal order even
     # when the audio references are numbered by subject.
     vocal_order = list(dict.fromkeys(line.speaker for line in lines))
@@ -269,7 +286,7 @@ def build_spec(shot: LockedShot) -> dict:
             'subject': role_subject[role], 'path': str(binding.ref.path), 'role': role,
         })
         if role_subject[role]:
-            name = next(item.name for item in shot.cast if item.asset_id == binding.subject_asset)
+            name = next(item.name for item in cast if item.asset_id == binding.subject_asset)
             voice_defs.append(
                 f'{audio} is the voice reference for {role_subject[role]} (S{role_sid[role]}), '
                 f'{name}; preserve this exact timbre only for {name} and never for another character.'
@@ -307,15 +324,15 @@ def build_spec(shot: LockedShot) -> dict:
         detail = shot.open_state + ' ' + detail
     if shot.close_state:
         detail = detail.rstrip() + ' ' + shot.close_state
-    count = sum(item.instances for item in shot.cast if item.kind == 'character') + len(shot.extras)
+    count = sum(item.instances for item in cast if item.kind == 'character') + len(shot.extras)
     if shot.blocking:
         blocking = 'Blocking lock: ' + shot.blocking
     else:
-        blocking = f'Blocking lock: exactly {_people(count)}. {_positions(shot.cast, shot.extras)}. ' \
+        blocking = f'Blocking lock: exactly {_people(count)}. {_positions(cast, shot.extras)}. ' \
                    f'No other people, no duplicates, no reflections, no background extras.'
     if previs_label and not shot.blocking:
         blocking = (f'Blocking lock: the grayscale guide {previs_label} shows exactly {_people(count)}. '
-                    f'{_positions(shot.cast, shot.extras)}. No other people, no duplicates, no reflections, '
+                    f'{_positions(cast, shot.extras)}. No other people, no duplicates, no reflections, '
                     f'no background extras. The guide is a reference diagram only; do not reproduce its gray '
                     f'mannequin materials or studio light.')
     elif previs_label and shot.blocking:
@@ -354,13 +371,17 @@ def build_spec(shot: LockedShot) -> dict:
         for role in speaker_order:
             audio = role_audio[role]
             if role_subject[role]:
-                name = next(item.name for item in shot.cast if item.asset_id == by_role[role].subject_asset)
+                name = next(item.name for item in cast if item.asset_id == by_role[role].subject_asset)
                 locks.append(f'{name} uses {audio} only')
             else:
                 locks.append(f'the off-screen {role} uses {audio}')
         detail += (' Voice casting is locked: ' + '; '.join(locks) + '. Each line belongs only to the named '
                    'speaker; never swap voices, never let one character speak another character\'s line, and '
                    'match the moving lips to the named speaker.')
+        if len(speaker_order) > 1:
+            detail += (' Voice return lock: when a character speaks again after another character, switch back '
+                       'to that character\'s own audio reference; never carry the previous speaker\'s timbre '
+                       'into the next line.')
         for line in lines:
             audio = role_audio[line.speaker]
             label = role_subject[line.speaker]
@@ -371,7 +392,7 @@ def build_spec(shot: LockedShot) -> dict:
             detail += f' At {mm:02d}:{ss:02d}.{ms:03d}, {speaker} speaks with {audio}, <d>[Chinese] {line.text}</d>'
             if shot.strong_no_text:
                 detail += ' The line is heard only and is never written on screen.'
-        silent = [item for item in shot.cast
+        silent = [item for item in cast
                   if item.kind == 'character' and item.asset_id not in speaker_order]
         if silent:
             detail += (' Silent-character lock: ' + '; '.join(

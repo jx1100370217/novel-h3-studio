@@ -73,8 +73,27 @@ not in the core code.
 
 ## Locked shot contract (production default)
 
+- **One speaking character per H3 take (binding for new work):** a shot may
+  contain several visible people, but only one of them speaks. The others carry
+  the silent-character lock (lips closed, no voice). Dialogue scenes use
+  shot/reverse-shot coverage instead of one take with several speakers.
+  `build_spec` raises on multiple speakers unless the shot is an explicitly
+  flagged legacy take that already passed `voice_audit`. H3 can carry the
+  previous speaker's timbre into a returning speaker's later line even when
+  the labels are correct; one speaker per take removes that failure mode.
 - Every speaking character must have a dedicated voice reference WAV; a
   speaker without one is a hard validation error.
+- **Voice binding is cast-ordered (binding):** `<Audio N>` must be the Nth
+  entry in the request's `voices` list and must bind `<Subject N>` for every
+  visible speaker. The builder puts speaking cast first in first-vocal order,
+  then silent visible cast, then off-screen voices. `novel_h3.spec_audit`
+  runs inside `fastvideo_batch.load_spec` and rejects a spec before GPU time
+  when the labels, list order and subject definitions disagree. Never
+  hand-assemble a spec that bypasses this audit. After rendering, run
+  `novel_h3.voice_audit`; a `review` line means the take's timbre is closer to
+  another character's reference and must be re-listened to or re-rendered
+  before delivery. See
+  [`docs/AUDIO_SUBTITLE_CONTRACT.md`](docs/AUDIO_SUBTITLE_CONTRACT.md).
 - Every shot declares its **exact visible cast**; source-reference characters
   that are off-screen must not be marked visible.
 - Every multi-person shot (two or more visible bodies) uses a silent Blender
@@ -110,10 +129,16 @@ not in the core code.
   duplicated or missing digits are a render defect, not a style choice.
 - Every delivered cut carries one consistent dialogue subtitle per shot,
   burned from the authored dialogue by `novel_h3/subtitles.py` (the compose
-  stage does this when the spec has a `subtitles` block). H3 sometimes paints
-  the line into a take by itself; `novel_h3.subtitle_audit` records those
-  shots, and a native caption is accepted rather than re-rendered — the
-  production decision is uniform subtitles, not subtitle-free frames.
+  stage does this when the spec has a `subtitles` block). Cue times come from
+  word-level ASR alignment (`novel_h3.dialogue_audit.align_words`), never from
+  a nominal offset or a single best-matching Whisper segment; a line split by
+  pauses must start at its first word, not its tail. H3 sometimes paints the
+  line into a take by itself; `novel_h3.subtitle_audit` scans 96 frames per
+  take and the chapter skips post subtitles for that whole shot. Never stack a
+  burned subtitle on a native caption. `novel_h3.subtitle_qc` scans the
+  finished chapter for two-row frames and records
+  `v3/chapters/<chapter>/subtitle_qc.json`; a `duplicate` verdict is a
+  delivery defect, not a warning to ignore.
 - Every named person keeps one costume across adjacent shots unless an authored
   costume change is explicit; the compiler injects a costume-continuity lock.
   A robe colour change between cuts is a continuity error.

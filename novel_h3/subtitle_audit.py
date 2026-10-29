@@ -67,7 +67,7 @@ def parse_tsv(output: str, *, min_confidence: float = 50.0) -> list[tuple[str, f
     return chars
 
 
-def scan_take(video: Path, *, duration: float, samples: int = 48) -> dict:
+def scan_take(video: Path, *, duration: float, samples: int = 96) -> dict:
     """Sample ``samples`` frames and report subtitle-like text lines."""
     hits = []
     with tempfile.TemporaryDirectory() as tmp:

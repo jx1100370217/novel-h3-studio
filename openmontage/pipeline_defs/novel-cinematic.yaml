@@ -127,11 +127,13 @@ stages:
       - One continuous take per shot with native H3 dialogue and sound effects, correct duration
       - Cast count, identity and costume stay consistent with references
       - Every speaking character has a dedicated voice reference; no text-only speaker guessing
+      - "`<Audio N>` follows the request's voices order and binds `<Subject N>` for every visible speaker; `novel_h3.spec_audit` passes before any render"
       - Every multi-person shot uses a Blender blocking guide with the exact authored body count
       - Strict six-section Ref2VA prompts pass the official validator
     success_criteria:
       - Schema-valid asset_manifest artifact
       - Every referenced clip exists and passes ffprobe
+      - Every rendered spec passes `novel_h3.spec_audit`; no take is rendered with swapped voices
 
   - name: edit
     skill: pipelines/novel-cinematic/edit-director
@@ -185,12 +187,17 @@ stages:
     review_focus:
       - Native H3 character dialogue and sound effects survive the assembly
       - Narration TTS and music are mixed underneath the native take audio
+      - "Subtitle cues are word-aligned to the spoken line; no cue starts after its first word or ends before its last"
+      - "Every chapter's subtitle_qc report is clean: no frame carries two caption rows"
+      - "`novel_h3.voice_audit` is pass or every review line is re-listened to and recorded"
       - The audio_qc report is pass or every issue is explicitly resolved
       - Output is H.264/AAC at 1344x768 / 24fps
     success_criteria:
       - Schema-valid render_report artifact
       - Output file exists and passes ffprobe validation
       - audio_qc report exists and is pass or human-approved
+      - "`v3/chapters/<chapter>/subtitle_qc.json` is clean, or every duplicate frame is explicitly resolved"
+      - "`voice_audit.json` is pass, or every review line has a recorded human re-listen"
 
   - name: publish
     skill: pipelines/novel-cinematic/publish-director
