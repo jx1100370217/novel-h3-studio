@@ -37,9 +37,16 @@ class Ref2VABuilderTests(unittest.TestCase):
             )
             spec = build_spec(self.shot(voices))
             self.assertEqual(len(spec['voices']), 2)
-            self.assertIn('<Audio 1>', spec['sections']['detailed_description'])
-            self.assertIn('<Subject 2> (S1) speaks with <Audio 1>', spec['sections']['detailed_description'])
-            self.assertIn('<Subject 1> (S2) speaks with <Audio 2>', spec['sections']['detailed_description'])
+            # Audio references follow subject/cast order so H3 cannot pair the
+            # first audio with the first subject while a later cast member speaks.
+            self.assertEqual([v['subject'] for v in spec['voices']], ['<Subject 1>', '<Subject 2>'])
+            self.assertEqual([v['audio'] for v in spec['voices']], ['<Audio 1>', '<Audio 2>'])
+            self.assertIn('<Subject 2> (S1) speaks with <Audio 2>', spec['sections']['detailed_description'])
+            self.assertIn('<Subject 1> (S2) speaks with <Audio 1>', spec['sections']['detailed_description'])
+            self.assertIn('<Audio 1> is the voice reference for <Subject 1> (S2), Song Tao',
+                          spec['sections']['subject_definitions'])
+            self.assertIn('<Audio 2> is the voice reference for <Subject 2> (S1), Zhang Sheng',
+                          spec['sections']['subject_definitions'])
 
     def test_builder_rejects_missing_speaker_voice(self):
         with tempfile.TemporaryDirectory() as tmp:

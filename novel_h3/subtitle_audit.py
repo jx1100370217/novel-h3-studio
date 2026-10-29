@@ -14,8 +14,11 @@ import tempfile
 from pathlib import Path
 from typing import Iterable
 
-# Normalised subtitle band: centre of the frame, just above the bottom edge.
-ZONE_X, ZONE_Y, ZONE_W, ZONE_H = 0.26, 0.84, 0.48, 0.12
+# Normalised subtitle band: the lower third of the frame. H3 does not always
+# paint captions at the same height, so the band covers everything from just
+# below the faces to the bottom edge; OCR still requires several confident CJK
+# characters, so sleeves and scenery do not trigger it.
+ZONE_X, ZONE_Y, ZONE_W, ZONE_H = 0.22, 0.78, 0.56, 0.20
 CJK = re.compile(r'[\u3400-\u9fff]')
 
 
@@ -28,11 +31,23 @@ def _ocr_frame(video: Path, seconds: float, workdir: Path) -> list[tuple[str, fl
     subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
                     '-ss', f'{seconds:.3f}', '-i', str(video), '-frames:v', '1',
                     '-vf', crop, str(band)], check=True)
+    if not _band_has_bright_text(band):
+        frame.unlink(missing_ok=True)
+        return []
     result = subprocess.run(
-        ['tesseract', str(band), '-', '-l', 'chi_sim', '--psm', '7', 'tsv'],
+        ['tesseract', str(band), '-', '-l', 'chi_sim', '--psm', '6', 'tsv'],
         capture_output=True, text=True)
     frame.unlink(missing_ok=True)
     return parse_tsv(result.stdout)
+
+
+def _band_has_bright_text(band: Path) -> bool:
+    """Cheap prefilter: H3 captions are near-white on a darker plate."""
+    import numpy as np
+    from PIL import Image
+
+    pixels = np.asarray(Image.open(band).convert('L'), dtype=np.uint8)
+    return float((pixels > 200).mean()) >= 0.005
 
 
 def parse_tsv(output: str, *, min_confidence: float = 50.0) -> list[tuple[str, float]]:
@@ -52,7 +67,7 @@ def parse_tsv(output: str, *, min_confidence: float = 50.0) -> list[tuple[str, f
     return chars
 
 
-def scan_take(video: Path, *, duration: float, samples: int = 16) -> dict:
+def scan_take(video: Path, *, duration: float, samples: int = 48) -> dict:
     """Sample ``samples`` frames and report subtitle-like text lines."""
     hits = []
     with tempfile.TemporaryDirectory() as tmp:

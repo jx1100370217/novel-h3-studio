@@ -53,6 +53,62 @@ def transcribe(path: Path, model) -> list[dict]:
             for seg in segments]
 
 
+def transcribe_words(path: Path, model) -> list[dict]:
+    """Word-level timestamps, normalized to CJK characters only."""
+    import numpy as np
+
+    raw = subprocess.check_output(
+        ['ffmpeg', '-v', 'error', '-i', str(path), '-vn', '-ar', '16000', '-ac', '1', '-f', 'f32le', '-'])
+    audio = np.frombuffer(raw, dtype=np.float32).copy()
+    segments, _info = model.transcribe(
+        audio, language='zh', vad_filter=True, word_timestamps=True)
+    words = []
+    for segment in segments:
+        for word in segment.words or ():
+            text = normalise(word.word)
+            if text:
+                words.append({'start': round(word.start, 3), 'end': round(word.end, 3), 'text': text})
+    return words
+
+
+def align_words(lines: list[dict], words: list[dict], duration: float) -> list[list[float] | None]:
+    """Monotonically align authored lines to the words actually spoken.
+
+    Whisper splits one authored sentence into several segments whenever the
+    actor pauses; matching a line to its single best segment then starts the
+    subtitle several seconds late. This searches contiguous word spans so the
+    cue covers the whole line from its true onset.
+    """
+    if not words:
+        return [None] * len(lines)
+    cues: list[list[float] | None] = []
+    cursor = 0
+    for line in lines:
+        target = normalise(line['text'])
+        best: tuple[float, int | None, int | None] = (0.0, None, None)
+        for start in range(cursor, len(words)):
+            span = ''
+            for end in range(start, min(len(words), start + 40)):
+                span += words[end]['text']
+                if len(span) > len(target) * 1.8 + 2:
+                    break
+                blocks = SequenceMatcher(None, target, span).get_matching_blocks()
+                covered = sum(block.size for block in blocks) / len(target)
+                penalty = 0.02 * max(0, len(span) - len(target)) / len(target)
+                score = covered - penalty
+                if score > best[0] + 1e-9:
+                    best = (score, start, end)
+        score, start, end = best
+        if start is None or score < 0.55:
+            cues.append(None)
+            continue
+        begin = max(0.0, words[start]['start'] - 0.05)
+        finish = min(duration - 0.1, words[end]['end'] + 0.25)
+        cues.append([round(begin, 3), round(finish, 3)])
+        cursor = end + 1
+    return cues
+
+
 def match_segments(lines: list[dict], segments: list[dict]) -> list[dict]:
     """Attach the best-matching transcript segment to each authored line."""
     used: set[int] = set()

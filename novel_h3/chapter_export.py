@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from .compose_cut import compose
-from .dialogue_audit import authored_lines, match_segments, normalise, similarity, transcribe
+from .dialogue_audit import align_words, authored_lines, transcribe_words
 from .subtitles import shot_cues
 from .subtitle_audit import scan_take
 
@@ -28,31 +28,19 @@ def _align_scene(project: Path, ids: list[str], takes_dir: Path, out: Path) -> d
         video = takes_dir / sid / 'native.mp4'
         if not lines or not video.is_file():
             continue
-        matched = match_segments(lines, transcribe(video, model))
+        duration = shot['frames'] / 24
+        aligned = align_words(lines, transcribe_words(video, model), duration)
         nominal = shot_cues(shot)
         cues = []
-        texts = [line['text'] for line in lines]
         for index, cue in enumerate(nominal):
-            line = matched[index] if index < len(matched) else None
-            if line and line.get('start') is not None and line.get('similarity', 0) >= 0.45:
-                start = max(0.0, line['start'] - 0.05)
-                end = min(shot['frames'] / 24 - 0.1, line['end'] + 0.25)
-                if end - start >= 0.6:
-                    cues.append([round(start, 3), round(end, 3)])
-                    continue
-            cues.append([cue['start'], cue['end']])
-        # Subtitles are a reading task: cap each cue and keep them ordered
-        # and non-overlapping even when ASR returns a long merged segment.
+            found = aligned[index] if index < len(aligned) else None
+            cues.append(list(found) if found else [cue['start'], cue['end']])
+        # Keep cues ordered and non-overlapping; never cap a cue before the
+        # speech ends, or the subtitle vanishes while the actor is still talking.
         cues.sort(key=lambda cue: cue[0])
         for index, cue in enumerate(cues):
-            read_time = min(4.5, max(1.6, 1.2 + 0.25 * len(texts[index])))
-            cue[1] = min(cue[1], cue[0] + read_time)
-            if index + 1 < len(cues):
-                cue[1] = min(cue[1], cues[index + 1][0] - 0.15)
-            if cue[1] < cue[0] + 1.2:
-                # Keep a subtitle readable even when ASR clips the segment.
-                limit = cues[index + 1][0] - 0.1 if index + 1 < len(cues) else cue[0] + 1.2
-                cue[1] = max(cue[0] + 0.6, min(cue[0] + 1.2, limit))
+            limit = cues[index + 1][0] - 0.1 if index + 1 < len(cues) else duration - 0.1
+            cue[1] = max(cue[0] + 0.6, min(cue[1], limit))
         timing[sid] = cues
     out.write_text(json.dumps(timing, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return timing
@@ -89,7 +77,7 @@ def compose_chapter(project: Path, scene_id: str, *, takes_subdir: str = 'takes_
         take = takes_dir / sid / 'native.mp4'
         if take.is_file():
             try:
-                scan = scan_take(take, duration=int(shots[sid]['frames']) / 24, samples=12)
+                scan = scan_take(take, duration=int(shots[sid]['frames']) / 24, samples=48)
                 if scan['verdict'] == 'text':
                     skip.append(sid)
             except Exception:

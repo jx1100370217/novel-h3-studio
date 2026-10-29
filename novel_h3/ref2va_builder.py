@@ -239,10 +239,21 @@ def build_spec(shot: LockedShot) -> dict:
 
     lines = sorted(shot.lines, key=lambda item: item.offset)
     by_role = {voice.role: voice for voice in shot.voices}
-    speaker_order = list(dict.fromkeys(line.speaker for line in lines))
-    for role in speaker_order:
+    speaking = list(dict.fromkeys(line.speaker for line in lines))
+    for role in speaking:
         if role not in by_role:
             raise ValueError(f'{shot.shot_id}: speaker {role!r} has no voice reference')
+    # H3 pairs the Nth audio reference with the Nth visible subject. Numbering
+    # voices by dialogue order swapped them whenever the later cast member
+    # spoke first, so bind <Audio N> to <Subject N> in cast order and append
+    # off-screen speakers afterwards in line order.
+    cast_roles = [item.asset_id for item in shot.cast if item.kind == 'character']
+    speaker_order = [role for role in cast_roles if role in speaking]
+    speaker_order += [role for role in speaking if role not in speaker_order]
+    # The official contract keeps (S1), (S2) in actual first-vocal order even
+    # when the audio references are numbered by subject.
+    vocal_order = list(dict.fromkeys(line.speaker for line in lines))
+    role_sid = {role: index for index, role in enumerate(vocal_order, 1)}
     voice_payload: list[dict] = []
     voice_defs: list[str] = []
     voice_ret: list[str] = []
@@ -258,10 +269,10 @@ def build_spec(shot: LockedShot) -> dict:
             'subject': role_subject[role], 'path': str(binding.ref.path), 'role': role,
         })
         if role_subject[role]:
+            name = next(item.name for item in shot.cast if item.asset_id == binding.subject_asset)
             voice_defs.append(
-                f'{audio} is the voice reference for {role_subject[role]} (S{i}), '
-                f'{next(item.name for item in shot.cast if item.asset_id == binding.subject_asset)}; '
-                f'preserve this exact timbre only for {next(item.name for item in shot.cast if item.asset_id == binding.subject_asset)} and never for another character.'
+                f'{audio} is the voice reference for {role_subject[role]} (S{role_sid[role]}), '
+                f'{name}; preserve this exact timbre only for {name} and never for another character.'
             )
         else:
             voice_defs.append(
@@ -351,15 +362,21 @@ def build_spec(shot: LockedShot) -> dict:
                    'speaker; never swap voices, never let one character speak another character\'s line, and '
                    'match the moving lips to the named speaker.')
         for line in lines:
-            sid = speaker_order.index(line.speaker) + 1
             audio = role_audio[line.speaker]
             label = role_subject[line.speaker]
-            speaker = f'{label} (S{sid})' if label else f'the off-screen {line.speaker} (S{sid})'
+            sid = role_sid[line.speaker]
+            speaker = f'{label} (S{sid})' if label else f'the off-screen voice of {line.speaker} (S{sid})'
             mm = int(line.offset // 60); ss = int(line.offset % 60)
             ms = int(round((line.offset - int(line.offset)) * 1000))
             detail += f' At {mm:02d}:{ss:02d}.{ms:03d}, {speaker} speaks with {audio}, <d>[Chinese] {line.text}</d>'
             if shot.strong_no_text:
                 detail += ' The line is heard only and is never written on screen.'
+        silent = [item for item in shot.cast
+                  if item.kind == 'character' and item.asset_id not in speaker_order]
+        if silent:
+            detail += (' Silent-character lock: ' + '; '.join(
+                f'{subject[item.asset_id]} ({item.name}) does not speak in this shot'
+                for item in silent) + '; lips stay closed, no voice, no dialogue, no lip movement.')
     detail += ' No subtitles, no captions, no on-screen text, no text overlays.'
 
     spoken_lines = [
