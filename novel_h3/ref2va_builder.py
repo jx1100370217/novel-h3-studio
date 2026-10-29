@@ -288,7 +288,8 @@ def build_spec(shot: LockedShot) -> dict:
             + ', '.join(item['video'] for item in video_payload)
             + '. Match the ending pose, hand and prop position, costume, light direction and screen '
               'direction; do not copy the reference framing, cut points, camera movement, old dialogue '
-              'or audio. '
+              'or audio. Do not replay, re-enact or restart the actions shown in the reference: begin on '
+              'its final pose and continue the new beat forward. '
             + detail
         )
     if shot.open_state:
