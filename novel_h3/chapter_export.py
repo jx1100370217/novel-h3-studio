@@ -12,6 +12,7 @@ from pathlib import Path
 from .compose_cut import compose
 from .dialogue_audit import authored_lines, match_segments, normalise, similarity, transcribe
 from .subtitles import shot_cues
+from .subtitle_audit import scan_take
 
 
 def _align_scene(project: Path, ids: list[str], takes_dir: Path, out: Path) -> dict:
@@ -48,8 +49,10 @@ def _align_scene(project: Path, ids: list[str], takes_dir: Path, out: Path) -> d
             cue[1] = min(cue[1], cue[0] + read_time)
             if index + 1 < len(cues):
                 cue[1] = min(cue[1], cues[index + 1][0] - 0.15)
-            if cue[1] <= cue[0]:
-                cue[1] = cue[0] + 1.2
+            if cue[1] < cue[0] + 1.2:
+                # Keep a subtitle readable even when ASR clips the segment.
+                limit = cues[index + 1][0] - 0.1 if index + 1 < len(cues) else cue[0] + 1.2
+                cue[1] = max(cue[0] + 0.6, min(cue[0] + 1.2, limit))
         timing[sid] = cues
     out.write_text(json.dumps(timing, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return timing
@@ -81,6 +84,16 @@ def compose_chapter(project: Path, scene_id: str, *, takes_subdir: str = 'takes_
     lines_path = work / 'lines.json'
     if not lines_path.is_file():
         lines_path.write_text(json.dumps({'lines': []}, ensure_ascii=False), encoding='utf-8')
+    skip = []
+    for sid in ids:
+        take = takes_dir / sid / 'native.mp4'
+        if take.is_file():
+            try:
+                scan = scan_take(take, duration=int(shots[sid]['frames']) / 24, samples=12)
+                if scan['verdict'] == 'text':
+                    skip.append(sid)
+            except Exception:
+                pass
     out = project / output_dir / f"{scene_id}_{scene.get('title', '').replace(' ', '')}.mp4"
     spec = {
         'version': '1.0', 'tag': f'chapter_{scene_id}',
@@ -92,7 +105,8 @@ def compose_chapter(project: Path, scene_id: str, *, takes_subdir: str = 'takes_
         'target_duration': round(duration, 6), 'music_volume': 0.55,
         'ducking': {'enabled': True, 'music_volume_during_speech': 0.22,
                     'attack_ms': 250, 'release_ms': 700},
-        'subtitles': {'style': {}, 'timing': str(timing_path) if timing else ''},
+        'subtitles': {'style': {}, 'timing': str(timing_path) if timing else '',
+                      'skip_shots': skip},
     }
     spec_path = work / 'compose.json'
     spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
