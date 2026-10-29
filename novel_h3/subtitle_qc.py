@@ -14,6 +14,7 @@ from .subtitle_audit import CJK, ZONE_H, ZONE_W, ZONE_X, ZONE_Y, _band_has_brigh
 
 MIN_CONF = 60.0
 MIN_ROW_CHARS = 3
+MIN_ROW_HEIGHT = 70
 
 
 def _ocr_rows(video: Path, seconds: float, workdir: Path) -> list[dict]:
@@ -46,7 +47,7 @@ def _ocr_rows(video: Path, seconds: float, workdir: Path) -> list[dict]:
     return [
         {'text': ''.join(row['words']), 'top': row['top'], 'height': row['height']}
         for row in rows.values()
-        if len(''.join(row['words'])) >= MIN_ROW_CHARS
+        if len(''.join(row['words'])) >= MIN_ROW_CHARS and row['height'] >= MIN_ROW_HEIGHT
     ]
 
 

@@ -81,7 +81,19 @@ def scan_take(video: Path, *, duration: float, samples: int = 96) -> dict:
             if cjk_count >= 3:
                 hits.append({'at_seconds': round(seconds, 2),
                              'text': ''.join(word for word, _ in chars)[:40]})
-    return {'verdict': 'text' if hits else 'clean', 'hits': hits}
+    # A real caption persists across neighbouring samples; a single bright
+    # object (lantern, rope, cup) can fool OCR for one frame. Keep only hits
+    # that repeat within a short window.
+    hits.sort(key=lambda item: item['at_seconds'])
+    gap = max(0.3, duration / samples * 1.6)
+    groups: list[list[dict]] = []
+    for hit in hits:
+        if groups and hit['at_seconds'] - groups[-1][-1]['at_seconds'] <= gap:
+            groups[-1].append(hit)
+        else:
+            groups.append([hit])
+    stable = [hit for group in groups if len(group) >= 2 for hit in group]
+    return {'verdict': 'text' if stable else 'clean', 'hits': stable}
 
 
 def audit_takes(takes_dir: Path, shot_ids: Iterable[str]) -> dict:
