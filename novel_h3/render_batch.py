@@ -152,6 +152,10 @@ def main(argv: list[str] | None = None) -> int:
                         help='Abort a take when memory PSI avg10 stays above this percent.')
     parser.add_argument('--subtitle-audit', action=argparse.BooleanOptionalAction, default=True,
                         help='OCR each finished take and flag burned-in subtitles.')
+    parser.add_argument('--shots-dir', type=Path, default=None,
+                        help='Shot contracts for per-shot review exports (default: <project>/shots).')
+    parser.add_argument('--shot-export-dir', default='',
+                        help='Write one review MP4 per finished take into this directory (project-relative or absolute).')
     parser.add_argument('--api', default=DEFAULT_API)
     parser.add_argument('--width', type=int, default=1344)
     parser.add_argument('--height', type=int, default=768)
@@ -245,6 +249,19 @@ def main(argv: list[str] | None = None) -> int:
                 live_assets=live_assets, live_assets_active=board_active, keep_manifest=keep_manifest,
                 event_name='finish')
             print(f'[{index}/{total}] {sid} {receipt.get("inference_time_s")}s', flush=True)
+            if args.shot_export_dir:
+                try:
+                    from .shot_export import export_shot
+                    shots_dir = (args.shots_dir or project / 'shots').resolve()
+                    shot = json.loads((shots_dir / f'{sid}.json').read_text(encoding='utf-8'))
+                    clip = fastvideo_project / args.takes_subdir / sid / 'native.mp4'
+                    out_dir = Path(args.shot_export_dir)
+                    if not out_dir.is_absolute():
+                        out_dir = project / out_dir
+                    export_shot(clip, out_dir / f'{sid}.mp4', shot)
+                    print(f'SHOT EXPORT {out_dir / (sid + ".mp4")}', flush=True)
+                except Exception as exc:  # export must not fail the render
+                    print(f'SHOT EXPORT WARNING {sid}: {exc}', flush=True)
             if subtitle_text and subtitle_text['verdict'] == 'text':
                 print(f'TEXT WARNING {sid}: burned-in subtitle at '
                       f'{subtitle_text["hits"][0]["at_seconds"]}s', flush=True)
