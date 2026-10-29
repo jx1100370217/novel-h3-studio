@@ -22,6 +22,12 @@ class CueTimingTests(unittest.TestCase):
         for earlier, later in zip(cues, cues[1:]):
             self.assertLess(earlier['end'], later['start'])
 
+    def test_skip_lines_keeps_only_the_uncaptioned_line(self):
+        shot = {'frames': 311, 'dialogue': '许某：第一句。\n王六郎：第二句。'}
+        cues = shot_cues(shot, timing=[[1.0, 2.0], [5.0, 6.0]], skip_lines=(1,))
+        self.assertEqual([c['text'] for c in cues], ['第一句。'])
+        self.assertEqual(cues[0]['start'], 1.0)
+
     def test_lines_without_speaker_prefix_are_ignored(self):
         self.assertEqual(shot_cues({'frames': 124, 'dialogue': '（无对白）'}), [])
 

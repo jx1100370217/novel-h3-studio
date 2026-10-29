@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from .compose_cut import compose
-from .dialogue_audit import align_words, authored_lines, transcribe_words
+from .dialogue_audit import align_words, authored_lines, normalise, similarity, transcribe_words
 from .subtitles import shot_cues
 from .subtitle_audit import scan_take
 
@@ -73,15 +73,42 @@ def compose_chapter(project: Path, scene_id: str, *, takes_subdir: str = 'takes_
     if not lines_path.is_file():
         lines_path.write_text(json.dumps({'lines': []}, ensure_ascii=False), encoding='utf-8')
     skip = []
+    skip_lines: dict[str, list[int]] = {}
     for sid in ids:
         take = takes_dir / sid / 'native.mp4'
         if take.is_file():
             try:
                 scan = scan_take(take, duration=int(shots[sid]['frames']) / 24, samples=96)
                 if scan['verdict'] == 'text':
-                    skip.append(sid)
+                    lines = authored_lines(shots[sid])
+                    native = ''.join(normalise(hit['text']) for hit in scan['hits'])
+                    covered = []
+                    for index, line in enumerate(lines):
+                        target = normalise(line['text'])
+                        if not target:
+                            continue
+                        best = max((similarity(target, normalise(hit['text']))
+                                    for hit in scan['hits']), default=0.0)
+                        partial = any(len(normalise(hit['text'])) >= 2
+                                      and normalise(hit['text']) in target
+                                      for hit in scan['hits'])
+                        if target in native or partial or best >= 0.5:
+                            covered.append(index)
+                    if lines and len(covered) >= len(lines):
+                        skip.append(sid)
+                    elif covered:
+                        skip_lines[sid] = covered
             except Exception:
                 pass
+    override_path = work / 'skip_override.json'
+    if override_path.is_file():
+        override = json.loads(override_path.read_text(encoding='utf-8'))
+        forced = [str(sid) for sid in override.get('skip_shots', [])]
+        skip = sorted(set(skip) | set(forced))
+        for sid in forced:
+            skip_lines.pop(sid, None)
+        for sid, indices in (override.get('skip_lines') or {}).items():
+            skip_lines[str(sid)] = [int(index) for index in indices]
     out = project / output_dir / f"{scene_id}_{scene.get('title', '').replace(' ', '')}.mp4"
     spec = {
         'version': '1.0', 'tag': f'chapter_{scene_id}',
@@ -94,7 +121,7 @@ def compose_chapter(project: Path, scene_id: str, *, takes_subdir: str = 'takes_
         'ducking': {'enabled': True, 'music_volume_during_speech': 0.22,
                     'attack_ms': 250, 'release_ms': 700},
         'subtitles': {'style': {}, 'timing': str(timing_path) if timing else '',
-                      'skip_shots': skip},
+                      'skip_shots': skip, 'skip_lines': skip_lines},
     }
     spec_path = work / 'compose.json'
     spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')

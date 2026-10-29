@@ -85,7 +85,7 @@ def scan_take(video: Path, *, duration: float, samples: int = 96) -> dict:
     # object (lantern, rope, cup) can fool OCR for one frame. Keep only hits
     # that repeat within a short window.
     hits.sort(key=lambda item: item['at_seconds'])
-    gap = max(0.3, duration / samples * 1.6)
+    gap = max(0.8, duration / samples * 4.0)
     groups: list[list[dict]] = []
     for hit in hits:
         if groups and hit['at_seconds'] - groups[-1][-1]['at_seconds'] <= gap:

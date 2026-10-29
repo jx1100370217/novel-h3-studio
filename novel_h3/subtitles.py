@@ -23,7 +23,7 @@ STYLE = {
 }
 
 
-def shot_cues(shot: dict, timing: list | None = None) -> list[dict]:
+def shot_cues(shot: dict, timing: list | None = None, skip_lines: tuple[int, ...] = ()) -> list[dict]:
     """Timed dialogue cues for one shot, in shot-local seconds."""
     duration = float(shot.get('frames') or 0) / 24 or float(shot.get('duration_seconds') or 0)
     parsed = []
@@ -31,9 +31,11 @@ def shot_cues(shot: dict, timing: list | None = None) -> list[dict]:
         match = LINE_RE.match(raw.strip())
         if match:
             parsed.append(match.group(2).strip())
-    count = len(parsed)
+    kept = [index for index in range(len(parsed)) if index not in skip_lines]
+    count = len(kept)
     cues = []
-    for index, text in enumerate(parsed):
+    for position, index in enumerate(kept):
+        text = parsed[index]
         if timing and index < len(timing):
             start, end = timing[index]
             cues.append({'start': round(float(start), 3), 'end': round(float(end), 3), 'text': text})
@@ -41,10 +43,10 @@ def shot_cues(shot: dict, timing: list | None = None) -> list[dict]:
         if count == 1:
             start = 1.5
         else:
-            start = 1.2 + index * max(2.0, (duration - 3.5) / (count - 1))
+            start = 1.2 + position * max(2.0, (duration - 3.5) / (count - 1))
         start = min(start, max(0.8, duration - 2.0))
         end = start + 3.4
-        if index + 1 < count:
+        if position + 1 < count:
             end = min(end, start + max(2.0, (duration - 3.5) / (count - 1)) - 0.15)
         end = min(end, duration - 0.15)
         cues.append({'start': round(start, 3), 'end': round(end, 3), 'text': text})
@@ -92,8 +94,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 
 def build_shot_ass(shot: dict, path: Path, *, width: int = 1344, height: int = 768,
-                   style: dict | None = None, timing: list | None = None) -> Path | None:
-    cues = shot_cues(shot, timing=timing)
+                   style: dict | None = None, timing: list | None = None,
+                   skip_lines: tuple[int, ...] = ()) -> Path | None:
+    cues = shot_cues(shot, timing=timing, skip_lines=skip_lines)
     if not cues:
         return None
     return write_ass(cues, path, width=width, height=height, style=style)

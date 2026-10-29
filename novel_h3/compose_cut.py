@@ -58,8 +58,10 @@ def build_picture(spec: dict, order: list[str], shots: dict) -> Path:
             if subtitles.get('timing'):
                 timing_map = json.loads(resolve(subtitles['timing']).read_text(encoding='utf-8'))
                 timing = timing_map.get(sid)
+            skip_lines = tuple((subtitles.get('skip_lines') or {}).get(sid) or ())
             ass = build_shot_ass(shots[sid], work / 'subs' / f'{sid}.ass',
-                                 width=width, height=height, style=subtitles.get('style'), timing=timing)
+                                 width=width, height=height, style=subtitles.get('style'),
+                                 timing=timing, skip_lines=skip_lines)
             if ass is not None:
                 filters += ',ass=' + str(ass).replace('\\', '/').replace(':', '\\:')
         run(['ffmpeg', '-y', '-loglevel', 'error', '-i', str(source), '-an',
