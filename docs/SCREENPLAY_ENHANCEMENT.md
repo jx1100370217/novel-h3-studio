@@ -60,7 +60,7 @@ breakdown -> screenplay -> scene_plan -> assets -> edit -> compose -> publish
 - `breakdown` 仍由 `novel-director` 写忠实基础剧本；
 - `screenplay` 是新的影视化优化门禁，必须人工批准；
 - `scene_plan` 同时读取增强 `script` 和 `screenplay_treatment`，把每个
-  scene 拆成 **3–12 个 H3 镜头（通常 3–7 个），每个 take ≤260 帧**；每个镜头写清帧数、机位、
+  scene 拆成 **3–12 个 H3 镜头（通常 3–7 个），每个 take ≤328 帧（参考图 ≤3）或 ≤260 帧（参考图 4+）**；每个镜头写清帧数、机位、
   光、走位、对白、连续性和 H3 提示；不能把整场塞进一个长 take。
 
 ## 命令

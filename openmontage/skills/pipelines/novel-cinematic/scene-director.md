@@ -41,7 +41,7 @@ scene into **3–12 shots (typically 3–7)**:
 - an exit/transition shot when the scene changes place or time.
 
 No shot should be a 60-second take. On the current host, cap each H3 take at
-**260 frames (10.833s)**; 328-frame takes OOM during VAE decode. Split long
+**328 frames (13.667s) with ≤3 visual references, 260 frames (10.833s) with 4+**. Split long
 scenes into motivated cuts at 3–10 shots per scene. Every shot gets a project-local contract at
 `projects/<id>/shots/<shot_id>.json` with frames on the `17n+5` grid, camera,
 lens, movement, lighting, blocking, dialogue lines, continuity and H3 prompt

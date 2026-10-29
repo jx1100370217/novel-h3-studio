@@ -177,11 +177,15 @@ not in the core code.
   frames on the `17n+5` grid, camera, lens, movement, lighting, blocking,
   dialogue, continuity and H3 prompt notes. Never render a whole 60-second
   scene as one take.
-- **H3 take length cap (binding):** on the current 61 GB host, a 260-frame
-  take is safe; a 328-frame take OOMs during VAE decode. Cap each H3 take at
-  **260 frames (10.833 s)**. Split longer scenes into motivated cuts; do not
-  raise the cap without a successful test. Restart the FastVideo service
-  between heavy takes to release host memory.
+- **H3 take length cap (binding, reference-count tiered):** on the current
+  61 GB host the limit is set by the number of reference images, not by frame
+  count. A 328-frame take with **≤3 visual references** passed a measured test
+  (13.667 s, 399 s, GPU peak 30.1/31.36 GB, host RSS 37.1 GB, PSI 0.8%);
+  a 4+ reference shot OOMs during text conditioning regardless of length.
+  Cap takes at **328 frames (13.667 s)** when the shot has ≤3 visual
+  references, and at **260 frames (10.833 s)** for 4+ references. Split longer
+  scenes into motivated cuts; re-test before raising either tier. Restart the
+  FastVideo service between heavy takes to release host memory.
   The local FastVideo runtime is patched to delete the Qwen text encoder after
   conditioning (`FASTVIDEO_H3_RELEASE_TEXT_ENCODER=1`, set by
   `start_fastvideo.py`) so VAE decode has host memory headroom; re-apply the

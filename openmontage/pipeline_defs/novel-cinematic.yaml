@@ -89,13 +89,13 @@ stages:
     checkpoint_required: true
     human_approval_default: true
     review_focus:
-      - Every screenplay scene is split into 3–12 H3 shots (typically 3–7); every take is capped at 260 frames
+      - Every screenplay scene is split into 3–12 H3 shots (typically 3–7); every take is capped at 328 frames with ≤3 visual references and 260 frames with 4+
       - Each shot has exact frames on the 17n+5 grid, camera, lens, movement, lighting, blocking, dialogue, continuity and H3 notes
       - Shot coverage answers the dramatic question and the scene turn
       - Screen direction and axis stay coherent across shots
     success_criteria:
       - Schema-valid scene_plan artifact
-      - Every screenplay scene maps to 3–12 shots (typically 3–7), each take ≤260 frames
+      - Every screenplay scene maps to 3–12 shots (typically 3–7), each take ≤328 frames with ≤3 visual references (≤260 with 4+)
       - Every shot has a project-local contract with legal frames and dialogue
 
   - name: assets

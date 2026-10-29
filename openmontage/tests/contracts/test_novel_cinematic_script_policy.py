@@ -29,7 +29,7 @@ def test_manifest_requires_screenplay_and_shot_splitting():
     assert "added_dialogue" in screenplay_text
     scene_text = " ".join(stages["scene_plan"]["review_focus"])
     assert "3–12" in scene_text
-    assert "260 frames" in scene_text
+    assert "328 frames" in scene_text
 
 
 def test_screenplay_skill_is_dialogue_first_and_uncapped():
@@ -44,7 +44,7 @@ def test_screenplay_skill_is_dialogue_first_and_uncapped():
 def test_scene_director_splits_scenes_into_shots():
     body = (SKILLS / "scene-director.md").read_text(encoding="utf-8")
     assert "3–12 shots (typically 3–7)" in body
-    assert "260 frames" in body
+    assert "328 frames" in body
     assert "project-local contract" in body
     assert "screenplay_treatment" in body
 
