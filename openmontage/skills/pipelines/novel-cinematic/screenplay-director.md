@@ -69,6 +69,38 @@ narrator explaining the picture.
 - Narration is allowed only for a time jump or an event no character can
   witness. A narrator must never explain what the audience can see.
 
+## Craft standards (binding)
+
+`docs/SCREENPLAY_CRAFT.md` is the full standard. Every treatment must show:
+
+1. **Hook in the first 15 seconds.** The opening poses a question (a voice that
+   should not answer, an object out of place), not just a state. Record it in
+   `metadata.opening_hook`.
+2. **Every scene states `want`, `obstacle`, `turn` and `coverage`.** A scene
+   without a concrete objective, a real obstacle and a change at the end is a
+   location with people in it.
+3. **Enter late, leave early.** Start where the objective is already live and
+   cut the moment the turn lands. No greetings, no re-explaining, no walk home.
+4. **No two consecutive scenes do the same job.** Two "she notices something"
+   scenes, two recognitions or two farewells must be merged or escalated.
+5. **Physical stakes in the key scene.** The moral choice is shown as a body
+   process (a hand reaching and withdrawing, water closing over a head, a cup
+   that stays empty), never as a monologue.
+6. **Subtext.** Characters say one thing and do another. Theme lines
+   ("because you are my brother") are cut or given to the wrong person.
+7. **Motifs change three times.** Each motif moves through mystery → fear →
+   compassion, or ritual → shared cup → solitary cup.
+8. **Reaction shots.** The listener carries the decisive moment; plan one
+   reaction close-up for every major turn.
+9. **180-degree line.** Xu stays camera-left, Wang camera-right; a hand from
+   camera-right belongs to the person on camera-right. Never fix a flipped
+   take in post.
+10. **Ending is an action.** The last gesture points at two people or two
+    motifs; no symbol summary, no narrator.
+
+The audit fails a treatment that omits `want`, `obstacle`, `turn`, `coverage`
+or `metadata.opening_hook`.
+
 ## Runtime contract
 
 - The planned runtime is a **soft estimate, not a hard cap**. There is no upper
@@ -304,6 +336,10 @@ A fill-in skeleton is
 - [ ] No new spoken words, characters, locations or causal events
 - [ ] Every original section is represented in the enhanced script
 - [ ] Every added section has a matching entry in `added_beats`
+- [ ] Every enhanced section declares want / obstacle / turn / coverage
+- [ ] `metadata.opening_hook` states the first-15-seconds question
+- [ ] No two consecutive scenes do the same job
+- [ ] The key scene shows the choice as a physical process
 - [ ] Every enhanced section has one shot contract
 - [ ] Every contract's frames are on the `17n+5` grid and match its section duration
 - [ ] Every contract has camera, lighting, blocking, 2+ action beats, sound, cast and H3 prompt notes

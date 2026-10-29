@@ -41,13 +41,19 @@ def base_treatment():
         "enhanced_sections": [
             {"id": "A01", "original_section_id": "A01", "text": "narrator: 那年冬天，我病了很久。",
              "start_seconds": 0, "end_seconds": 4, "source_paragraph_ids": ["s0001_p0001"],
-             "cinematic_function": "establish illness", "visual_motif": "M1", "added": False},
+             "cinematic_function": "establish illness", "visual_motif": "M1", "added": False,
+             "want": "survive the winter", "obstacle": "illness", "turn": "the knock arrives",
+             "coverage": "master + lamp insert + reaction"},
             {"id": "A01B", "original_section_id": "A01", "text": "Insert: frost on the paper window; the lamp wick shortens.",
              "start_seconds": 4, "end_seconds": 6, "source_paragraph_ids": ["s0001_p0001"],
-             "cinematic_function": "visual pause", "visual_motif": "M2", "added": True},
+             "cinematic_function": "visual pause", "visual_motif": "M2", "added": True,
+             "want": "show time passing", "obstacle": "stillness", "turn": "frost spreads",
+             "coverage": "insert only"},
             {"id": "A02", "original_section_id": "A02", "text": "wife: 谁在门外？",
              "start_seconds": 6, "end_seconds": 10, "source_paragraph_ids": ["s0001_p0002"],
-             "cinematic_function": "the question", "visual_motif": "M3", "added": False},
+             "cinematic_function": "the question", "visual_motif": "M3", "added": False,
+             "want": "know who is outside", "obstacle": "the closed door", "turn": "she asks",
+             "coverage": "single + reaction"},
         ],
         "fidelity_ledger": [
             {"source_fact": "Song Tao is ill for a long winter.", "treatment": "Frost and a shortening lamp wick.", "status": "visualized"},
@@ -56,7 +62,8 @@ def base_treatment():
         "production_constraints": ["1344x768, 24fps, exact cast, no duplicate people"],
         "approval_questions": ["Is the frost insert too much for the source's plain room?"],
         "metadata": {"runtime_target_seconds": 10, "runtime_after_seconds": 10,
-                     "added_section_count": 1, "fidelity_status": "pass"},
+                     "added_section_count": 1, "fidelity_status": "pass",
+                     "opening_hook": "The knock comes before anyone is shown."},
     }
 
 
@@ -139,3 +146,27 @@ def test_narrator_line_warns_but_does_not_fail():
     report = audit_treatment(treatment, base_script())
     assert report["status"] == "pass", report["issues"]
     assert any("narrator" in warning for warning in report["warnings"])
+
+
+def test_missing_scene_contract_fails():
+    treatment = copy.deepcopy(base_treatment())
+    del treatment["enhanced_sections"][2]["turn"]
+    report = audit_treatment(treatment, base_script())
+    assert report["status"] == "revise"
+    assert any("missing turn" in issue for issue in report["issues"])
+
+
+def test_missing_opening_hook_fails():
+    treatment = copy.deepcopy(base_treatment())
+    del treatment["metadata"]["opening_hook"]
+    report = audit_treatment(treatment, base_script())
+    assert report["status"] == "revise"
+    assert any("opening_hook" in issue for issue in report["issues"])
+
+
+def test_missing_coverage_fails():
+    treatment = copy.deepcopy(base_treatment())
+    del treatment["enhanced_sections"][0]["coverage"]
+    report = audit_treatment(treatment, base_script())
+    assert report["status"] == "revise"
+    assert any("missing coverage" in issue for issue in report["issues"])

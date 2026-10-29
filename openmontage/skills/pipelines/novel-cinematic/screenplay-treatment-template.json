@@ -57,7 +57,11 @@
       "cinematic_function": "TBD",
       "visual_motif": "M1",
       "shot_opportunity": "TBD",
-      "added": false
+      "added": false,
+      "want": "",
+      "obstacle": "",
+      "turn": "",
+      "coverage": ""
     }
   ],
   "shot_opportunities": [
@@ -114,6 +118,7 @@
     "runtime_target_seconds": 1,
     "runtime_after_seconds": 1,
     "added_section_count": 0,
-    "fidelity_status": "revise"
+    "fidelity_status": "revise",
+    "opening_hook": ""
   }
 }

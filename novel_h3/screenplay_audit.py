@@ -83,6 +83,16 @@ def audit_treatment(
     if not sections:
         issues.append("enhanced_sections is empty")
 
+    # Craft contract: every scene states a concrete want, obstacle and turn,
+    # plus a coverage plan that the scene plan can inherit.
+    for section in sections:
+        sid = section.get("id", "?")
+        for key in ("want", "obstacle", "turn", "coverage"):
+            if not str(section.get(key) or "").strip():
+                issues.append(f"{sid}: scene contract is missing {key}")
+    if not str(meta.get("opening_hook") or "").strip():
+        issues.append("metadata.opening_hook is missing; the first 15 seconds need a question")
+
     ids = _section_ids(treatment)
     if len(ids) != len(set(ids)):
         issues.append("enhanced_sections contains duplicate section ids")

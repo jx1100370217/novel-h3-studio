@@ -73,3 +73,20 @@ def test_audit_understands_declared_dialogue_and_narrator_warnings():
     assert "added_dialogue" in body
     assert "narrator_lines" in body
     assert "neither in the base script nor declared" in body
+
+
+def test_screenplay_craft_standard_is_global():
+    craft = (ROOT / "docs" / "SCREENPLAY_CRAFT.md").read_text(encoding="utf-8")
+    for phrase in ("15", "want", "obstacle", "turn", "coverage", "180", "opening_hook"):
+        assert phrase in craft
+    skill = (SKILLS / "screenplay-director.md").read_text(encoding="utf-8")
+    assert "Craft standards (binding)" in skill
+    assert "metadata.opening_hook" in skill
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "Screenplay craft gate" in agents
+    schema = json.loads(
+        (BASE / "schemas" / "artifacts" / "screenplay_treatment.schema.json").read_text(encoding="utf-8")
+    )
+    section = schema["properties"]["enhanced_sections"]["items"]["properties"]
+    for key in ("want", "obstacle", "turn", "coverage"):
+        assert key in section

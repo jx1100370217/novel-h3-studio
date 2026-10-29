@@ -282,6 +282,22 @@
           },
           "added": {
             "type": "boolean"
+          },
+          "want": {
+            "type": "string",
+            "description": "Concrete objective the viewpoint character pursues in this scene."
+          },
+          "obstacle": {
+            "type": "string",
+            "description": "Person, rule, condition or fear that blocks the objective."
+          },
+          "turn": {
+            "type": "string",
+            "description": "The change that ends the scene: success, failure, reversal or new cost."
+          },
+          "coverage": {
+            "type": "string",
+            "description": "Master / two-shot / single / insert / reaction plan that keeps the 180-degree line."
           }
         },
         "additionalProperties": false

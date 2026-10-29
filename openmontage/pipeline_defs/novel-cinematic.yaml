@@ -67,6 +67,8 @@ stages:
     checkpoint_required: true
     human_approval_default: true
     review_focus:
+      - Every scene records want / obstacle / turn / coverage; no two consecutive scenes do the same job
+      - The opening 15 seconds pose a question (metadata.opening_hook); motifs change at least three times
       - Dialogue carries the story; narration is absent or only for an unwitnessable time jump
       - Every new line is declared in added_dialogue with a source fact and a dramatic purpose
       - Scenes are 8–14 dramatic units with a want, obstacle and turn, not one-line beats

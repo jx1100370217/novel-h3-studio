@@ -92,3 +92,5 @@ PYTHONPATH=.:openmontage .venv-openmontage/bin/python scripts/audit_screenplay.p
 [`CHARACTER_ASSET_SHEET.md`](CHARACTER_ASSET_SHEET.md) 的两视图资产卡规范
 生成；`screenplay` 阶段在写新增镜头时必须遵守已经批准的角色/场景资产，
 不得为了一个视觉想法临时增加新角色或新地点。
+
+> 剧本层的专业标准（钩子、场景目标/障碍/转折、潜台词、覆盖、轴线、母题、结尾行动）见 [`SCREENPLAY_CRAFT.md`](SCREENPLAY_CRAFT.md)。

@@ -172,6 +172,13 @@ not in the core code.
 - **Scene-based screenplay (binding):** the screenplay is 8–14 dramatic scenes,
   not a list of one-line shots. Each scene has a want, an obstacle and a turn;
   dialogue carries the story. Narration is only for an unwitnessable time jump.
+- **Screenplay craft gate (binding):** every treatment must record
+  `metadata.opening_hook` (a question in the first 15 seconds) and, per scene,
+  `want` / `obstacle` / `turn` / `coverage`. No two consecutive scenes may do
+  the same job; the key moral choice is shown as a physical process, not a
+  monologue; motifs change at least three times; the ending is an action.
+  `docs/SCREENPLAY_CRAFT.md` is the standard and `screenplay_audit` enforces
+  the fields.
 - **Scene plan splits into shots (binding):** `scene_plan` must split every
   screenplay scene into 3–12 H3 shots (typically 3–7). Each shot gets exact
   frames on the `17n+5` grid, camera, lens, movement, lighting, blocking,
