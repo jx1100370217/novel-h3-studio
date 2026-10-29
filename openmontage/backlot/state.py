@@ -248,12 +248,20 @@ def _render_progress(project_dir: Path, checkpoints: dict[str, dict]) -> Optiona
     if current and current in shots:
         current = None  # finished takes win over a stale queue pointer
     now = time.time()
-    mtimes = [v["mtime"] for v in shots.values()]
-    started_at = min(mtimes) if mtimes else None
+    mtimes = sorted(v["mtime"] for v in shots.values())
+    started_at = mtimes[0] if mtimes else None
     eta_seconds = None
     done = len(shots)
-    if started_at and done and total > done and now > started_at:
-        eta_seconds = int((now - started_at) / done * (total - done))
+    if started_at and done and total > done:
+        # Wall-clock average is poisoned by idle gaps between batches; the
+        # median gap between consecutive takes is the honest per-shot cost.
+        gaps = [b - a for a, b in zip(mtimes, mtimes[1:]) if b > a]
+        if gaps:
+            gaps.sort()
+            per_shot = gaps[len(gaps) // 2]
+        else:
+            per_shot = max(60.0, (now - started_at) / done)
+        eta_seconds = int(per_shot * (total - done))
     for sid in shots:
         # A take already on disk is a take, whatever the queue says.
         shots[sid].pop("mtime", None)
