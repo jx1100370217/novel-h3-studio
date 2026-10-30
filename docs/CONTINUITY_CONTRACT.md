@@ -36,9 +36,24 @@ S02D   水下鱼群（insert，不续接）
 S02D3 满网（续接 S02D1，而不是水下 insert）
 ```
 
-## 3. 白模不可用时
+## 3. Blender 白模
 
-Blender 未安装时，不允许退回“只给 cast + scene”。可用：
+Blender 已安装在
+`~/.local/share/novel-h3-studio/blender-5.2.2/blender`，`novel_h3.previs`
+会自动找到它。用法：
+
+```bash
+.venv-openmontage/bin/python -m novel_h3.previs \
+  --spec projects/<id>/v3/previs_specs/S04.json \
+  --out-dir projects/<id>/previs_v3 \
+  --shots S04A,S04B,S04E
+```
+
+`previs_specs` 的每个 shot 包含 `scene`、`camera`（position / look_at / lens）、
+`cast`（x/y/z、pose、heading）和可选 `props_list`。白模只锁人数、站位、姿势、
+屏幕方向和机位；身份、服装、材质和光线仍来自人物/场景参考图。
+
+白模不可用时，不允许退回“只给 cast + scene”。可用：
 
 1. `<Video N>` 续接（首选）；
 2. 2D 灰度站位图（PIL/SVG 生成，人物用灰色剪影，标出左右、远近、机位）；

@@ -43,3 +43,22 @@ def render_all(spec_path: Path, out_dir: Path, shots: list[str] | None = None,
     data = json.loads(Path(spec_path).read_text(encoding='utf-8'))
     ids = shots or sorted(data['shots'])
     return [render_previs(spec_path, sid, Path(out_dir) / f'{sid}.png', blender_bin=blender_bin) for sid in ids]
+
+
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Render silent Blender blocking guides.')
+    parser.add_argument('--spec', type=Path, required=True)
+    parser.add_argument('--out-dir', type=Path, required=True)
+    parser.add_argument('--shots', default='', help='Comma-separated shot ids')
+    parser.add_argument('--blender', default=None)
+    args = parser.parse_args(argv)
+    ids = [item.strip() for item in args.shots.split(',') if item.strip()] or None
+    print(json.dumps(render_all(args.spec, args.out_dir, ids, blender_bin=args.blender),
+                     ensure_ascii=False, indent=2))
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

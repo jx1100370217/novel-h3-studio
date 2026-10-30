@@ -176,6 +176,21 @@ def build_coffin_room(floor, wall, accent):
     cube('coffin front rim', (0, 0.6, 0.55), (2.1, 0.15, 0.3), accent, 0.03)
 
 
+def build_river(floor, wall, accent):
+    """Night river bank: boat camera-left, mooring stone camera-right."""
+    cube('river bank', (2.6, 0, -0.10), (7.0, 14, 0.20), floor)
+    cube('river water', (-2.0, 0, -0.28), (9.0, 14, 0.12), accent)
+    cube('boat hull', (-1.9, 0, 0.25), (1.5, 4.2, 0.50), wall)
+    cube('boat deck', (-1.9, 0, 0.52), (1.2, 3.6, 0.08), floor)
+    cube('boat canopy', (-1.9, 0.9, 1.35), (1.5, 2.4, 0.12), accent)
+    cube('mooring stone', (1.25, 0.2, 0.35), (1.1, 0.9, 0.70), accent)
+    for y in (-4, -2, 0, 2, 4):
+        cyl('bank reed', (3.2, y, 1.0), 0.04, 2.0, wall, 6)
+    cube('reed mat', (-0.4, 0.2, 2.10), (3.6, 0.12, 1.8), wall)
+    cyl('lantern post', (0.0, 0.2, 0.70), 0.04, 1.0, accent)
+    sphere('lantern', (0.0, 0.2, 1.20), (0.12, 0.12, 0.18), floor)
+
+
 SCENES = {
     'room': build_room,
     'hall': build_hall,
@@ -184,6 +199,7 @@ SCENES = {
     'lane': build_lane,
     'road': build_road,
     'coffin_room': build_coffin_room,
+    'river': build_river,
 }
 
 
