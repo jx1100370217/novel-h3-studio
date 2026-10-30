@@ -13,6 +13,7 @@ from .compose_cut import compose
 from .dialogue_audit import align_words, authored_lines, normalise, similarity, transcribe_words
 from .subtitles import shot_cues
 from .subtitle_audit import scan_take
+from .visual_qc import audit_take as audit_visual
 
 
 def _align_scene(project: Path, ids: list[str], takes_dir: Path, out: Path) -> dict:
@@ -126,6 +127,13 @@ def compose_chapter(project: Path, scene_id: str, *, takes_subdir: str = 'takes_
     spec_path = work / 'compose.json'
     spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     result = compose(spec_path)
+    visual = {sid: audit_visual(takes_dir / sid / 'native.mp4') for sid in ids}
+    visual_verdict = 'review' if any(item['verdict'] == 'review' for item in visual.values()) else 'pass'
+    (work / 'visual_qc.json').write_text(
+        json.dumps({'verdict': visual_verdict, 'takes': visual}, ensure_ascii=False, indent=2) + '\n',
+        encoding='utf-8')
+    print('VISUAL QC', visual_verdict,
+          [sid for sid, item in visual.items() if item['verdict'] == 'review'], flush=True)
     from .subtitle_qc import scan_duplicate_captions
     qc = scan_duplicate_captions(Path(result['output']), duration=float(result['duration']))
     (work / 'subtitle_qc.json').write_text(
@@ -133,4 +141,5 @@ def compose_chapter(project: Path, scene_id: str, *, takes_subdir: str = 'takes_
     print('SUBTITLE QC', qc['verdict'],
           f"{len(qc['hits'])} duplicate frames" if qc['hits'] else '', flush=True)
     result['subtitle_qc'] = qc
+    result['visual_qc'] = visual_verdict
     return result
