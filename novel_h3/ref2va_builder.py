@@ -403,6 +403,8 @@ def build_spec(shot: LockedShot) -> dict:
             detail += (' Silent-character lock: ' + '; '.join(
                 f'{subject[item.asset_id]} ({item.name}) does not speak in this shot'
                 for item in silent) + '; lips stay closed, no voice, no dialogue, no lip movement.')
+    if not lines:
+        detail += (' No dialogue, no voice, no speech, no lip movement; only the listed soundscape.')
     detail += ' No subtitles, no captions, no on-screen text, no text overlays.'
 
     spoken_lines = [
