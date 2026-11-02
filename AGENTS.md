@@ -120,6 +120,12 @@ not in the core code.
   silent. The visible listener keeps lips and jaw still for the whole line. A
   take where the visible listener lip-syncs an off-screen voice is a defect:
   re-render silent, never accept it or hide it in post.
+- Consecutive dialogue shots must change shot size or angle by a clear step;
+  never cut between two near-identical medium close-ups from independent
+  takes. If the same angle is intentional, lock one camera setup and use a
+  frame-matched anchor chain. For residual micro-jumps, the compose stage may
+  apply `novel_h3.cut_smooth` (two-frame upper-picture blend, subtitle band
+  hard-cut); it must not change duration, audio or burn a second caption.
 - Every multi-person shot (two or more visible bodies) uses a silent Blender
   gray-model blocking guide unless the human explicitly waives it.
 - Every shot carries the instance lock: a close-up and a full-body view of one
