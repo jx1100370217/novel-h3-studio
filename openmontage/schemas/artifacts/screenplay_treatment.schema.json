@@ -298,6 +298,27 @@
           "coverage": {
             "type": "string",
             "description": "Master / two-shot / single / insert / reaction plan that keeps the 180-degree line."
+          },
+          "location": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact set/location. Craft v4+ requires this on every scene."
+          },
+          "time_of_day": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact story time (拂晓/白日/夜/黄昏 etc.). Craft v4+ requires this."
+          },
+          "props": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Exact visible props. Use ['none'] for a deliberately empty set. Craft v4+ requires this."
+          },
+          "set_dressing": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Fixed set dressing and architecture; no unlisted table, chair, interior, window or food. Craft v4+ requires this."
           }
         },
         "additionalProperties": false

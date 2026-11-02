@@ -273,6 +273,11 @@ function scriptSections(script, limit) {
       `${(sec.id || "").toUpperCase()} — ${sec.label || "Section"} `,
       el("span", { class: "tc" }, `${fmtDuration(sec.start_seconds)} – ${fmtDuration(sec.end_seconds)}`)));
     if (sec.text) nodes.push(el("div", { class: "sp-action" }, sec.text));
+    const sceneContract = [sec.location, sec.time_of_day].filter(Boolean).join(" · ");
+    if (sceneContract) nodes.push(el("div", { class: "sp-paren" }, sceneContract));
+    if (Array.isArray(sec.props) && sec.props.length) {
+      nodes.push(el("div", { class: "sp-paren" }, `道具：${sec.props.join("、")}`));
+    }
     if (sec.speaker_directions) nodes.push(el("div", { class: "sp-paren" }, `(${sec.speaker_directions})`));
     const cues = sec.enhancement_cues || [];
     if (cues.length) {
@@ -746,7 +751,7 @@ function sceneCard(s, card) {
       v.quality_score != null ? `q ${v.quality_score}` : null].filter(Boolean).join(" · ");
     if (v.type === "video") {
       thumb = el("div", { class: "thumb approved" },
-        el("video", { src: mediaURL(s.project_id, v.path), muted: "", preload: "metadata", playsinline: "" }),
+        el("video", { src: mediaURL(s.project_id, v.path, v.mtime), muted: "", preload: "metadata", playsinline: "" }),
         el("span", { class: "play" }, "▶"),
         badge ? el("span", { class: "badge" }, badge) : null);
       thumb.onclick = () => {
@@ -917,7 +922,7 @@ function renderRenders(s) {
           liveProgress.eta_seconds ? ` · 剩余约 ${fmtSpan(liveProgress.eta_seconds)}` : "",
           ` · ${prefix}尚未合成，完成前不再用旧成片冒充当前版本。`)),
       previous ? el("div", { class: "render-meta" },
-        el("a", { href: mediaURL(s.project_id, previous.path), target: "_blank", style: "color:var(--text-3)" },
+        el("a", { href: mediaURL(s.project_id, previous.path, previous.mtime), target: "_blank", style: "color:var(--text-3)" },
           `查看上一版成片：${previous.path.split("/").pop()}`)) : null);
   }
   if (activeRender >= renders.length) activeRender = 0;
@@ -925,7 +930,7 @@ function renderRenders(s) {
   // Full re-renders (every SSE refresh) must not reset an in-progress
   // watch: carry playback position/state over to the recreated element.
   const prev = document.querySelector(".render-hero video");
-  const src = mediaURL(s.project_id, current.path);
+  const src = mediaURL(s.project_id, current.path, current.mtime);
   // preload="metadata" gives the element its intrinsic aspect ratio (and a
   // poster frame) before playback — without it a portrait 9:16 render sits
   // in a letterboxed 100%-wide black box that reads as landscape.

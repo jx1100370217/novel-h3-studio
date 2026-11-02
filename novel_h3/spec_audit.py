@@ -53,6 +53,21 @@ def audit_spec(spec: dict) -> list[str]:
         elif subject and subject not in line:
             issues.append(f'{expected_audio} definition does not name {subject}')
 
+    speakers = {line.get('speaker') for line in spec.get('spoken_lines') or [] if line.get('speaker')}
+    if len(speakers) > 1 and not spec.get('allow_multi_speaker'):
+        issues.append(f'multiple speakers in one take ({sorted(speakers)}); split into single-speaker shots')
+
+    detail = (spec.get('sections') or {}).get('detailed_description') or ''
+    if spec.get('spoken_lines') and 'Eyeline lock:' not in detail:
+        issues.append('dialogue shot has no Eyeline lock in the prompt')
+    if spec.get('props') and 'Prop lock:' not in detail:
+        issues.append('shot declares props but has no Prop lock in the prompt')
+    if spec.get('off_screen_voice'):
+        if 'Off-screen voice lock:' not in detail:
+            issues.append('off-screen-only dialogue shot has no Off-screen voice lock in the prompt')
+        if any(line.get('speaker_subject') for line in spec.get('spoken_lines') or []):
+            issues.append('off-screen-only dialogue shot binds a spoken line to a visible subject')
+
     for line in spec.get('spoken_lines') or []:
         speaker = line.get('speaker') or '?'
         subject = line.get('speaker_subject')

@@ -72,6 +72,11 @@ def main() -> int:
                          definition=scene_info['definition'], image_path=scene_info['image_path'])
         spoken = sorted([line for line in lines if line['shot'] == sid and line['role'] != 'narrator'],
                         key=lambda item: item['offset'])
+        if shot_data.get('post_dialogue'):
+            # Off-screen voice is layered in compose. Generating the take with
+            # the voice in its audio makes H3 lip-sync the only visible face,
+            # even when the prompt says the listener is silent.
+            spoken = []
         voice_bindings = []
         seen = set()
         for line in spoken:
@@ -91,8 +96,11 @@ def main() -> int:
                              duration_seconds=float(ref_info.get('duration_seconds', 0)),
                              median_f0_hz=ref_info.get('median_f0_hz')),
             ))
+        cast_assets = set(shot_data['cast'])
         shot_lines = [ShotLine(speaker=line['role'], text=line['text'], offset=float(line['offset']),
-                               subject_asset=voice_role[line['role']][0] if line['role'] != 'neighbor' else None)
+                               subject_asset=(voice_role[line['role']][0]
+                                              if line['role'] != 'neighbor' and voice_role[line['role']][0] in cast_assets
+                                              else None))
                       for line in spoken]
         previs_path = None
         if shot_data.get('previs'):
@@ -160,9 +168,12 @@ def main() -> int:
             open_state=shot_data.get('open', ''), close_state=shot_data.get('close', ''),
             framing=shot_data.get('framing', ''),
             blocking=shot_data.get('blocking', ''),
+            eyeline=shot_data.get('eyeline', ''),
+            camera_move=shot_data.get('camera_move', ''),
+            props=shot_data.get('props', ''),
             strong_no_text=bool(shot_data.get('strong_no_text', False)),
         )
-        spec = build_spec(locked)
+        spec = build_spec(locked, require_props=True)
         (out / f'{sid}.json').write_text(json.dumps(spec, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
         print(sid, 'voices', len(spec['voices']), 'visuals', len(spec['visuals']),
               'videos', len(spec.get('videos', [])), flush=True)

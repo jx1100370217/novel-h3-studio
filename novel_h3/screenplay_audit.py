@@ -57,6 +57,36 @@ def normalize_text(text: str) -> str:
     return PUNCT_RE.sub("", text)
 
 
+def scene_contract_required(treatment: dict[str, Any]) -> bool:
+    """Whether this treatment must carry explicit location/time/props fields.
+
+    Craft v4 makes the physical scene contract binding: every scene names its
+    location, time of day, exact props and set dressing, so the shot planner
+    and H3 prompt cannot invent a table, room or food service. Older
+    treatments keep validating; only v4+ is strict.
+    """
+    meta = treatment.get("metadata") or {}
+    if meta.get("scene_contract") is True:
+        return True
+    raw = str(meta.get("craft_version") or "").strip()
+    try:
+        return float(raw.split()[0]) >= 4.0
+    except (ValueError, IndexError):
+        return False
+
+
+def scene_contract_issues(entry: dict[str, Any], label: str) -> list[str]:
+    """Missing/invalid scene, time or prop fields for one scene/shot/section."""
+    issues: list[str] = []
+    for key in ("location", "time_of_day", "set_dressing"):
+        if not str(entry.get(key) or "").strip():
+            issues.append(f"{label}: scene contract is missing {key}")
+    props = entry.get("props")
+    if not isinstance(props, list) or not any(str(item).strip() for item in props):
+        issues.append(f"{label}: scene contract needs a non-empty props list")
+    return issues
+
+
 def _section_ids(treatment: dict[str, Any]) -> list[str]:
     return [str(section.get("id", "")) for section in treatment.get("enhanced_sections", [])]
 
@@ -85,11 +115,14 @@ def audit_treatment(
 
     # Craft contract: every scene states a concrete want, obstacle and turn,
     # plus a coverage plan that the scene plan can inherit.
+    strict_scene_contract = scene_contract_required(treatment)
     for section in sections:
         sid = section.get("id", "?")
         for key in ("want", "obstacle", "turn", "coverage"):
             if not str(section.get(key) or "").strip():
                 issues.append(f"{sid}: scene contract is missing {key}")
+        if strict_scene_contract:
+            issues.extend(scene_contract_issues(section, str(sid)))
     if not str(meta.get("opening_hook") or "").strip():
         issues.append("metadata.opening_hook is missing; the first 15 seconds need a question")
 
@@ -243,5 +276,6 @@ def audit_treatment(
             "narrator_lines": narrator_lines,
             "visual_motifs": len(motifs),
             "added_beats": len(added_beats),
+            "scene_contract": strict_scene_contract,
         },
     }

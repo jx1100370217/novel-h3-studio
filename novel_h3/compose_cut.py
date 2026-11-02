@@ -107,12 +107,23 @@ def build_audio(spec: dict, order: list[str], shots: dict, lines: list[dict], bo
                        'start_seconds': round(bounds[sid], 4)})
         print('AUD', sid, f'gain={gain:+.1f}dB', flush=True)
     for line in lines:
-        if line['role'] != 'narrator':
+        # A line with a wav path is intentionally post-layered: narration, or
+        # an off-screen voice whose take was generated silent so H3 cannot
+        # lip-sync the only visible listener.
+        if not line.get('wav'):
+            continue
+        if line.get('role') not in ('narrator', 'off_screen'):
             continue
         wav = resolve(line['wav'])
         if not wav.is_file():
-            raise FileNotFoundError(f'missing narrator wav: {wav}')
-        tracks.append({'path': str(wav), 'role': 'speech', 'volume': 1.0,
+            raise FileNotFoundError(f'missing post dialogue wav: {wav}')
+        # An off-screen post line joins the native SFX bus. The mixer's
+        # speech+music ducking branch can truncate the whole mix at the end of
+        # the short speech key when native SFX run longer; native dialogue is
+        # already mixed as SFX, so this keeps the full programme and the low
+        # music bed unchanged.
+        role = 'speech' if line['role'] == 'narrator' else 'sfx'
+        tracks.append({'path': str(wav), 'role': role, 'volume': 1.0,
                        'start_seconds': round(bounds[line['shot']] + float(line['offset']), 4)})
     music = resolve(spec['music'])
     tracks.append({'path': str(music), 'role': 'music',
@@ -163,6 +174,27 @@ def compose(spec_path: Path) -> dict:
     order = [s for section in script['sections'] for s in section['shots']]
     shots = {sid: json.loads((resolve(spec['shots_dir']) / f'{sid}.json').read_text(encoding='utf-8')) for sid in order}
     lines = json.loads(resolve(spec['lines']).read_text(encoding='utf-8'))['lines']
+    scene_cards = spec.get('scene_cards') or []
+    for index, item in enumerate(scene_cards):
+        from .scene_card import build_scene_card
+        key = f'__scene_card_{index}__'
+        card_path = resolve(spec['work_dir']) / f'scene_card_{index}.mp4'
+        build_scene_card(
+            card_path, act=item.get('act', ''), title=item.get('title', ''),
+            place=item.get('place', ''), time=item.get('time', ''),
+            duration_seconds=float(item.get('duration_seconds', 1.5)),
+            fade_seconds=float(item.get('fade_seconds', 0.25)),
+            width=int(spec.get('width', 1344)), height=int(spec.get('height', 768)),
+            fps=int(spec.get('fps', 24)),
+        )
+        before = item.get('before_shot')
+        if before not in order:
+            raise ValueError(f'scene card before_shot {before!r} is not in the script order')
+        spec.setdefault('graphics', {})[key] = str(card_path)
+        shots[key] = {'duration_seconds': float(item.get('duration_seconds', 1.5))}
+        order.insert(order.index(before), key)
+        spec['target_duration'] = float(spec['target_duration']) + float(item.get('duration_seconds', 1.5))
+        print('SCENE CARD', key, before, item.get('title', ''), flush=True)
     card = spec.get('end_card')
     if card:
         from .end_card import PROJECT_CREDIT, build_end_card

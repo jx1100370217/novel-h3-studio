@@ -105,6 +105,27 @@
               },
               "required": ["type", "description", "source"]
             }
+          },
+          "location": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact set/location inherited from the scene contract."
+          },
+          "time_of_day": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact story time inherited from the scene contract."
+          },
+          "props": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Exact visible props for this shot. Use ['none'] only when deliberately empty."
+          },
+          "set_dressing": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Fixed set dressing; no unlisted table, chair, interior, window or food."
           }
         },
         "additionalProperties": false

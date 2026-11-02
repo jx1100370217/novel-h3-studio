@@ -100,6 +100,64 @@ class Ref2VABuilderTests(unittest.TestCase):
             self.assertIn('Costume continuity lock', spec['sections']['detailed_description'])
             self.assertIn('Screen-direction lock', spec['sections']['detailed_description'])
 
+    def test_off_screen_voice_keeps_visible_mouth_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shot = LockedShot(
+                shot_id='S01B', title='Leave a sip', frames=260, seed=1,
+                visual_core='[Shot 1] Xu lifts his head and stares into the fog at camera-right.',
+                soundscape='River and a young off-screen voice.',
+                cast=(CastMember('xu', 'Xu', 'weathered fisherman', 'projects/p/xu.png', x=-1, y=1),),
+                scene=SceneRef('river', 'the river', 'night river and fog', 'projects/p/river.png'),
+                voices=(VoiceBinding('wang', VoiceRef('wang', 'voice_wang', root / 'wang.wav'), None),),
+                lines=(ShotLine('wang', '……留一口。', 2.0, None),),
+                eyeline='Xu looks at the off-screen voice at camera-right.',
+                props='one dark ceramic cup; no table, no interior.',
+            )
+            spec = build_spec(shot)
+            detail = spec['sections']['detailed_description']
+            self.assertIn('Off-screen voice lock:', detail)
+            self.assertIn('no visible character speaks', detail)
+            self.assertIn('no visible mouth moves', detail)
+            self.assertNotIn('match the moving lips to the visible named speaker', detail)
+            self.assertTrue(spec['off_screen_voice'])
+
+    def test_builder_adds_prop_lock_for_declared_props(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            voices = (
+                VoiceBinding('zhang', VoiceRef('zhang', 'voice_zhang', root / 'zhang.wav'), 'zhang_sheng'),
+                VoiceBinding('songtao', VoiceRef('songtao', 'voice_songtao', root / 'song.wav'), 'songtao'),
+            )
+            shot = replace(self.shot(voices), props='one wine cup, one wine jar; no table, no food')
+            spec = build_spec(shot)
+            detail = spec['sections']['detailed_description']
+            self.assertIn('Prop lock: only these props and set elements may appear', detail)
+            self.assertIn('one wine cup, one wine jar; no table, no food', detail)
+            self.assertIn('Do not invent any additional table', detail)
+            self.assertEqual(spec['props'], 'one wine cup, one wine jar; no table, no food')
+
+    def test_production_build_requires_props(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            voices = (
+                VoiceBinding('zhang', VoiceRef('zhang', 'voice_zhang', root / 'zhang.wav'), 'zhang_sheng'),
+                VoiceBinding('songtao', VoiceRef('songtao', 'voice_songtao', root / 'song.wav'), 'songtao'),
+            )
+            with self.assertRaisesRegex(ValueError, 'declare props'):
+                build_spec(self.shot(voices), require_props=True)
+
+    def test_builder_adds_default_prop_lock_without_props(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            voices = (
+                VoiceBinding('zhang', VoiceRef('zhang', 'voice_zhang', root / 'zhang.wav'), 'zhang_sheng'),
+                VoiceBinding('songtao', VoiceRef('songtao', 'voice_songtao', root / 'song.wav'), 'songtao'),
+            )
+            detail = build_spec(self.shot(voices))['sections']['detailed_description']
+            self.assertIn('Prop lock: only the props and set elements explicitly named', detail)
+            self.assertIn('do not invent any additional table', detail.lower())
+
     def test_builder_adds_anatomy_and_desk_locks(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

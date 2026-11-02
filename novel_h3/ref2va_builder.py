@@ -110,6 +110,9 @@ class LockedShot:
     close_state: str = ''
     framing: str = ''
     blocking: str = ''
+    eyeline: str = ''
+    camera_move: str = ''
+    props: str = ''
     strong_no_text: bool = False
     allow_multi_speaker: bool = False
     continuity_required: bool = False
@@ -147,8 +150,17 @@ def _people(count: int) -> str:
     return 'one person' if count == 1 else f'{count} people'
 
 
-def build_spec(shot: LockedShot) -> dict:
-    """Build and officially validate one locked Ref2VA shot spec."""
+def build_spec(shot: LockedShot, *, require_props: bool = False) -> dict:
+    """Build and officially validate one locked Ref2VA shot spec.
+
+    ``require_props`` is the production gate: every new shot must name its
+    exact props and set elements, so H3 cannot invent a table, room or food
+    service. Legacy callers can omit it while re-rendering an approved take.
+    """
+    if require_props and not str(shot.props or '').strip():
+        raise ValueError(
+            f'{shot.shot_id}: every shot must declare props and set elements; '
+            'use a non-empty props string, or "none" for a deliberately empty set')
     if shot.continuity_required and not shot.videos and not shot.previs_path:
         raise ValueError(
             f'{shot.shot_id}: a same-scene continuation needs a <Video N> tail or a '
@@ -267,6 +279,8 @@ def build_spec(shot: LockedShot) -> dict:
     cast_roles = [item.asset_id for item in cast if item.kind == 'character']
     speaker_order = [role for role in speaking if by_role[role].subject_asset in cast_roles]
     speaker_order += [role for role in speaking if role not in speaker_order]
+    off_screen_only = bool(lines) and all(not line.subject_asset for line in lines)
+    visible_speakers = [role for role in speaker_order if by_role[role].subject_asset in cast_roles]
     if len(speaker_order) > 1 and not shot.allow_multi_speaker:
         raise ValueError(
             f'{shot.shot_id}: {len(speaker_order)} speaking characters in one take; '
@@ -308,6 +322,13 @@ def build_spec(shot: LockedShot) -> dict:
     retention.extend(voice_ret)
 
     detail = shot.visual_core
+    if off_screen_only and cast_roles:
+        detail = (
+            'Off-screen voice lock: no visible character speaks in this shot. The voice comes from an '
+            'unseen speaker outside the frame; every visible mouth stays closed, the jaw stays still, '
+            'there is no lip-sync, no speaking expression and no speech-shaped breathing for the entire '
+            'shot. Do not assign the voice to any visible face. ' + detail
+        )
     if anchor_picture:
         detail = (
             f'The first frame of the target video is exactly {anchor_picture}: open on that composition, '
@@ -344,6 +365,24 @@ def build_spec(shot: LockedShot) -> dict:
         blocking += (f' The grayscale guide {previs_label} shows exactly {_people(count)}; use only its body '
                      f'count, placement, poses and camera, never its gray materials or mannequin appearance.')
     detail += ' ' + blocking
+    if shot.eyeline:
+        detail += ' Eyeline lock: ' + shot.eyeline
+    elif shot.lines and count >= 2:
+        detail += (' Eyeline lock: every visible character looks at the other character\'s eyes; '
+                   'the speaker looks at the listener, the listener looks back at the speaker; '
+                   'no one looks at the camera or off-frame.')
+    elif shot.lines and count < 2:
+        raise ValueError(f'{shot.shot_id}: a single-character dialogue shot needs an explicit eyeline')
+    if shot.camera_move:
+        detail += ' Camera movement lock: ' + shot.camera_move
+    if shot.props:
+        detail += (' Prop lock: only these props and set elements may appear: ' + shot.props
+                   + ' Do not invent any additional table, chair, bench, interior furniture, window, wall, '
+                     'food, bowl, plate, chopstick, vessel or decorative object.')
+    else:
+        detail += (' Prop lock: only the props and set elements explicitly named in this description may '
+                   'appear; do not invent any additional table, chair, bench, interior furniture, window, '
+                   'wall, food, bowl, plate, chopstick, vessel or decorative object.')
     detail += (' Instance lock: every named person is exactly one physical body. A close-up face and a '
                'full-body or seated view of the same person are one person, never two. Do not add a second '
                'copy in the background, doorway, reflection, portrait, statue, silhouette, as a servant, '
@@ -380,9 +419,13 @@ def build_spec(shot: LockedShot) -> dict:
                 locks.append(f'{name} uses {audio} only')
             else:
                 locks.append(f'the off-screen {role} uses {audio}')
-        detail += (' Voice casting is locked: ' + '; '.join(locks) + '. Each line belongs only to the named '
-                   'speaker; never swap voices, never let one character speak another character\'s line, and '
-                   'match the moving lips to the named speaker.')
+        if visible_speakers:
+            detail += (' Voice casting is locked: ' + '; '.join(locks) + '. Each line belongs only to the named '
+                       'speaker; never swap voices, never let one character speak another character\'s line, and '
+                       'match the moving lips only to the visible named speaker.')
+        else:
+            detail += (' Voice casting is locked: ' + '; '.join(locks) + '. All dialogue in this shot is '
+                       'off-screen; no visible character speaks, and no visible mouth moves for any line.')
         if len(speaker_order) > 1:
             detail += (' Voice return lock: when a character speaks again after another character, switch back '
                        'to that character\'s own audio reference; never carry the previous speaker\'s timbre '
@@ -395,6 +438,9 @@ def build_spec(shot: LockedShot) -> dict:
             mm = int(line.offset // 60); ss = int(line.offset % 60)
             ms = int(round((line.offset - int(line.offset)) * 1000))
             detail += f' At {mm:02d}:{ss:02d}.{ms:03d}, {speaker} speaks with {audio}, <d>[Chinese] {line.text}</d>'
+            if not line.subject_asset:
+                detail += (' The visible characters do not move their lips for this line; the voice has no '
+                           'visible speaker in frame.')
             if shot.strong_no_text:
                 detail += ' The line is heard only and is never written on screen.'
         silent = [item for item in cast
@@ -443,5 +489,7 @@ def build_spec(shot: LockedShot) -> dict:
         'frames': shot.frames, 'visuals': visuals, 'voices': voice_payload,
         'videos': video_payload,
         'spoken_lines': spoken_lines, 'additional_visible_people': list(shot.extras),
+        'props': shot.props,
+        'off_screen_voice': off_screen_only,
         'sections': sections,
     }

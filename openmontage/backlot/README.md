@@ -29,6 +29,21 @@ notifications over SSE; the browser refetches board state. State sources:
 Projects without checkpoints degrade gracefully to a "what the watcher
 found" view — media, snapshots, renders.
 
+## Round-scoped projects
+
+A project that keeps several production rounds side by side can point the
+board at the active one from `project.json`:
+
+```json
+{"board_root": "v4"}
+```
+
+Checkpoints, `artifacts/`, `takes*/`, `exports/`, `events.jsonl` and
+`history/` are then read from `projects/<id>/v4/`, while media URLs stay
+project-relative (`v4/takes/...`). The previous round remains on disk; remove
+`board_root` to point back at the project root. The board never merges two
+rounds.
+
 ## Live revision takes
 
 During a new revision the old cut must not masquerade as current. `render_batch`

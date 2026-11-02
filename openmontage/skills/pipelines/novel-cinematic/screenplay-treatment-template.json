@@ -61,7 +61,13 @@
       "want": "",
       "obstacle": "",
       "turn": "",
-      "coverage": ""
+      "coverage": "",
+      "location": "TBD",
+      "time_of_day": "TBD",
+      "props": [
+        "TBD"
+      ],
+      "set_dressing": "TBD"
     }
   ],
   "shot_opportunities": [
@@ -109,7 +115,10 @@
   ],
   "production_constraints": [
     "1344x768 / 24fps / one continuous take per shot",
-    "exact visible cast; individual character refs; no duplicate people"
+    "exact visible cast; individual character refs; no duplicate people",
+    "craft v4+: every scene declares location, time_of_day, props and set_dressing",
+    "only authored props may appear; no unlisted table, chair, interior, window or food",
+    "off-screen dialogue has no visible speaker; the listener keeps lips closed"
   ],
   "approval_questions": [
     "TBD"
@@ -119,6 +128,7 @@
     "runtime_after_seconds": 1,
     "added_section_count": 0,
     "fidelity_status": "revise",
-    "opening_hook": ""
+    "opening_hook": "",
+    "craft_version": "4.0"
   }
 }

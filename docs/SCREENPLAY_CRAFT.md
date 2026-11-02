@@ -69,11 +69,30 @@
   "want": "救那个妇人",
   "obstacle": "救了她，王六郎就走不了",
   "turn": "手伸出又收回；妇人自己爬上岸",
-  "coverage": "24/35/85 交叉剪辑 + 水下 + 王六郎近景"
+  "coverage": "24/35/85 交叉剪辑 + 水下 + 王六郎近景",
+  "location": "河岸 / 水下",
+  "time_of_day": "正午",
+  "props": ["one wooden boat", "one mooring stone", "one baby bundle", "river water"],
+  "set_dressing": "阴天灰绿河面，陡岸；无桌、无室内"
 }
 ```
 
 `metadata.opening_hook` 写清前 15 秒的钩子是什么。
+
+### 场景 / 道具合同（craft v4+，binding）
+
+- 每场必须写 `location`、`time_of_day`、`props`、`set_dressing`；
+  `props` 是精确可见道具列表，故意空场写 `["none"]`，不能省略。
+- 场景里没有写的桌子、椅子、凳子、窗、墙、饭菜、碗筷、额外器皿，
+  一律视为生成缺陷；必须重拍，不能靠后期擦除。
+- `script.json` 与 `scene_plan.json` 必须继承同一组字段；
+  `scripts/audit_scene_contract.py` 必须 pass。
+- 画外音必须标成无可视说话人；可见人物全程闭唇、下颌不动。
+  画外音不要放进 H3 生成音频：H3 的音频条件会把唯一可见的脸带成对口型。
+  镜头按静默反应拍（`post_dialogue: true`），画外音在 compose 阶段用
+  `lines.json` 的 `role: "off_screen"` + `wav` 叠加。
+- 只有剧本明确写出的桌子/酒菜才能出现（例如 S08 许家木桌、S09 客店酒桌）；
+  这些场景必须在 `props` 里逐项列出。
 
 ## 三、编剧阶段自检清单
 
@@ -86,6 +105,9 @@
 - [ ] 台词读出来像人话，不像作者总结；
 - [ ] 结尾是一个动作，不是一句总结；
 - [ ] added_dialogue 每条都有 source_fact 与 purpose；
+- [ ] 每场都有 location / time_of_day / props / set_dressing；
+- [ ] 没有把桌子、椅子、窗、饭菜等未授权陈设写成默认背景；
+- [ ] 画外音没有绑定给可见人物，可见人物不会对画外音动嘴；
 - [ ] 没有新增情节事件、人物、地点或结局。
 
 ## 四、和分镜的接口

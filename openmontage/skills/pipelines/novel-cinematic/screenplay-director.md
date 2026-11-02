@@ -187,6 +187,9 @@ one-line beats:
 
 - group the story into 8–14 dramatic scenes;
 - each scene has a place, a want, an obstacle and a turn;
+- every scene carries exact `location`, `time_of_day`, `props` and
+  `set_dressing`; `props` lists only what the scene actually shows
+  (`["none"]` for a deliberately empty set);
 - carry the scene through character dialogue and visible action;
 - use narration only when no character can carry the information;
 - keep the source's plot order and facts;
@@ -214,7 +217,7 @@ not enough. The contract must specify:
 - 2–6 timed `action_beats` inside the take;
 - `sound`: native ambience, physical sound, silence;
 - `cast` and `visible_cast_count`;
-- `props`, `costume`, `set_dressing`;
+- `location`, `time_of_day`, `props`, `costume`, `set_dressing`;
 - `continuity`: previous/next shot, axis, hand/prop ownership;
 - `h3_prompt_notes`: what the Ref2VA prompt must preserve or avoid;
 - `risk` and mitigation for the hard shot.

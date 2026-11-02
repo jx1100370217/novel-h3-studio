@@ -53,8 +53,11 @@ export function fmtClock(iso) {
   }
 }
 
-export function mediaURL(projectId, relPath) {
-  return `/media/${encodeURIComponent(projectId)}/${relPath.split("/").map(encodeURIComponent).join("/")}`;
+export function mediaURL(projectId, relPath, version) {
+  const url = `/media/${encodeURIComponent(projectId)}/${relPath.split("/").map(encodeURIComponent).join("/")}`;
+  // A re-rendered take keeps its path; the version busts the browser cache so
+  // the board never plays yesterday's cut under today's progress.
+  return version == null ? url : `${url}?v=${encodeURIComponent(version)}`;
 }
 
 // Downscaled cached JPEG for images (full media only in players/lightbox).

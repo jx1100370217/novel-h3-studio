@@ -11,6 +11,9 @@
 ## Outputs
 
 1. Schema-valid `scene_plan` artifact: one scene per shot, ids `S01`, `S02`, ...
+   Every scene inherits `location`, `time_of_day`, `props` and `set_dressing`
+   from its script section. The shot may narrow the props but must not invent
+   an unlisted table, chair, interior, window or food service.
 2. Project-local shot contracts at `projects/<id>/shots/<shot_id>.json`. These hold
    the fields the VDN tool needs and that the scene_plan schema does not allow:
 
@@ -63,6 +66,32 @@ whole scene.
    axis id and the previous/next shot in `metadata`.
 6. Durations are on the 24 fps frame grid: `frames = round(seconds * 24)`; the tool
    rounds to the nearest legal length.
+7. Every shot declares `location`, `time_of_day`, `props` and `set_dressing`.
+   Props are an exact allowlist, not a mood note. A table, food service or
+   interior may appear only when the script and this shot explicitly list it.
+8. An off-screen line names no visible speaker and is **not** generated in the
+   H3 take: set `post_dialogue: true` for the shot, keep every visible mouth
+   closed, and add the approved line to `lines.json` with
+   `role: "off_screen"` plus a `wav` path. Compose layers it after the silent
+   reaction take. The take's `overall_soundscape` must say "no human voice,
+   no speech"; otherwise H3 hallucinates a voice from the action note. H3's
+   audio conditioning otherwise lip-syncs the only visible face even when the
+   prompt says the listener is silent.
+
+## Scene contract audit
+
+Before writing the checkpoint, run:
+
+```bash
+PYTHONPATH=.:openmontage .venv-openmontage/bin/python scripts/audit_scene_contract.py \
+  --treatment projects/<id>/artifacts/screenplay_treatment.json \
+  --script projects/<id>/artifacts/script.json \
+  --scene-plan projects/<id>/artifacts/scene_plan.json \
+  --out projects/<id>/artifacts/scene_contract_audit.json
+```
+
+It must report `status: pass`. A missing `location`, `time_of_day`, non-empty
+`props` list or `set_dressing` blocks the shot plan.
 
 ## Prompt contract (VDN / MiniMax H3)
 

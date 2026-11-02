@@ -72,6 +72,7 @@ stages:
       - Dialogue carries the story; narration is absent or only for an unwitnessable time jump
       - Every new line is declared in added_dialogue with a source fact and a dramatic purpose
       - Scenes are 8–14 dramatic units with a want, obstacle and turn, not one-line beats
+      - Every scene declares exact location, time_of_day, props and set_dressing (craft v4+); no unlisted table, chair, interior, window or food
       - Added visual beats are not new plot; connective dialogue is allowed when declared
       - No new characters, locations, plot events or changed ending
     success_criteria:
@@ -93,10 +94,12 @@ stages:
     review_focus:
       - Every screenplay scene is split into 3–12 H3 shots (typically 3–7); every take is capped at 328 frames with ≤3 visual references and 260 frames with 4+
       - Each shot has exact frames on the 17n+5 grid, camera, lens, movement, lighting, blocking, dialogue, continuity and H3 notes
+      - Every shot declares exact location, time_of_day, props and set_dressing inherited from its scene contract; no unlisted table, chair, interior, window or food
       - Shot coverage answers the dramatic question and the scene turn
       - Screen direction and axis stay coherent across shots
     success_criteria:
       - Schema-valid scene_plan artifact
+      - scripts/audit_scene_contract.py reports pass for script + scene_plan
       - Every screenplay scene maps to 3–12 shots (typically 3–7), each take ≤328 frames with ≤3 visual references (≤260 with 4+)
       - Every shot has a project-local contract with legal frames and dialogue
 
@@ -128,12 +131,14 @@ stages:
       - Cast count, identity and costume stay consistent with references
       - Every speaking character has a dedicated voice reference; no text-only speaker guessing
       - "`<Audio N>` follows the request's voices order and binds `<Subject N>` for every visible speaker; `novel_h3.spec_audit` passes before any render"
+      - Every shot declares props/set elements and carries a `Prop lock`; no unlisted table, chair, interior, window or food
+      - "Every off-screen dialogue shot is generated silent (`post_dialogue: true`) and post-layered in compose; the visible listener's lips stay closed"
       - Every multi-person shot uses a Blender blocking guide with the exact authored body count
       - Strict six-section Ref2VA prompts pass the official validator
     success_criteria:
       - Schema-valid asset_manifest artifact
       - Every referenced clip exists and passes ffprobe
-      - Every rendered spec passes `novel_h3.spec_audit`; no take is rendered with swapped voices
+      - Every rendered spec passes `novel_h3.spec_audit`; no take is rendered with swapped voices, unlisted props or visible lip-sync on an off-screen line
 
   - name: edit
     skill: pipelines/novel-cinematic/edit-director

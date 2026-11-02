@@ -96,6 +96,30 @@ not in the core code.
   [`docs/AUDIO_SUBTITLE_CONTRACT.md`](docs/AUDIO_SUBTITLE_CONTRACT.md).
 - Every shot declares its **exact visible cast**; source-reference characters
   that are off-screen must not be marked visible.
+- Every shot declares its **exact visible props and set elements** in
+  authoring (`props`). `ref2va_builder` injects a `Prop lock` that allows only
+  those items and forbids unlisted tables, chairs, benches, interior
+  furniture, windows, walls, food, bowls, plates, chopsticks and extra
+  vessels; `spec_audit` rejects a spec that declares props without the lock.
+  A table, food service or interior room may appear only when the shot
+  explicitly authors it. A prop that appears without an authored declaration
+  is a generation defect: re-render with the prop lock, never accept it as
+  set dressing or paint it out in post.
+- Craft v4+ scripts, treatments and scene plans declare `location`,
+  `time_of_day`, `props` and `set_dressing` for every scene and shot; the
+  scene plan inherits the script contract. `scripts/audit_scene_contract.py`
+  must pass, and `build_ref2va_specs` rejects any shot without props.
+- Every off-screen dialogue line binds no visible subject
+  (`speaker_subject` absent). Do not put the off-screen voice in the H3
+  generation audio: H3's audio conditioning lip-syncs the only visible face
+  even with a prompt lock. Generate a silent reaction take
+  (`post_dialogue: true`) and lay the approved voice line in compose
+  (`lines.json` entry with `role: "off_screen"` and a `wav` path). The silent
+  take's `overall_soundscape` must also say "no human voice, no speech"; H3
+  will otherwise hallucinate a voice from the action note and the take is not
+  silent. The visible listener keeps lips and jaw still for the whole line. A
+  take where the visible listener lip-syncs an off-screen voice is a defect:
+  re-render silent, never accept it or hide it in post.
 - Every multi-person shot (two or more visible bodies) uses a silent Blender
   gray-model blocking guide unless the human explicitly waives it.
 - Every shot carries the instance lock: a close-up and a full-body view of one

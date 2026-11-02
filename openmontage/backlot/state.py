@@ -52,6 +52,25 @@ def _read_json(path: Path) -> Optional[dict]:
         return None
 
 
+def _board_state_root(project_dir: Path, marker: dict) -> Path:
+    """Where this board reads checkpoints/artifacts/takes from.
+
+    A project that keeps several production rounds side by side can point
+    ``project.json`` at the active one (``"board_root": "v4"``). Media paths
+    stay project-relative, so the board still serves them from the project
+    root. A missing, absolute or escaping path falls back to the project root.
+    """
+    raw = marker.get("board_root")
+    if not isinstance(raw, str) or not raw.strip():
+        return project_dir
+    try:
+        candidate = (Path(project_dir) / raw).resolve()
+        candidate.relative_to(Path(project_dir).resolve())
+    except (ValueError, OSError):
+        return project_dir
+    return candidate if candidate.is_dir() else project_dir
+
+
 _ROUND_RE = re.compile(r"(?i)(?:^|[/_.-])v(\d+(?:\.\d+)?)(?:$|[/_.-])")
 
 
@@ -67,6 +86,8 @@ def _current_round(
     project_dir: Path,
     artifacts: dict[str, dict],
     checkpoints: dict[str, dict],
+    *,
+    state_dir: Optional[Path] = None,
 ) -> Optional[str]:
     """Latest active production round, derived from data — never hardcoded.
 
@@ -95,12 +116,16 @@ def _current_round(
             return round_name
 
     versions: list[int] = []
-    for media_dir in (project_dir / "board_media").glob("v*"):
-        if media_dir.is_dir() and (match := re.fullmatch(r"v(\d+)", media_dir.name)):
-            versions.append(int(match.group(1)))
-    for export in (project_dir / "exports").glob("*"):
-        if match := _ROUND_RE.search(export.name):
-            versions.append(int(match.group(1)))
+    roots = [project_dir]
+    if state_dir is not None and Path(state_dir) != Path(project_dir):
+        roots.append(Path(state_dir))
+    for root in roots:
+        for media_dir in (root / "board_media").glob("v*"):
+            if media_dir.is_dir() and (match := re.fullmatch(r"v(\d+)", media_dir.name)):
+                versions.append(int(match.group(1)))
+        for export in (root / "exports").glob("*"):
+            if match := _ROUND_RE.search(export.name):
+                versions.append(int(match.group(1)))
     return f"v{max(versions)}" if versions else None
 
 
@@ -201,14 +226,23 @@ def _collect_history(project_dir: Path) -> dict[str, list[dict]]:
 RENDER_PHASES = ("render", "render_done")
 
 
-def _render_progress(project_dir: Path, checkpoints: dict[str, dict]) -> Optional[dict]:
+def _render_progress(
+    state_dir: Path,
+    checkpoints: dict[str, dict],
+    *,
+    display_root: Optional[Path] = None,
+) -> Optional[dict]:
     """Per-shot asset render progress, merged from checkpoints and takes.
 
     ``render_batch`` writes an ``assets`` checkpoint per shot, and the takes
     land under ``takes*/<shot>/native.mp4``. The newest render checkpoint gives
     the queue position; the files on disk give the truth about what is done.
+    ``state_dir`` is the active round; ``display_root`` is the project root
+    used for media URLs (so a round folder stays visible in the path).
     """
     import time
+
+    display_root = Path(display_root or state_dir)
 
     best: Optional[tuple[float, str, dict]] = None
     for name, cp in checkpoints.items():
@@ -219,13 +253,13 @@ def _render_progress(project_dir: Path, checkpoints: dict[str, dict]) -> Optiona
         if best is None or updated > best[0]:
             best = (updated, name, progress)
 
-    scene_plan = _read_json(project_dir / "artifacts" / "scene_plan.json") or {}
+    scene_plan = _read_json(state_dir / "artifacts" / "scene_plan.json") or {}
     scenes = [s for s in scene_plan.get("scenes") or [] if isinstance(s, dict)]
     durations = {
         str(s["id"]): max(0.0, float(s.get("end_seconds") or 0) - float(s.get("start_seconds") or 0))
         for s in scenes if s.get("id") is not None
     }
-    takes_dirs = sorted((d for d in project_dir.glob("takes*") if d.is_dir()),
+    takes_dirs = sorted((d for d in state_dir.glob("takes*") if d.is_dir()),
                         key=lambda d: d.stat().st_mtime, reverse=True)
     shots: dict[str, dict] = {}
     for sid in durations:
@@ -234,7 +268,7 @@ def _render_progress(project_dir: Path, checkpoints: dict[str, dict]) -> Optiona
             if clip.is_file():
                 shots[sid] = {
                     "status": "done",
-                    "path": _rel(project_dir, clip),
+                    "path": _rel(display_root, clip),
                     "duration_seconds": round(durations[sid], 3) or None,
                     "mtime": clip.stat().st_mtime,
                 }
@@ -383,24 +417,31 @@ ARTIFACT_FILES = {
 }
 
 
-def _collect_artifacts(project_dir: Path, checkpoints: dict[str, dict]) -> dict[str, dict]:
-    """Artifacts from artifacts/*.json, backfilled from checkpoint payloads."""
+def _collect_artifacts(state_dir: Path, checkpoints: dict[str, dict]) -> dict[str, dict]:
+    """Artifacts from artifacts/*.json, backfilled from checkpoint payloads.
+
+    A round folder may keep authored artifacts at its root (``v4/script.json``)
+    while generated ones live in ``v4/artifacts/``; both are read, the
+    ``artifacts/`` copy winning.
+    """
     artifacts: dict[str, dict] = {}
-    art_dir = project_dir / "artifacts"
-    for name, filename in ARTIFACT_FILES.items():
-        data = _read_json(art_dir / filename)
-        if data is not None:
-            artifacts[name] = data
+    for root in (state_dir / "artifacts", state_dir):
+        for name, filename in ARTIFACT_FILES.items():
+            if name in artifacts:
+                continue
+            data = _read_json(root / filename)
+            if data is not None:
+                artifacts[name] = data
     # decision_log historically also lives at project root
     if "decision_log" not in artifacts:
-        data = _read_json(project_dir / "decision_log.json")
+        data = _read_json(state_dir / "decision_log.json")
         if data is not None:
             artifacts["decision_log"] = data
     # Backfill from checkpoint-embedded artifacts.
     for cp in checkpoints.values():
         for name, value in (cp.get("artifacts") or {}).items():
             if name not in artifacts:
-                resolved = _resolve_artifact(project_dir, value)
+                resolved = _resolve_artifact(state_dir, value)
                 if resolved is not None:
                     artifacts[name] = resolved
     return artifacts
@@ -480,6 +521,7 @@ def _asset_entry(project_dir: Path, asset: dict) -> dict:
         "prompt": asset.get("prompt"),
         "model": asset.get("model"),
         "source_tool": asset.get("source_tool"),
+        "mtime": resolved.stat().st_mtime if resolved is not None else None,
         "provider": asset.get("provider"),
         "cost_usd": asset.get("cost_usd"),
         "quality_score": asset.get("quality_score"),
@@ -488,14 +530,19 @@ def _asset_entry(project_dir: Path, asset: dict) -> dict:
     }
 
 
-def _find_scene_snapshot(project_dir: Path, scene_id: str) -> Optional[dict]:
+def _find_scene_snapshot(
+    project_dir: Path,
+    scene_id: str,
+    *,
+    state_dir: Optional[Path] = None,
+) -> Optional[dict]:
     """A per-scene review still, if the run wrote one.
 
     Atelier/animation scenes have no thumbnailable asset file, so the
     assets-stage snapshot (`snapshots/<scene_id>.png`) is what the filmstrip
     shows. Accept exact `<scene_id>.<ext>` and `<scene_id>_*.<ext>` forms.
     """
-    snap_dir = project_dir / "snapshots"
+    snap_dir = Path(state_dir or project_dir) / "snapshots"
     if not scene_id or not snap_dir.is_dir():
         return None
     try:
@@ -552,6 +599,7 @@ def _build_storyboard(
     assets_in_progress: bool = False,
     render_shots: Optional[dict] = None,
     render_current: Optional[str] = None,
+    state_dir: Optional[Path] = None,
 ) -> Optional[dict]:
     """Scene cards: scene_plan × script × asset_manifest × live round takes."""
     live_assets = live_assets or {}
@@ -635,7 +683,7 @@ def _build_storyboard(
             active_visual = (
                 renderable[-1] if renderable
                 else missing[-1] if missing
-                else _find_scene_snapshot(project_dir, sid)
+                else _find_scene_snapshot(project_dir, sid, state_dir=state_dir)
             )
         is_generating = (not live) and (
             generating.get(sid) is not None
@@ -691,38 +739,56 @@ def _build_storyboard(
 # Media discovery
 # ---------------------------------------------------------------------------
 
-def _scan_media(project_dir: Path) -> dict[str, list[dict]]:
-    """Discovered media files (renders, loose assets, snapshots)."""
+def _scan_media(
+    project_dir: Path,
+    *,
+    state_dir: Optional[Path] = None,
+) -> dict[str, list[dict]]:
+    """Discovered media files (renders, loose assets, snapshots).
+
+    Scans the active round when ``state_dir`` is set, but keeps every path
+    project-relative so the media endpoint can serve it.
+    """
+    scan_dir = Path(state_dir or project_dir)
     renders: list[dict] = []
     snapshots: list[dict] = []
     music: list[dict] = []
 
-    renders_dir = project_dir / "renders"
+    renders_dir = scan_dir / "renders"
     if renders_dir.is_dir():
         for f in sorted(renders_dir.iterdir()):
             if f.suffix.lower() in MEDIA_VIDEO_EXT and f.is_file():
                 renders.append({"path": _rel(project_dir, f), "size": f.stat().st_size,
                                 "mtime": f.stat().st_mtime})
-    exports_dir = project_dir / 'exports'
+    exports_dir = scan_dir / 'exports'
     if exports_dir.is_dir():
         for f in sorted(exports_dir.iterdir()):
             if f.suffix.lower() in MEDIA_VIDEO_EXT and f.is_file():
                 renders.append({'path': _rel(project_dir, f), 'size': f.stat().st_size,
                                 'mtime': f.stat().st_mtime, 'at_exports': True})
-    # Atelier heuristic: deliverables at project root.
-    for f in sorted(project_dir.glob("*.mp4")):
+    # Atelier heuristic: deliverables at the project / round root.
+    for f in sorted(scan_dir.glob("*.mp4")):
         renders.append({"path": _rel(project_dir, f), "size": f.stat().st_size,
                         "mtime": f.stat().st_mtime, "at_root": True})
-    for f in sorted(project_dir.glob("*.mp3")):
+    for f in sorted(scan_dir.glob("*.mp3")):
         music.append({"path": _rel(project_dir, f), "at_root": True})
-    music_dir = project_dir / "assets" / "music"
-    if music_dir.is_dir():
+    # Approved music beds are project-wide, not round-specific; a round that
+    # has no music folder still shows the shared bed.
+    music_dirs = [scan_dir / "assets" / "music"]
+    if scan_dir != Path(project_dir):
+        music_dirs.append(Path(project_dir) / "assets" / "music")
+    seen_music: set[str] = set()
+    for music_dir in music_dirs:
+        if not music_dir.is_dir():
+            continue
         for f in sorted(music_dir.iterdir()):
-            if f.suffix.lower() in MEDIA_AUDIO_EXT:
-                music.append({"path": _rel(project_dir, f)})
+            path = _rel(project_dir, f)
+            if f.suffix.lower() in MEDIA_AUDIO_EXT and path not in seen_music:
+                seen_music.add(path)
+                music.append({"path": path})
 
     for dirname in ("snapshots", "verify"):
-        d = project_dir / dirname
+        d = scan_dir / dirname
         if d.is_dir():
             for f in sorted(d.iterdir()):
                 if f.suffix.lower() in MEDIA_IMAGE_EXT and f.is_file():
@@ -732,7 +798,12 @@ def _scan_media(project_dir: Path) -> dict[str, list[dict]]:
     return {"renders": renders, "snapshots": snapshots, "music": music}
 
 
-def _find_poster(project_dir: Path, state: dict) -> Optional[str]:
+def _find_poster(
+    project_dir: Path,
+    state: dict,
+    *,
+    state_dir: Optional[Path] = None,
+) -> Optional[str]:
     """Best poster for the library card (image path, or a video path —
     the /thumb endpoint extracts a frame from videos)."""
     board = state.get("storyboard") or {}
@@ -743,8 +814,9 @@ def _find_poster(project_dir: Path, state: dict) -> Optional[str]:
     for snap in (state.get("media") or {}).get("snapshots", []):
         return snap["path"]
     # Common image homes, in order of how representative they usually are.
+    scan_dir = Path(state_dir or project_dir)
     for rel_dir in ("assets/images", "assets/frames", "exports", "assets", "."):
-        d = (project_dir / rel_dir) if rel_dir != "." else project_dir
+        d = (scan_dir / rel_dir) if rel_dir != "." else scan_dir
         if not d.is_dir():
             continue
         try:
@@ -790,9 +862,10 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
 
     marker = _read_json(project_dir / "project.json") or {}
     meta_json = _read_json(project_dir / "meta.json") or {}
+    state_dir = _board_state_root(project_dir, marker)
 
-    checkpoints = _collect_checkpoints(project_dir)
-    history = _collect_history(project_dir)
+    checkpoints = _collect_checkpoints(state_dir)
+    history = _collect_history(state_dir)
 
     pipeline_type = marker.get("pipeline_type")
     if not pipeline_type:
@@ -803,11 +876,11 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
                 break
     pipeline_meta = _load_pipeline_meta(pipeline_type)
 
-    artifacts = _collect_artifacts(project_dir, checkpoints)
-    events = read_events(project_dir, limit=250)
+    artifacts = _collect_artifacts(state_dir, checkpoints)
+    events = read_events(state_dir, limit=250)
     assets_cp = checkpoints.get('assets') or {}
     assets_meta = assets_cp.get('metadata') or {}
-    render_progress = _render_progress(project_dir, checkpoints)
+    render_progress = _render_progress(state_dir, checkpoints, display_root=project_dir)
     storyboard = _build_storyboard(
         project_dir, artifacts, events,
         live_assets=assets_meta.get('live_assets') or {},
@@ -817,8 +890,9 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
         assets_in_progress=assets_cp.get('status') == 'in_progress',
         render_shots=(render_progress or {}).get('shots') or {},
         render_current=(render_progress or {}).get('current'),
+        state_dir=state_dir,
     )
-    media = _scan_media(project_dir)
+    media = _scan_media(project_dir, state_dir=state_dir)
 
     stages = _build_stage_rail(pipeline_meta, checkpoints, history)
     if render_progress:
@@ -846,7 +920,7 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
             cost = {"total_spent_usd": total}
 
     import time
-    last_activity = _last_activity(project_dir)
+    last_activity = _last_activity(state_dir)
     now = time.time()
 
     # Stall detection: an in_progress stage that stopped writing anything.
@@ -868,7 +942,7 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
         "pipeline": pipeline_meta,
         "style_playbook": marker.get("style_playbook"),
         "created_at": marker.get("created_at"),
-        "current_round": _current_round(project_dir, artifacts, checkpoints),
+        "current_round": _current_round(project_dir, artifacts, checkpoints, state_dir=state_dir),
         "has_marker": bool(marker),
         "has_pipeline_state": bool(checkpoints),
         "stages": stages,
@@ -881,7 +955,7 @@ def load_board_state(project_dir: Path) -> dict[str, Any]:
         "last_activity": last_activity,
         "live": bool(last_activity and (now - last_activity) < LIVE_WINDOW_SECONDS),
     }
-    state["poster"] = _find_poster(project_dir, state)
+    state["poster"] = _find_poster(project_dir, state, state_dir=state_dir)
     return state
 
 

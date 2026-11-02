@@ -60,6 +60,29 @@ class SpecAuditTests(unittest.TestCase):
         ])
         self.assertEqual(audit_spec(data), [])
 
+    def test_off_screen_dialogue_needs_a_closed_mouth_lock(self):
+        data = spec(
+            [{'audio': '<Audio 1>', 'subject': None, 'role': 'wang'}],
+            spoken=[{'speaker': 'wang', 'text': '……留一口。', 'speaker_subject': None}],
+        )
+        data['off_screen_voice'] = True
+        data['sections']['detailed_description'] = 'Eyeline lock: Xu looks at the fog.'
+        self.assertTrue(any('Off-screen voice lock' in issue for issue in audit_spec(data)))
+        data['sections']['detailed_description'] += (
+            ' Off-screen voice lock: no visible character speaks; no visible mouth moves.')
+        self.assertEqual(audit_spec(data), [])
+
+    def test_declared_props_need_a_prop_lock(self):
+        data = spec([
+            {'audio': '<Audio 1>', 'subject': '<Subject 1>', 'role': 'xu'},
+        ])
+        data['props'] = 'one wine cup; no table'
+        data['sections']['detailed_description'] = 'A quiet riverbank.'
+        self.assertTrue(any('Prop lock' in issue for issue in audit_spec(data)))
+        data['sections']['detailed_description'] = (
+            'Prop lock: only these props and set elements may appear: one wine cup; no table.')
+        self.assertEqual(audit_spec(data), [])
+
     def test_spoken_line_needs_a_voice(self):
         data = spec(
             [{'audio': '<Audio 1>', 'subject': '<Subject 1>', 'role': 'xu'}],

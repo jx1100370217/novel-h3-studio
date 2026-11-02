@@ -92,6 +92,27 @@
           "source_ref": {
             "type": "string",
             "description": "Reference to the research_brief data point or URL that supports this claim. Every factual claim should be traceable."
+          },
+          "location": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact set/location. Craft v4+ requires this on every section."
+          },
+          "time_of_day": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact story time (拂晓/白日/夜/黄昏 etc.). Craft v4+ requires this."
+          },
+          "props": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 },
+            "description": "Exact visible props. Use ['none'] for a deliberately empty set. Craft v4+ requires this."
+          },
+          "set_dressing": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Fixed set dressing and architecture; no unlisted table, chair, interior, window or food. Craft v4+ requires this."
           }
         },
         "additionalProperties": false

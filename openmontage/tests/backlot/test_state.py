@@ -200,6 +200,64 @@ class TestBoardState:
         p = _make_project(projects_root, "no-round")
         assert load_board_state(p)["current_round"] is None
 
+    def test_board_root_reads_active_round(self, projects_root):
+        p = _make_project(projects_root, "multi-round")
+        # Superseded round at the project root.
+        _write(p / "artifacts" / "scene_plan.json", SCENE_PLAN)
+        _write(p / "artifacts" / "script.json", SCRIPT)
+        _write(p / "checkpoint_assets.json", {
+            "stage": "assets", "status": "completed",
+            "metadata": {"partial_progress": {"phase": "render_done", "round": "v3"}},
+        })
+        old_take = p / "takes" / "sc1" / "native.mp4"
+        old_take.parent.mkdir(parents=True)
+        old_take.write_bytes(b"old")
+
+        # Active round in v4/.
+        round_dir = p / "v4"
+        _write(round_dir / "artifacts" / "scene_plan.json", {
+            "version": "1.0", "metadata": {"round": "v4"},
+            "scenes": [{"id": "s41", "type": "generated", "description": "v4 shot",
+                        "start_seconds": 0, "end_seconds": 5, "script_section_id": "s41"}],
+        })
+        _write(round_dir / "script.json", {
+            "version": "1.0", "title": "V4 Film",
+            "sections": [{"id": "s41", "text": "V4 line.", "start_seconds": 0, "end_seconds": 5}],
+        })
+        _write(round_dir / "checkpoint_assets.json", {
+            "stage": "assets", "status": "in_progress",
+            "metadata": {"round": "v4", "partial_progress": {
+                "phase": "render_done", "done": 1, "total": 1, "round": "v4"}},
+        })
+        take = round_dir / "takes" / "s41" / "native.mp4"
+        take.parent.mkdir(parents=True)
+        take.write_bytes(b"v4")
+        export = round_dir / "exports" / "V4_pilot.mp4"
+        export.parent.mkdir(parents=True)
+        export.write_bytes(b"v4")
+
+        _write(p / "project.json", {
+            "project_id": "multi-round", "title": "Multi", "pipeline_type": "cinematic",
+            "board_root": "v4",
+        })
+        s = load_board_state(p)
+        assert s["title"] == "Multi"
+        assert s["current_round"] == "v4"
+        assert [c["id"] for c in s["storyboard"]["scenes"]] == ["s41"]
+        assert s["storyboard"]["scenes"][0]["narration"] == "V4 line."
+        assert s["storyboard"]["scenes"][0]["visual"]["path"] == "v4/takes/s41/native.mp4"
+        assert s["render_progress"]["done"] == 1
+        assert s["render_progress"]["total"] == 1
+        assert [r["path"] for r in s["media"]["renders"]] == ["v4/exports/V4_pilot.mp4"]
+        assert s["artifacts"]["script"]["title"] == "V4 Film"
+
+    def test_board_root_escape_falls_back_to_project_root(self, projects_root):
+        p = _make_project(projects_root, "escaping")
+        _write(p / "artifacts" / "script.json", SCRIPT)
+        _write(p / "project.json", {"pipeline_type": "cinematic", "board_root": "../outside"})
+        s = load_board_state(p)
+        assert s["artifacts"]["script"]["title"] == "Test Film"
+
 
 class TestLibrary:
     def test_list_projects_sorts_live_first(self, projects_root):
