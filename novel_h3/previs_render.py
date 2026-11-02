@@ -98,6 +98,21 @@ def build_room(floor, wall, accent):
     sphere('oil lamp glow proxy', (1.7, 2.4, 1.22), (0.12, 0.12, 0.16), floor)
 
 
+def build_inn(floor, wall, accent):
+    """Small Wu Town inn: counter camera-right, curtained door camera-left, table center."""
+    cube('inn floor', (0, 0, -0.12), (10, 12, 0.24), floor)
+    cube('inn back wall', (0, 5.8, 2.6), (10, 0.2, 5.2), wall)
+    cube('inn left wall', (-4.9, 0, 2.6), (0.2, 12, 5.2), wall)
+    cube('inn right wall', (4.9, 0, 2.6), (0.2, 12, 5.2), wall)
+    cube('inn counter', (1.6, 1.8, 0.55), (2.4, 0.8, 1.1), accent)
+    cube('inn counter top', (1.6, 1.8, 1.15), (2.6, 0.9, 0.12), floor)
+    cube('inn door frame', (-2.8, 4.6, 2.0), (1.6, 0.12, 3.2), accent)
+    cube('inn door curtain', (-2.8, 4.5, 1.8), (1.4, 0.08, 2.6), wall)
+    cube('inn bench', (-1.4, 1.0, 0.25), (2.0, 0.5, 0.5), accent)
+    cube('inn table', (0.0, -0.2, 0.45), (2.4, 1.0, 0.9), accent)
+    cube('inn table top', (0.0, -0.2, 0.95), (2.6, 1.1, 0.1), floor)
+
+
 def build_hall(floor, wall, accent):
     cube('hall floor', (0, 0, -0.12), (22, 28, 0.24), floor)
     cube('rear wall', (0, 13.5, 4.5), (22, 0.3, 9), wall)
@@ -191,8 +206,20 @@ def build_river(floor, wall, accent):
     sphere('lantern', (0.0, 0.2, 1.20), (0.12, 0.12, 0.18), floor)
 
 
+def build_river_open(floor, wall, accent):
+    """Open dusk river bank: boat left, mooring stone right; no lantern post or overhead mat."""
+    cube('river bank', (2.6, 0, -0.10), (7.0, 14, 0.20), floor)
+    cube('river water', (-2.0, 0, -0.28), (9.0, 14, 0.12), accent)
+    cube('boat hull', (-1.9, 0, 0.25), (1.5, 4.2, 0.50), wall)
+    cube('boat deck', (-1.9, 0, 0.52), (1.2, 3.6, 0.08), floor)
+    cube('mooring stone', (1.25, 0.2, 0.35), (1.1, 0.9, 0.70), accent)
+    for y in (-4, -2, 0, 2, 4):
+        cyl('bank reed', (3.2, y, 1.0), 0.04, 2.0, wall, 6)
+
+
 SCENES = {
     'room': build_room,
+    'inn': build_inn,
     'hall': build_hall,
     'temple': build_temple,
     'courtyard': build_courtyard,
@@ -200,6 +227,7 @@ SCENES = {
     'road': build_road,
     'coffin_room': build_coffin_room,
     'river': build_river,
+    'river_open': build_river_open,
 }
 
 
@@ -350,6 +378,8 @@ def prop(prefix, item, material):
         cube(prefix + ' bed head', (x, y + 1.55, z + 1.0), (2.2, 0.12, 1.2), material)
     elif kind == 'body_cover':
         cube(prefix + ' covered body', (x, y, z + 0.16), (0.55, 1.75, 0.28), material, 0.05)
+    elif kind == 'baby_bundle':
+        cube(prefix + ' swaddled baby', (x, y, z + 0.18), (0.52, 0.34, 0.34), material, 0.12)
     elif kind == 'horse':
         horse(prefix, x, y, z, material)
 
