@@ -157,6 +157,14 @@ class TestBoardState:
         assert cards["sc2"]["generating"] is True
         assert cards["sc2"]["generating_tool"] == "img"
 
+    def test_nested_chapter_export_surfaces(self, projects_root):
+        p = _make_project(projects_root, "chapters")
+        chapter = p / "exports" / "chapters" / "S03_spring.mp4"
+        chapter.parent.mkdir(parents=True)
+        chapter.write_bytes(b"chapter")
+        s = load_board_state(p)
+        assert "exports/chapters/S03_spring.mp4" in [r["path"] for r in s["media"]["renders"]]
+
     def test_degraded_project_never_crashes(self, projects_root):
         p = projects_root / "bare"
         p.mkdir()

@@ -762,8 +762,11 @@ def _scan_media(
                                 "mtime": f.stat().st_mtime})
     exports_dir = scan_dir / 'exports'
     if exports_dir.is_dir():
-        for f in sorted(exports_dir.iterdir()):
-            if f.suffix.lower() in MEDIA_VIDEO_EXT and f.is_file():
+        # Chapter cuts live under exports/chapters/, so scan the export tree
+        # rather than only its top level; otherwise a finished chapter never
+        # appears in the board's Renders panel.
+        for f in sorted(exports_dir.rglob('*')):
+            if f.is_file() and f.suffix.lower() in MEDIA_VIDEO_EXT:
                 renders.append({'path': _rel(project_dir, f), 'size': f.stat().st_size,
                                 'mtime': f.stat().st_mtime, 'at_exports': True})
     # Atelier heuristic: deliverables at the project / round root.
