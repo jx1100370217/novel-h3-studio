@@ -101,6 +101,33 @@ narrator explaining the picture.
 The audit fails a treatment that omits `want`, `obstacle`, `turn`, `coverage`
 or `metadata.opening_hook`.
 
+## Seven-dimension gate (craft v5, binding)
+
+For V5 and later, the 12 craft rules are only the floor. A treatment that sets
+`metadata.craft_version` to `"5.0"` must also pass `novel_h3.craft_audit`:
+
+- `protagonist`: want / need / flaw / start / midpoint / end / moral question /
+  choice scenes; the costly midpoint choice belongs to the protagonist, not a
+  supporting character.
+- `antagonism`: at least two forces, including one human/rule/institution and
+  one internal force; an abstract "fate" is not enough.
+- `stakes_clock`: public and private stakes, a deadline, a consequence, planted
+  in at least two scenes and paid in the crisis.
+- `pacing`: midpoint at 40–65%, climax at 75–95%, pressure 5/5 at the crisis,
+  no consecutive scenes with the same `scene_job`, and per-job count caps.
+- `visual_motifs[].beats`: each motif changes meaning at least three times
+  (`setup → turn → payoff`), not three repetitions of one idea.
+- `object_arcs`: at least three objects with three visible states each; at
+  least one reaches the final scene.
+- `dialogue_policy`: theme lines capped at one, every dialogue scene has
+  `subtext`, and at least one scene trusts silence.
+- `ending`: final action, echo scene, echo object and meaning; at most two
+  aftermath scenes and at most 20% of runtime.
+
+Do not write a theme statement into dialogue; put it in a physical action.
+Do not give the protagonist a choice he does not pay for. Do not repeat a
+scene job to fill runtime.
+
 ## Runtime contract
 
 - The planned runtime is a **soft estimate, not a hard cap**. There is no upper

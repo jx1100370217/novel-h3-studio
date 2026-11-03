@@ -217,6 +217,71 @@ def build_river_open(floor, wall, accent):
         cyl('bank reed', (3.2, y, 1.0), 0.04, 2.0, wall, 6)
 
 
+def build_ferry(floor, wall, accent):
+    """Spring ferry landing: a small boat left, a mooring post right, high water."""
+    cube('ferry bank', (2.7, 0, -0.10), (6.8, 14, 0.20), floor)
+    cube('ferry water', (-2.2, 0, -0.24), (9.2, 14, 0.16), accent)
+    cube('ferry boat hull', (-1.9, 0, 0.25), (1.5, 3.8, 0.50), wall)
+    cube('ferry boat deck', (-1.9, 0, 0.52), (1.2, 3.2, 0.08), floor)
+    cyl('mooring post', (1.8, 0.4, 0.55), 0.08, 1.1, accent, 10)
+    cube('mooring stone', (1.3, -0.2, 0.30), (0.9, 0.8, 0.60), accent)
+    for y in (-5, -3, -1, 1, 3, 5):
+        cyl('ferry reed', (3.2, y, 1.1), 0.04, 2.2, wall, 6)
+    cyl('willow trunk', (3.9, 2.8, 2.0), 0.16, 4.0, wall, 8)
+    sphere('willow crown', (3.9, 2.8, 4.2), (1.2, 1.2, 1.4), wall, 10, 6)
+
+
+def build_xu_home(floor, wall, accent):
+    """Xu's earthen house: loom camera-left, table centre, door back-right."""
+    cube('home floor', (0, 0, -0.12), (10, 12, 0.24), floor)
+    cube('home back wall', (0, 5.8, 2.6), (10, 0.2, 5.2), wall)
+    cube('home left wall', (-4.9, 0, 2.6), (0.2, 12, 5.2), wall)
+    cube('home right wall', (4.9, 0, 2.6), (0.2, 12, 5.2), wall)
+    cube('home door frame', (2.6, 4.8, 2.0), (1.5, 0.12, 3.2), accent)
+    cube('home door light', (2.6, 4.7, 1.8), (1.3, 0.06, 2.8), floor)
+    cube('home loom frame', (-2.8, 1.6, 0.75), (2.0, 0.18, 1.5), accent)
+    cube('home loom beam', (-2.8, 1.6, 1.45), (2.2, 0.14, 0.14), accent)
+    cube('home loom seat', (-2.8, 0.9, 0.35), (1.4, 0.5, 0.5), accent)
+    cube('home table', (0.0, 0.2, 0.70), (2.2, 0.9, 0.10), accent)
+    for dx in (-0.9, 0.9):
+        for dy in (-0.3, 0.3):
+            cube('home table leg', (dx, 0.2 + dy, 0.34), (0.08, 0.08, 0.68), accent)
+    cube('home stool', (0.0, -1.2, 0.28), (0.8, 0.5, 0.56), accent)
+    cube('home shelf', (-3.6, 4.8, 2.6), (1.8, 0.3, 0.10), accent)
+
+
+def build_shrine(floor, wall, accent):
+    """Small earth-god shrine: altar at the back, veiled idol block, incense burner."""
+    cube('shrine floor', (0, 0, -0.12), (10, 14, 0.24), floor)
+    cube('shrine back wall', (0, 6.6, 3.0), (10, 0.3, 6.0), wall)
+    cube('shrine left wall', (-4.9, 0, 3.0), (0.2, 14, 6.0), wall)
+    cube('shrine right wall', (4.9, 0, 3.0), (0.2, 14, 6.0), wall)
+    cube('shrine altar', (0, 4.6, 0.62), (4.2, 1.2, 1.24), accent)
+    cube('shrine altar top', (0, 4.6, 1.28), (4.5, 1.4, 0.10), floor)
+    cube('shrine idol seat', (0, 5.6, 1.55), (1.6, 0.9, 0.55), accent)
+    cube('shrine idol body', (0, 5.7, 2.35), (0.9, 0.6, 1.1), accent)
+    sphere('shrine idol head', (0, 5.7, 3.0), (0.22, 0.22, 0.28), accent)
+    cube('shrine veil', (0, 5.35, 2.55), (1.6, 0.06, 2.0), wall)
+    cyl('shrine incense burner', (0, 3.6, 0.85), 0.30, 0.55, accent, 16)
+    for x in (-2.2, 2.2):
+        cyl('shrine candle', (x, 4.0, 1.55), 0.07, 0.45, accent, 10)
+    cube('shrine mat', (0, 2.2, 0.05), (2.4, 1.2, 0.10), wall)
+    cube('shrine door', (0, -5.4, 2.2), (2.2, 0.16, 4.4), accent)
+
+
+def build_river_road(floor, wall, accent):
+    """Road out of Wu Town: water and reeds on camera-left, road on the right."""
+    cube('road ground', (1.8, 0, -0.16), (12, 30, 0.32), floor)
+    cube('river water', (-6.0, 0, -0.30), (10, 30, 0.14), accent)
+    cube('road strip', (1.8, 0, 0.01), (5.0, 30, 0.04), accent)
+    for y in (-10, -4, 2, 8, 14):
+        cyl('road reed', (-1.2, y, 1.1), 0.04, 2.2, wall, 6)
+    cube('distant gate left', (-1.0, 16, 2.0), (0.4, 0.4, 4.0), accent)
+    cube('distant gate right', (4.0, 16, 2.0), (0.4, 0.4, 4.0), accent)
+    cube('distant gate lintel', (1.5, 16, 3.8), (5.4, 0.4, 0.4), accent)
+
+
+
 SCENES = {
     'room': build_room,
     'inn': build_inn,
@@ -228,6 +293,10 @@ SCENES = {
     'coffin_room': build_coffin_room,
     'river': build_river,
     'river_open': build_river_open,
+    'ferry': build_ferry,
+    'xu_home': build_xu_home,
+    'shrine': build_shrine,
+    'river_road': build_river_road,
 }
 
 

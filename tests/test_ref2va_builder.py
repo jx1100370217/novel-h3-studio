@@ -217,3 +217,22 @@ class Ref2VABuilderTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+    def test_post_dialogue_take_forces_silent_soundscape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            shot = LockedShot(
+                shot_id='S01C', title='Listen', frames=124, seed=1,
+                visual_core='[Shot 1] Xu lifts his head and listens to the fog; his lips stay closed.',
+                soundscape='River lap and fog silence.',
+                cast=(CastMember('xu', 'Xu', 'weathered fisherman', 'projects/p/xu.png', x=-1, y=1),),
+                scene=SceneRef('river', 'the river', 'night river and fog', 'projects/p/river.png'),
+                post_dialogue=True,
+                eyeline='Xu looks off-frame at the fog.',
+                props='one dark ceramic cup; no table, no interior.',
+            )
+            spec = build_spec(shot)
+            self.assertIn('no human voice, no speech, no lip movement',
+                          spec['sections']['overall_soundscape'])
+            self.assertIn('Silent reaction lock:', spec['sections']['detailed_description'])
+            self.assertIn('no character moves their lips', spec['sections']['detailed_description'])

@@ -49,18 +49,15 @@ cd openmontage/backlot && webpack --config ui/webpack.config.js
 
 ## Round-scoped projects
 
-A project that keeps several production rounds side by side can point the
-board at the active one from `project.json`:
-
-```json
-{"board_root": "v4"}
-```
-
-Checkpoints, `artifacts/`, `takes*/`, `exports/`, `events.jsonl` and
-`history/` are then read from `projects/<id>/v4/`, while media URLs stay
-project-relative (`v4/takes/...`). The previous round remains on disk; remove
-`board_root` to point back at the project root. The board never merges two
-rounds.
+A project that keeps several production rounds side by side is discovered
+automatically: the board reads the highest `vN` directory that carries a
+checkpoint, an `artifacts/` folder or a `script.json`. Checkpoints,
+`artifacts/`, `takes*/`, `exports/`, `events.jsonl` and `history/` are read
+from that round, while media URLs stay project-relative (`v5/takes/...`).
+Creating a new round is enough; no `project.json` edit is needed. An empty
+`v6/` scratch folder does not steal the board. The legacy `board_root` key is
+only a fallback for projects with no versioned round. The board never merges
+two rounds.
 
 ## Live revision takes
 

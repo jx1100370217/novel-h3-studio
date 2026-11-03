@@ -34,7 +34,10 @@ def main() -> int:
     authoring_path = Path(args.authoring)
     authoring = json.loads(authoring_path.read_text(encoding='utf-8'))
     script = load(authoring['script'])
-    order = [s for section in script['sections'] for s in section['shots']]
+    if authoring.get('shot_order'):
+        order = [str(item) for item in authoring['shot_order']]
+    else:
+        order = [s for section in script['sections'] for s in section['shots']]
     lines = load(authoring['lines'])['lines']
     manifest = load_manifest(ROOT / authoring['voice_manifest'])
     previs_specs = load(authoring['previs_specs'])['shots']
@@ -172,6 +175,9 @@ def main() -> int:
             camera_move=shot_data.get('camera_move', ''),
             props=shot_data.get('props', ''),
             strong_no_text=bool(shot_data.get('strong_no_text', False)),
+            continuity_required=bool(shot_data.get('continuity_required', False)),
+            allow_multi_speaker=bool(shot_data.get('allow_multi_speaker', False)),
+            post_dialogue=bool(shot_data.get('post_dialogue', False)),
         )
         spec = build_spec(locked, require_props=True)
         (out / f'{sid}.json').write_text(json.dumps(spec, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')

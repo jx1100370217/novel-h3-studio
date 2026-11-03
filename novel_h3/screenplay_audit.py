@@ -8,6 +8,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .craft_audit import audit_craft, craft_v5_required
+
 SPEAKER_RE = re.compile(
     r"(?:^|(?<=[\s。！？；]))([A-Za-z][A-Za-z0-9_]*|[\u4e00-\u9fff]{1,8})(?:（[^）]*）)?\s*[:：]\s*"
 )
@@ -261,21 +263,33 @@ def audit_treatment(
     elif meta.get("fidelity_status") == "revise":
         issues.append("metadata.fidelity_status is 'revise'")
 
+    metrics: dict[str, Any] = {
+        "section_count": len(sections),
+        "added_section_count": len(added_ids),
+        "runtime_seconds": round(total, 3),
+        "runtime_target_seconds": round(target, 3),
+        "runtime_delta_percent": round((total - target) / target * 100, 2) if target else None,
+        "spoken_lines": spoken_lines,
+        "added_dialogue_lines": len(added_dialogue),
+        "narrator_lines": narrator_lines,
+        "visual_motifs": len(motifs),
+        "added_beats": len(added_beats),
+        "scene_contract": strict_scene_contract,
+        "craft_v5": craft_v5_required(treatment),
+    }
+
+    # Craft v5: the seven-dimension gate. Older treatments keep validating;
+    # a treatment that opts in must prove protagonist ownership, escalating
+    # conflict, motif/object change and a compressed, echoing ending.
+    if craft_v5_required(treatment):
+        craft = audit_craft(treatment, script)
+        issues.extend(craft["issues"])
+        warnings.extend(craft["warnings"])
+        metrics["craft"] = craft["metrics"]
+
     return {
         "status": "pass" if not issues else "revise",
         "issues": issues,
         "warnings": warnings,
-        "metrics": {
-            "section_count": len(sections),
-            "added_section_count": len(added_ids),
-            "runtime_seconds": round(total, 3),
-            "runtime_target_seconds": round(target, 3),
-            "runtime_delta_percent": round((total - target) / target * 100, 2) if target else None,
-            "spoken_lines": spoken_lines,
-            "added_dialogue_lines": len(added_dialogue),
-            "narrator_lines": narrator_lines,
-            "visual_motifs": len(motifs),
-            "added_beats": len(added_beats),
-            "scene_contract": strict_scene_contract,
-        },
+        "metrics": metrics,
     }

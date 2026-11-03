@@ -115,6 +115,7 @@ class LockedShot:
     props: str = ''
     strong_no_text: bool = False
     allow_multi_speaker: bool = False
+    post_dialogue: bool = False
     continuity_required: bool = False
     width: int = 1344
     height: int = 768
@@ -402,6 +403,12 @@ def build_spec(shot: LockedShot, *, require_props: bool = False) -> dict:
                    'and feet; no legs, knees, feet, stool or green cloth may appear below or under the desk.')
     if shot.framing:
         detail += ' Framing lock: ' + shot.framing
+    if count >= 2:
+        detail += (' Head-room lock: every visible head, including the top of the hair, stays fully '
+                   'inside the frame; never crop a forehead, eyes, chin or shoulders at the frame edge.')
+    if count >= 2 and 'wide' in str(shot.framing).lower():
+        detail += (' Full-body staging lock: both people are visible head-to-toe; do not crop feet or '
+                   'lower body; keep the camera far enough back to show the whole body.')
     detail += ' Reference bindings: ' + ' '.join(item['subject'] for item in visuals) + '.'
     # The spec JSON is what FastVideo actually receives. Insert the visible
     # population lock here (not only in the validation prompt) so the cast
@@ -449,9 +456,15 @@ def build_spec(shot: LockedShot, *, require_props: bool = False) -> dict:
             detail += (' Silent-character lock: ' + '; '.join(
                 f'{subject[item.asset_id]} ({item.name}) does not speak in this shot'
                 for item in silent) + '; lips stay closed, no voice, no dialogue, no lip movement.')
+    if shot.post_dialogue:
+        detail += (' Silent reaction lock: this is a post-dialogue reaction take; no character speaks, '
+                   'no character moves their lips, and no voice is generated in this take.')
     if not lines:
         detail += (' No dialogue, no voice, no speech, no lip movement; only the listed soundscape.')
-    detail += ' No subtitles, no captions, no on-screen text, no text overlays.'
+    detail += (' No subtitles, no captions, no on-screen text, no text overlays. Do not paint the spoken words or any Chinese character anywhere in the frame.')
+    soundscape = shot.soundscape
+    if shot.post_dialogue and 'no human voice' not in soundscape.lower():
+        soundscape = soundscape.rstrip('.') + '; no human voice, no speech, no lip movement.'
 
     spoken_lines = [
         {'speaker': line.speaker, 'text': line.text,
@@ -476,7 +489,7 @@ def build_spec(shot: LockedShot, *, require_props: bool = False) -> dict:
             'The target video is a photorealistic Chinese period drama shot on 35mm film, with period-drama '
             f'lighting and a restrained camera.\n[Shot 1] {detail}'
         ),
-        'overall_soundscape': shot.soundscape,
+        'overall_soundscape': soundscape,
         'non_diegetic_music': 'N/A',
     }
     # Official validation includes the population contract and speaker/audio

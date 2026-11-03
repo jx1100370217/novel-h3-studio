@@ -83,6 +83,41 @@
           },
           "camera_notes": {
             "type": "string"
+          },
+          "object": {
+            "type": "boolean",
+            "description": "True when the motif is a physical object with visible state changes."
+          },
+          "beats": {
+            "type": "array",
+            "minItems": 3,
+            "items": {
+              "type": "object",
+              "required": [
+                "section_id",
+                "phase",
+                "meaning"
+              ],
+              "properties": {
+                "section_id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "phase": {
+                  "type": "string",
+                  "enum": [
+                    "setup",
+                    "turn",
+                    "payoff"
+                  ]
+                },
+                "meaning": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
           }
         },
         "additionalProperties": false
@@ -238,7 +273,14 @@
           "end_seconds",
           "source_paragraph_ids",
           "cinematic_function",
-          "added"
+          "added",
+          "scene_job",
+          "stakes",
+          "protagonist_choice",
+          "opposition",
+          "pressure",
+          "subtext",
+          "reaction_shot"
         ],
         "properties": {
           "id": {
@@ -312,13 +354,143 @@
           "props": {
             "type": "array",
             "minItems": 1,
-            "items": { "type": "string", "minLength": 1 },
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
             "description": "Exact visible props. Use ['none'] for a deliberately empty set. Craft v4+ requires this."
           },
           "set_dressing": {
             "type": "string",
             "minLength": 1,
             "description": "Fixed set dressing and architecture; no unlisted table, chair, interior, window or food. Craft v4+ requires this."
+          },
+          "scene_job": {
+            "type": "string",
+            "enum": [
+              "hook",
+              "meet",
+              "intimacy",
+              "foreshadow",
+              "discovery",
+              "revelation",
+              "crisis",
+              "loss",
+              "opposition",
+              "journey",
+              "audience",
+              "climax",
+              "test",
+              "aftermath",
+              "transition"
+            ]
+          },
+          "stakes": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What the protagonist stands to lose or gain in this scene."
+          },
+          "protagonist_choice": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The concrete choice the protagonist makes; use 'none' only when the scene truly acts on him."
+          },
+          "choice_cost": {
+            "type": "string",
+            "description": "The visible cost of the choice."
+          },
+          "opposition": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The active force blocking the protagonist in this scene."
+          },
+          "pressure": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "subtext": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What is meant under what is said."
+          },
+          "reaction_shot": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The decisive listener/reaction image."
+          },
+          "escalation": {
+            "type": "string",
+            "description": "How this scene raises pressure beyond the previous one."
+          },
+          "ending_echo": {
+            "type": "string",
+            "description": "For the final scene: the earlier action or object it answers."
+          },
+          "dialogue_mode": {
+            "type": "string",
+            "enum": [
+              "subtext",
+              "negotiation",
+              "revelation",
+              "ritual",
+              "silence",
+              "confession",
+              "warning"
+            ]
+          },
+          "motif_beats": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "motif_id",
+                "phase",
+                "meaning"
+              ],
+              "properties": {
+                "motif_id": {
+                  "type": "string"
+                },
+                "phase": {
+                  "type": "string",
+                  "enum": [
+                    "setup",
+                    "turn",
+                    "payoff"
+                  ]
+                },
+                "meaning": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "object_beats": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "object",
+                "before",
+                "after"
+              ],
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "before": {
+                  "type": "string"
+                },
+                "after": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
           }
         },
         "additionalProperties": false
@@ -766,6 +938,293 @@
         },
         "additionalProperties": false
       }
+    },
+    "protagonist": {
+      "type": "object",
+      "required": [
+        "name",
+        "want",
+        "need",
+        "flaw",
+        "start_state",
+        "midpoint_state",
+        "end_state",
+        "moral_question",
+        "choice_scenes"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "want": {
+          "type": "string",
+          "minLength": 1
+        },
+        "need": {
+          "type": "string",
+          "minLength": 1
+        },
+        "flaw": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "midpoint_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "end_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "moral_question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "choice_scenes": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "antagonism": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": [
+          "force",
+          "kind",
+          "scenes",
+          "pressure"
+        ],
+        "properties": {
+          "force": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "human",
+              "rule",
+              "internal",
+              "environment",
+              "institution"
+            ]
+          },
+          "scenes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "pressure": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "stakes_clock": {
+      "type": "object",
+      "required": [
+        "public",
+        "private",
+        "deadline",
+        "consequence",
+        "planted_in",
+        "paid_in"
+      ],
+      "properties": {
+        "public": {
+          "type": "string",
+          "minLength": 1
+        },
+        "private": {
+          "type": "string",
+          "minLength": 1
+        },
+        "deadline": {
+          "type": "string",
+          "minLength": 1
+        },
+        "consequence": {
+          "type": "string",
+          "minLength": 1
+        },
+        "planted_in": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "string"
+          }
+        },
+        "paid_in": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "pacing": {
+      "type": "object",
+      "required": [
+        "midpoint_scene",
+        "climax_scene",
+        "aftermath_scenes"
+      ],
+      "properties": {
+        "midpoint_scene": {
+          "type": "string",
+          "minLength": 1
+        },
+        "climax_scene": {
+          "type": "string",
+          "minLength": 1
+        },
+        "aftermath_scenes": {
+          "type": "array",
+          "maxItems": 2,
+          "items": {
+            "type": "string"
+          }
+        },
+        "act_breaks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "escalation_curve": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ending": {
+      "type": "object",
+      "required": [
+        "final_action",
+        "echo_scene",
+        "echo_object",
+        "meaning"
+      ],
+      "properties": {
+        "final_action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "echo_scene": {
+          "type": "string",
+          "minLength": 1
+        },
+        "echo_object": {
+          "type": "string",
+          "minLength": 1
+        },
+        "meaning": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "object_arcs": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "type": "object",
+        "required": [
+          "object",
+          "states",
+          "final_state"
+        ],
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1
+          },
+          "states": {
+            "type": "array",
+            "minItems": 3,
+            "items": {
+              "type": "object",
+              "required": [
+                "section_id",
+                "state"
+              ],
+              "properties": {
+                "section_id": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "final_state": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "dialogue_policy": {
+      "type": "object",
+      "required": [
+        "theme_lines",
+        "subtext_scenes"
+      ],
+      "properties": {
+        "theme_lines": {
+          "type": "array",
+          "maxItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        "subtext_scenes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "silence_scenes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "max_theme_lines": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

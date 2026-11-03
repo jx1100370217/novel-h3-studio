@@ -18,6 +18,11 @@ OpenMontage pipeline: manifests + stage director skills + checkpoints + tools.
 
 ## Defaults
 
+- **Workbench auto-follows the latest version (binding):** the board reads the highest
+  `vN` directory that carries a checkpoint, `artifacts/` or `script.json`. Starting a
+  new version means creating that version directory and its first checkpoint; never
+  hand-edit `project.json` `board_root` to switch the board. An empty `vN/` scratch
+  folder must not steal the board.
 - Video engine: **FastH3-Omni NVFP4 QAD** (FastVideo service on
   `127.0.0.1:8195`, 8 steps). This is the **default and required delivery engine**.
   VDN-H3 Turbo is comparison/fallback only; do not switch the default without an
@@ -237,6 +242,12 @@ not in the core code.
   monologue; motifs change at least three times; the ending is an action.
   `docs/SCREENPLAY_CRAFT.md` is the standard and `screenplay_audit` enforces
   the fields.
+- **Seven-dimension craft gate (binding):** every new `novel-cinematic` treatment must
+  pass `novel_h3.craft_audit` at `craft_version >= 5.0`: protagonist-owned costly
+  midpoint choice, active antagonism, a stakes clock, scene-job escalation, motifs
+  that change meaning three times, at least three object arcs, dialogue subtext, and
+  an ending that echoes an earlier object/scene. `docs/SCREENPLAY_CRAFT.md` is the
+  rubric; `screenplay_audit` fails a treatment that only repeats the old 12 rules.
 - **Scene plan splits into shots (binding):** `scene_plan` must split every
   screenplay scene into 3–12 H3 shots (typically 3–7). Each shot gets exact
   frames on the `17n+5` grid, camera, lens, movement, lighting, blocking,

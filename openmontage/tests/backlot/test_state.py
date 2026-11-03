@@ -266,6 +266,38 @@ class TestBoardState:
         s = load_board_state(p)
         assert s["artifacts"]["script"]["title"] == "Test Film"
 
+    def test_auto_latest_round_wins_over_stale_board_root(self, projects_root):
+        """A new v5 must take the board without editing project.json."""
+        p = _make_project(projects_root, "auto-latest")
+        _write(p / "project.json", {
+            "project_id": "auto-latest", "title": "Auto", "pipeline_type": "cinematic",
+            "board_root": "v4",
+        })
+        for version, label in (("v4", "V4 Film"), ("v5", "V5 Film")):
+            round_dir = p / version
+            _write(round_dir / "artifacts" / "script.json", {
+                "version": "1.0", "title": label,
+                "sections": [{"id": f"{version}-s1", "text": label,
+                              "start_seconds": 0, "end_seconds": 5}],
+            })
+            _write(round_dir / "artifacts" / "scene_plan.json", {
+                "version": "1.0", "metadata": {"round": version},
+                "scenes": [{"id": f"{version}-s1", "type": "generated",
+                            "description": label, "start_seconds": 0,
+                            "end_seconds": 5, "script_section_id": f"{version}-s1"}],
+            })
+        s = load_board_state(p)
+        assert s["current_round"] == "v5"
+        assert s["artifacts"]["script"]["title"] == "V5 Film"
+        assert [c["id"] for c in s["storyboard"]["scenes"]] == ["v5-s1"]
+
+    def test_empty_new_round_does_not_steal_board(self, projects_root):
+        p = _make_project(projects_root, "empty-new-round")
+        _write(p / "artifacts" / "script.json", SCRIPT)
+        (p / "v5").mkdir()
+        s = load_board_state(p)
+        assert s["artifacts"]["script"]["title"] == "Test Film"
+
 
 class TestLibrary:
     def test_list_projects_sorts_live_first(self, projects_root):

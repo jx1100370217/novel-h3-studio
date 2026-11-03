@@ -73,12 +73,16 @@ stages:
       - Every new line is declared in added_dialogue with a source fact and a dramatic purpose
       - Scenes are 8–14 dramatic units with a want, obstacle and turn, not one-line beats
       - Every scene declares exact location, time_of_day, props and set_dressing (craft v4+); no unlisted table, chair, interior, window or food
+      - "Craft v5: the protagonist owns the costly midpoint choice; the antagonist is active, not atmospheric; the stakes clock has a deadline and a consequence"
+      - "Craft v5: scene_job has no consecutive repeats and respects per-job caps; midpoint 40–65%, climax 75–95%, aftermath ≤2 scenes and ≤20% runtime"
+      - "Craft v5: each motif changes meaning three times; at least three object arcs have three visible states; theme lines are capped at one and every dialogue scene declares subtext"
       - Added visual beats are not new plot; connective dialogue is allowed when declared
       - No new characters, locations, plot events or changed ending
     success_criteria:
       - Schema-valid screenplay_treatment artifact
       - Enhanced script is scene-based and dialogue-first; source facts are preserved
       - scripts/audit_screenplay.py reports pass with zero undeclared lines
+      - "Craft v5: metadata.seven_dimensions scores at least 4/5 in every dimension with concrete evidence"
       - Runtime follows the story; no hard cap
 
   - name: scene_plan

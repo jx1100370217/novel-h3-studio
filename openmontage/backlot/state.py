@@ -52,14 +52,52 @@ def _read_json(path: Path) -> Optional[dict]:
         return None
 
 
+def _latest_version_root(project_dir: Path) -> Optional[Path]:
+    """Highest ``vN`` round directory that actually carries production state.
+
+    The workbench must follow a new version without a human editing
+    ``project.json``. A directory counts as a round when it has a checkpoint,
+    an artifacts folder or a script. This intentionally ignores empty scratch
+    folders, so merely creating ``v6/`` does not blank the board.
+    """
+    best: Optional[tuple[tuple[int, ...], Path]] = None
+    try:
+        children = list(Path(project_dir).iterdir())
+    except OSError:
+        return None
+    for child in children:
+        if not child.is_dir():
+            continue
+        match = re.fullmatch(r"v(\d+(?:\.\d+)*)", child.name)
+        if not match:
+            continue
+        has_state = (
+            any(child.glob("checkpoint_*.json"))
+            or (child / "artifacts").is_dir()
+            or (child / "script.json").is_file()
+            or (child / "checkpoint.json").is_file()
+        )
+        if not has_state:
+            continue
+        key = tuple(int(part) for part in match.group(1).split("."))
+        if best is None or key > best[0]:
+            best = (key, child)
+    return best[1] if best else None
+
+
 def _board_state_root(project_dir: Path, marker: dict) -> Path:
     """Where this board reads checkpoints/artifacts/takes from.
 
-    A project that keeps several production rounds side by side can point
-    ``project.json`` at the active one (``"board_root": "v4"``). Media paths
-    stay project-relative, so the board still serves them from the project
-    root. A missing, absolute or escaping path falls back to the project root.
+    Auto-discovery wins: the highest ``vN`` round with production state is the
+    active board. ``project.json``'s legacy ``board_root`` is only a fallback
+    for projects that keep a single non-versioned working directory. Media
+    paths stay project-relative, so the board still serves them from the
+    project root. A missing, absolute or escaping path falls back to the
+    project root.
     """
+    latest = _latest_version_root(project_dir)
+    if latest is not None:
+        return latest
     raw = marker.get("board_root")
     if not isinstance(raw, str) or not raw.strip():
         return project_dir
@@ -91,11 +129,16 @@ def _current_round(
 ) -> Optional[str]:
     """Latest active production round, derived from data — never hardcoded.
 
-    Priority: the assets checkpoint's progress/metadata, then downstream
-    artifact metadata, then the highest ``board_media/vN`` or ``exports/*vN*``
-    path on disk. Returns ``None`` when the project has no version marker, so
-    the board can render a version-neutral label.
+    Priority: the auto-selected round directory name, then the assets
+    checkpoint's progress/metadata, then downstream artifact metadata, then
+    the highest ``board_media/vN`` or ``exports/*vN*`` path on disk. Returns
+    ``None`` when the project has no version marker, so the board can render a
+    version-neutral label.
     """
+    if state_dir is not None:
+        directory_round = _round_from_value(Path(state_dir).name)
+        if directory_round:
+            return directory_round
     ordered: list[Any] = []
     assets = checkpoints.get("assets") or {}
     assets_meta = assets.get("metadata") or {}
