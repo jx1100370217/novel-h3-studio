@@ -61,7 +61,8 @@ def smooth_video(video: Path, cuts: list[float], output: Path, *,
         '-i', str(video),
         '-map', '0:v:0', '-map', '1:a?',
         '-c:v', 'libx264', '-preset', 'veryfast', '-crf', str(crf),
-        '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-shortest', '-movflags', '+faststart',
+        '-pix_fmt', 'yuv420p', '-video_track_timescale', '24000',
+        '-c:a', 'copy', '-shortest', '-movflags', '+faststart',
         str(output),
     ]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
