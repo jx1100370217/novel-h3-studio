@@ -9,12 +9,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
+import shutil
+import subprocess
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Request
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -31,12 +35,47 @@ SSE_HEARTBEAT_SECONDS = 15
 
 
 def _ui_html(name: str, assets: tuple[str, ...]) -> HTMLResponse:
+    # Version the asset in the path, not in a query string. Some local browser
+    # proxies cache/reject versioned query URLs with a 502 even though the file
+    # is served correctly; a new path bypasses that stale cache entry.
     html = (UI_DIR / name).read_text(encoding="utf-8")
+    if name == "board.html":
+        # The board bundle is inlined as one classic script: local browser
+        # proxies on some remote-desktop setups reject large module-script
+        # responses with a 502 even though the file itself is served fine.
+        bundle = UI_DIR / "board.bundle.js"
+        if not bundle.is_file():
+            raise FileNotFoundError(bundle)
+        inline = bundle.read_text(encoding="utf-8")
+        html = re.sub(
+            r'<script type="module" src="/ui/board\.js[^"]*"></script>',
+            lambda _match: '<script>\n' + inline + '\n</script>',
+            html,
+        )
+        assets = tuple(asset for asset in assets if asset != "board.js")
     for asset in assets:
         path = UI_DIR / asset
-        if path.is_file():
-            version = str(int(path.stat().st_mtime))
-            html = html.replace(f"/ui/{asset}", f"/ui/{asset}?v={version}")
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        version = int(path.stat().st_mtime)
+        if path.suffix == ".js":
+            versioned = path.with_name(f"{path.stem}.v{version}.min.js")
+            if not versioned.is_file():
+                terser = shutil.which("terser")
+                built = False
+                if terser:
+                    built = subprocess.run(
+                        [terser, str(path), "--compress", "--mangle", "--module",
+                         "-o", str(versioned)],
+                        capture_output=True, text=True,
+                    ).returncode == 0
+                if not built:
+                    versioned.write_bytes(path.read_bytes())
+        else:
+            versioned = path.with_name(f"{path.stem}.v{version}{path.suffix}")
+            if not versioned.is_file():
+                versioned.write_bytes(path.read_bytes())
+        html = html.replace(f"/ui/{asset}", f"/ui/{versioned.name}")
     return HTMLResponse(html)
 
 
@@ -164,6 +203,7 @@ async def _lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Backlot", docs_url=None, redoc_url=None, lifespan=_lifespan)
+    app.add_middleware(GZipMiddleware, minimum_size=512)
 
     # ---- API ----------------------------------------------------------
 

@@ -29,6 +29,24 @@ notifications over SSE; the browser refetches board state. State sources:
 Projects without checkpoints degrade gracefully to a "what the watcher
 found" view — media, snapshots, renders.
 
+## Remote / LAN access
+
+By default the server binds loopback only. For a remote desktop or a
+browser in another network namespace, bind all interfaces and use the
+host LAN/Tailscale address:
+
+```bash
+.venv-openmontage/bin/python studio.py serve --port 4751 --host 0.0.0.0
+```
+
+The project board is bundled into one inlined classic script so local
+browser proxies that reject large module-script responses still render it.
+After editing `ui/board.js`, `ui/lib.js` or `ui/i18n.js`, rebuild the bundle:
+
+```bash
+cd openmontage/backlot && webpack --config ui/webpack.config.js
+```
+
 ## Round-scoped projects
 
 A project that keeps several production rounds side by side can point the

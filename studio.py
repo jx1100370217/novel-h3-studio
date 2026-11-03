@@ -40,6 +40,7 @@ def main(argv: list[str] | None = None) -> int:
 
     serve = sub.add_parser('serve', help='run the Backlot server in the foreground')
     serve.add_argument('--port', type=int, default=4750)
+    serve.add_argument('--host', default='127.0.0.1')
 
     init = sub.add_parser('init', help='initialize an OpenMontage project workspace')
     init.add_argument('project_id')
@@ -56,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'board':
         return _backlot()(['open'] + ([args.project_id] if args.project_id else []))
     if args.command == 'serve':
-        return _backlot()(['serve', '--port', str(args.port)])
+        return _backlot()(['serve', '--port', str(args.port), '--host', str(args.host)])
     if args.command == 'init':
         from lib.checkpoint import init_project
         init_project(args.project_id, title=args.title, pipeline_type=args.pipeline)
