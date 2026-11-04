@@ -20,6 +20,8 @@ ARTIFACT_NAMES = [
     "rig_plan",
     "pose_library",
     "scene_plan",
+    "continuity_bible",
+    "coverage_audition",
     "action_timeline",
     "asset_manifest",
     "edit_decisions",

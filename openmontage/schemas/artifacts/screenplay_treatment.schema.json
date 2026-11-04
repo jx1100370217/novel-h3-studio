@@ -491,6 +491,40 @@
               },
               "additionalProperties": false
             }
+          },
+          "scene_sequel": {
+            "type": "object",
+            "required": [
+              "scene_type"
+            ],
+            "properties": {
+              "scene_type": {
+                "type": "string",
+                "enum": [
+                  "scene",
+                  "sequel"
+                ]
+              },
+              "goal": {
+                "type": "string"
+              },
+              "conflict": {
+                "type": "string"
+              },
+              "disaster": {
+                "type": "string"
+              },
+              "reaction": {
+                "type": "string"
+              },
+              "dilemma": {
+                "type": "string"
+              },
+              "decision": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -1225,6 +1259,62 @@
         }
       },
       "additionalProperties": false
+    },
+    "sequence_map": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "required": [
+          "sequence_id",
+          "purpose",
+          "section_ids",
+          "goal",
+          "obstacle",
+          "turn",
+          "opening_state",
+          "end_state"
+        ],
+        "properties": {
+          "sequence_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1
+          },
+          "section_ids": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "goal": {
+            "type": "string",
+            "minLength": 1
+          },
+          "obstacle": {
+            "type": "string",
+            "minLength": 1
+          },
+          "turn": {
+            "type": "string",
+            "minLength": 1
+          },
+          "opening_state": {
+            "type": "string",
+            "minLength": 1
+          },
+          "end_state": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "additionalProperties": false

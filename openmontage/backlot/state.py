@@ -451,6 +451,8 @@ ARTIFACT_FILES = {
     "script": "script.json",
     "screenplay_treatment": "screenplay_treatment.json",
     "scene_plan": "scene_plan.json",
+    "continuity_bible": "continuity_bible.json",
+    "coverage_audition": "coverage_audition.json",
     "asset_manifest": "asset_manifest.json",
     "edit_decisions": "edit_decisions.json",
     "render_report": "render_report.json",

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "openmontage/artifacts/coverage_audition",
+  "title": "Coverage Audition",
+  "description": "Animatic gate report for V6+ production.",
+  "type": "object",
+  "required": ["version", "project_id", "animatic", "cuts", "verdict"],
+  "properties": {
+    "version": {"type": "string", "const": "1.0"},
+    "project_id": {"type": "string", "minLength": 1},
+    "animatic": {"type": "string", "minLength": 1},
+    "duration_seconds": {"type": "number", "minimum": 0},
+    "cuts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from_shot", "to_shot", "at_seconds"],
+        "properties": {
+          "from_shot": {"type": "string"},
+          "to_shot": {"type": "string"},
+          "at_seconds": {"type": "number", "minimum": 0},
+          "verdict": {"type": "string", "enum": ["pass", "review", "needs_fix", "waived"]},
+          "observation": {"type": "string"},
+          "action": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "issues": {"type": "array", "items": {"type": "string"}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "verdict": {"type": "string", "enum": ["pass", "revise", "waived"]},
+    "reviewer": {"type": "string"},
+    "notes": {"type": "string"}
+  },
+  "additionalProperties": false
+}

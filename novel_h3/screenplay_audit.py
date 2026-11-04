@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from .craft_audit import audit_craft, craft_v5_required
+from .sequence_audit import audit_sequence, sequence_required
 
 SPEAKER_RE = re.compile(
     r"(?:^|(?<=[\s。！？；]))([A-Za-z][A-Za-z0-9_]*|[\u4e00-\u9fff]{1,8})(?:（[^）]*）)?\s*[:：]\s*"
@@ -286,6 +287,13 @@ def audit_treatment(
         issues.extend(craft["issues"])
         warnings.extend(craft["warnings"])
         metrics["craft"] = craft["metrics"]
+
+    # Craft v6: sequence map and scene/sequel causal chain.
+    if sequence_required(treatment):
+        sequence = audit_sequence(treatment)
+        issues.extend(sequence["issues"])
+        warnings.extend(sequence["warnings"])
+        metrics["sequence"] = sequence["metrics"]
 
     return {
         "status": "pass" if not issues else "revise",

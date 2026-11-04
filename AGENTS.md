@@ -248,6 +248,23 @@ not in the core code.
   that change meaning three times, at least three object arcs, dialogue subtext, and
   an ending that echoes an earlier object/scene. `docs/SCREENPLAY_CRAFT.md` is the
   rubric; `screenplay_audit` fails a treatment that only repeats the old 12 rules.
+- **Sequence + scene/sequel gate (binding, V6+):** treatments at
+  `craft_version >= 6.0` carry eight sequences and a per-scene `scene_sequel`
+  block (scene: goal/conflict/disaster; sequel: reaction/dilemma/decision).
+  Every sequence's opening state must continue the previous sequence's end
+  state. `novel_h3.sequence_audit` is part of `screenplay_audit`.
+- **Continuity bible gate (binding, V6+):** before assets, every shot has a
+  `continuity_bible.json` entry with cast, costume/prop state, hand ownership,
+  eyeline, axis side, screen direction, light, time, open/close state and an
+  anchor image. `scripts/audit_continuity.py` must pass. A cut that changes
+  side, costume, prop state or light without an authored action is not legal.
+- **Coverage audition gate (binding, V6+):** before any GPU render, build a
+  480p animatic from previs/anchor frames and authored durations; review the
+  cut. Do not start `assets` with an unreviewed animatic or a `revise` verdict.
+- **Anchor-frame rendering (binding, V6+):** every shot must have a frozen
+  first-frame keyframe and use image-to-video; a text-only shot is a drift
+  risk. Prefer fewer, longer, better-staged shots (3–8 per scene) over 9–14
+  independent cuts.
 - **Scene plan splits into shots (binding):** `scene_plan` must split every
   screenplay scene into 3–12 H3 shots (typically 3–7). Each shot gets exact
   frames on the `17n+5` grid, camera, lens, movement, lighting, blocking,
