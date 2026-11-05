@@ -240,8 +240,17 @@ function renderDrawer(s) {
     shown = true;
     body.append(
       el("div", { class: "d-cat", style: "font-family:var(--mono);font-size:calc(9.5px * var(--fs-scale));color:var(--text-3);letter-spacing:.1em;text-transform:uppercase;margin:6px 0 4px" }, name),
-      el("pre", {}, JSON.stringify(artifact, null, 2)),
     );
+    const embedded = artifact.metadata && artifact.metadata.storyboard_html;
+    if (name === "scene_plan" && embedded) {
+      body.append(el("iframe", {
+        class: "storyboard-frame",
+        src: mediaURL(s.project_id, embedded),
+        loading: "lazy",
+        title: "Storyboard",
+      }));
+    }
+    body.append(el("pre", {}, JSON.stringify(artifact, null, 2)));
   }
   if (!shown) {
     body.append(el("div", { class: "hint" },
@@ -445,13 +454,25 @@ function artifactReviewContent(name, artifact) {
   if (name === "scene_plan") {
     const scenes = artifact.scenes || [];
     const end = scenes.reduce((max, scene) => Math.max(max, Number(scene.end_seconds) || 0), 0);
+    const storyboard = artifact.metadata && artifact.metadata.storyboard_html;
     return [
       reviewFacts([
         reviewFact("scenes", scenes.length),
         reviewFact("duration", end ? fmtDuration(end) : null),
       ]),
+      storyboard
+        ? el("iframe", {
+            class: "storyboard-frame",
+            src: mediaURL(projectId, storyboard),
+            loading: "lazy",
+            title: "Storyboard",
+          })
+        : null,
       titledItems(scenes),
-      el("p", { class: "approval-guidance" }, "Review timing and shot coverage in the storyboard below."),
+      el("p", { class: "approval-guidance" },
+        storyboard
+          ? "完整分镜已嵌入下方；也可以点 OPEN FULL ARTIFACT 看原始 scene_plan JSON。"
+          : "Review timing and shot coverage in the storyboard below."),
     ].filter(Boolean);
   }
   if (name === "asset_manifest") {
