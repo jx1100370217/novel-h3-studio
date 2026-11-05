@@ -162,10 +162,11 @@ def build_spec(shot: LockedShot, *, require_props: bool = False) -> dict:
         raise ValueError(
             f'{shot.shot_id}: every shot must declare props and set elements; '
             'use a non-empty props string, or "none" for a deliberately empty set')
-    if shot.continuity_required and not shot.videos and not shot.previs_path:
+    if shot.continuity_required and not shot.videos and not shot.previs_path and not shot.anchor_image:
         raise ValueError(
-            f'{shot.shot_id}: a same-scene continuation needs a <Video N> tail or a '
-            'previs blocking guide; a bare cast/scene reference lets positions jump')
+            f'{shot.shot_id}: a same-scene continuation needs a <Video N> tail, a '
+            'previs blocking guide or an anchor first frame; a bare cast/scene reference '
+            'lets positions jump')
     lines = sorted(shot.lines, key=lambda item: item.offset)
     by_role = {voice.role: voice for voice in shot.voices}
     speaking = list(dict.fromkeys(line.speaker for line in lines))
@@ -333,8 +334,12 @@ def build_spec(shot: LockedShot, *, require_props: bool = False) -> dict:
     if anchor_picture:
         detail = (
             f'The first frame of the target video is exactly {anchor_picture}: open on that composition, '
-            f'with the same pose, costume, prop placement, light and screen direction; never open on a '
-            f'lying, standing or off-screen state. '
+            f'with the same pose, costume, prop placement, light and screen direction. '
+            'First-frame lock: the action is already in progress at frame one. The authored characters '
+            'are already in frame; do not open on an empty river, empty room, empty bank or characterless '
+            'establishing view, and do not let the characters walk into frame after an empty beat. '
+            'No establishing shot and no cut to empty space. Never open on a lying, standing or off-screen '
+            'state. '
             + detail
         )
     if video_payload:
