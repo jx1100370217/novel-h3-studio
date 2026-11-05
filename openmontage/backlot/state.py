@@ -269,6 +269,36 @@ def _collect_history(project_dir: Path) -> dict[str, list[dict]]:
 RENDER_PHASES = ("render", "render_done")
 
 
+def _recent_render_durations(state_dir: Path, limit: int = 12) -> list[float]:
+    """Recent per-shot wall times from the event log (start -> finish).
+
+    File mtimes include overnight idle gaps between batches, so they are a bad
+    ETA source. The event pairs measure the actual GPU take plus restart.
+    """
+    from datetime import datetime
+
+    def ts(value: Any) -> Optional[float]:
+        try:
+            return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        except (TypeError, ValueError):
+            return None
+
+    starts: dict[str, float] = {}
+    durations: list[float] = []
+    for event in read_events(state_dir, limit=400):
+        shot = event.get("scene_id") or event.get("shot")
+        when = ts(event.get("ts"))
+        if not shot or when is None:
+            continue
+        if event.get("event") == "start":
+            starts[str(shot)] = when
+        elif event.get("event") == "finish" and str(shot) in starts:
+            elapsed = when - starts.pop(str(shot))
+            if 60.0 <= elapsed <= 3600.0:
+                durations.append(elapsed)
+    return durations[-limit:]
+
+
 def _render_progress(
     state_dir: Path,
     checkpoints: dict[str, dict],
@@ -329,16 +359,19 @@ def _render_progress(
     started_at = mtimes[0] if mtimes else None
     eta_seconds = None
     done = len(shots)
-    if started_at and done and total > done:
-        # Wall-clock average is poisoned by idle gaps between batches; the
-        # median gap between consecutive takes is the honest per-shot cost.
-        gaps = [b - a for a, b in zip(mtimes, mtimes[1:]) if b > a]
-        if gaps:
-            gaps.sort()
-            per_shot = gaps[len(gaps) // 2]
-        else:
+    if done and total > done:
+        # Prefer measured start->finish event pairs from the current run.
+        measured = _recent_render_durations(state_dir, limit=3)
+        if measured:
+            measured.sort()
+            per_shot = measured[len(measured) // 2]
+        elif started_at:
+            # Fallback: wall-clock average, knowingly inflated by idle gaps.
             per_shot = max(60.0, (now - started_at) / done)
-        eta_seconds = int(per_shot * (total - done))
+        else:
+            per_shot = 0.0
+        if per_shot:
+            eta_seconds = int(per_shot * (total - done))
     for sid in shots:
         # A take already on disk is a take, whatever the queue says.
         shots[sid].pop("mtime", None)

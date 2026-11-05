@@ -65,6 +65,8 @@ const DICT = {
   "PENDING APPROVAL": "等待批准",
   "REVIEW GATE": "审阅门禁",
   "APPROVED": "已批准",
+  "COMPLETED": "已完成",
+  "CONTINUITY BIBLE": "连续性圣经",
   "DRAFTING": "起草中",
   "SELECTED": "已选择",
   "Play narration": "播放旁白",
@@ -155,6 +157,8 @@ const DICT = {
   "screenplay": "剧本优化",
   "screenplay_treatment": "剧本优化方案",
   "scene_plan": "分镜计划",
+  "continuity": "连续性核验",
+  "coverage_audition": "镜头试片",
   "assets": "素材生成",
   "edit": "剪辑决策",
   "compose": "合成导出",
@@ -166,6 +170,8 @@ const DICT = {
 };
 
 const SUBSTRINGS = [
+  ["COVERAGE_AUDITION", "镜头试片"],
+  ["CONTINUITY", "连续性核验"],
   ["Assets Is Ready", "素材已准备好"],
   ["Assets is ready", "素材已准备好"],
   ["ASSET MANIFEST", "素材清单"],
