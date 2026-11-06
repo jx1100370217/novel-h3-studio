@@ -668,32 +668,16 @@ function renderDecisions(s) {
 }
 
 function renderActivity(s) {
-  const events = s.events || [];
+  const events = [...(s.events || [])].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   if (!events.length) return null;
   const body = el("div", { class: "panel-body" });
-  // A start is "running" only until a later finish/error for the same
-  // tool+scene closes it — closed starts are dropped (the finish row tells
-  // the story), unmatched starts render as live. Counted (not keyed-single)
-  // so parallel runs of the same tool on the same scene stay visible.
-  const open = new Map(); // key -> {count, ev}
-  const rows = [];
-  for (const ev of events) {
-    const key = `${ev.tool}:${ev.scene_id || ""}`;
-    if (ev.event === "start") {
-      const slot = open.get(key) || { count: 0, ev };
-      slot.count += 1;
-      slot.ev = ev;
-      open.set(key, slot);
-    } else {
-      const slot = open.get(key);
-      if (slot) {
-        slot.count -= 1;
-        if (slot.count <= 0) open.delete(key);
-      }
-      rows.push(ev);
-    }
-  }
-  for (const slot of open.values()) rows.push(slot.ev);
+  // A start is live only while it is its tool's newest event. Older starts
+  // with no finish/error come from crashed or retried runs and must not
+  // show as running forever.
+  const newest = new Map(); // tool -> newest event
+  for (const ev of events) newest.set(ev.tool, ev);
+  const rows = events.filter((ev) => ev.event !== "start");
+  for (const ev of newest.values()) if (ev.event === "start") rows.push(ev);
   rows.sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
   for (const ev of rows.slice(-10).reverse()) {
     let statusEl;

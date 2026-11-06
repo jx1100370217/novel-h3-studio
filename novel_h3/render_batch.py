@@ -222,6 +222,9 @@ def main(argv: list[str] | None = None) -> int:
                     # Host-memory OOM and provider hickups are transient; a
                     # fresh service plus one retry is cheaper than a re-plan.
                     print(f'RETRY {sid} ({attempt}/{args.retry}): {exc}', flush=True)
+                    update_checkpoint(checkpoint, rendered, total, sid, 'render', {'error': str(exc)},
+                                      live_assets=live_assets, live_assets_active=board_active,
+                                      keep_manifest=keep_manifest, event_name='error')
                     stop_service()
                     continue
                 failures.append({'shot': sid, 'error': str(exc), 'attempts': attempt})
