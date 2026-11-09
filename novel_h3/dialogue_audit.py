@@ -124,7 +124,7 @@ def align_words(lines: list[dict], words: list[dict], duration: float) -> list[l
 
 def align_timing(shots: dict, takes_dir: Path, ids: list[str], model) -> dict:
     """Word-align every authored line in ``ids`` and return shot cue lists."""
-    from .subtitles import shot_cues
+    from .subtitles import line_cues
 
     timing: dict[str, list[list[float]]] = {}
     for sid in ids:
@@ -135,7 +135,7 @@ def align_timing(shots: dict, takes_dir: Path, ids: list[str], model) -> dict:
             continue
         duration = int(shot['frames']) / 24
         aligned = align_words(lines, transcribe_words(video, model), duration)
-        nominal = shot_cues(shot)
+        nominal = line_cues(shot)
         cues = []
         for index, cue in enumerate(nominal):
             found = aligned[index] if index < len(aligned) else None

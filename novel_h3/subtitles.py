@@ -49,12 +49,13 @@ def split_text(text: str, limit: int = MAX_CHARS) -> list[str]:
     return chunks
 
 
-def shot_cues(shot: dict, timing: list | None = None, skip_lines: tuple[int, ...] = ()) -> list[dict]:
-    """Timed dialogue cues for one shot, in shot-local seconds.
+def line_cues(shot: dict, timing: list | None = None, skip_lines: tuple[int, ...] = ()) -> list[dict]:
+    """One cue window per authored dialogue line, before text splitting.
 
-    A long authored line is split into one-row cues; ``timing`` remains one
-    ``[start, end]`` window per authored line, so the split never loses the
-    ASR-aligned onset or the line's last word.
+    The ASR alignment must attach one window to one authored line. Splitting a
+    long line into several one-row cues is a rendering concern and must happen
+    after alignment; otherwise a pause inside the line becomes a fake line and
+    the subtitle ends at the first pause.
     """
     duration = float(shot.get('frames') or 0) / 24 or float(shot.get('duration_seconds') or 0)
     parsed = []
@@ -79,6 +80,20 @@ def shot_cues(shot: dict, timing: list | None = None, skip_lines: tuple[int, ...
             if position + 1 < count:
                 end = min(end, start + max(2.0, (duration - 3.5) / (count - 1)) - 0.15)
             end = min(end, duration - 0.15)
+        cues.append({'start': round(start, 3), 'end': round(end, 3), 'text': text})
+    return cues
+
+
+def shot_cues(shot: dict, timing: list | None = None, skip_lines: tuple[int, ...] = ()) -> list[dict]:
+    """Timed dialogue cues for one shot, split into one-row pieces.
+
+    ``timing`` remains one ``[start, end]`` window per authored line. Each
+    window is then split at punctuation for display, without moving the line's
+    true onset or its last word.
+    """
+    cues = []
+    for window in line_cues(shot, timing=timing, skip_lines=skip_lines):
+        text, start, end = window['text'], window['start'], window['end']
         chunks = split_text(text)
         total = sum(len(chunk) for chunk in chunks)
         cursor = start
