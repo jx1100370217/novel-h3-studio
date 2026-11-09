@@ -9,6 +9,7 @@ import re
 from typing import Any
 
 from .craft_audit import audit_craft, craft_v5_required
+from .dialogue_repetition import audit_lines, lines_from_sections
 from .sequence_audit import audit_sequence, sequence_required
 
 SPEAKER_RE = re.compile(
@@ -128,6 +129,10 @@ def audit_treatment(
             issues.extend(scene_contract_issues(section, str(sid)))
     if not str(meta.get("opening_hook") or "").strip():
         issues.append("metadata.opening_hook is missing; the first 15 seconds need a question")
+
+    repetition = audit_lines(lines_from_sections(sections))
+    issues.extend(repetition["issues"])
+    warnings.extend(repetition["warnings"])
 
     ids = _section_ids(treatment)
     if len(ids) != len(set(ids)):
@@ -276,6 +281,7 @@ def audit_treatment(
         "visual_motifs": len(motifs),
         "added_beats": len(added_beats),
         "scene_contract": strict_scene_contract,
+        "dialogue_repetition": repetition["metrics"],
         "craft_v5": craft_v5_required(treatment),
     }
 

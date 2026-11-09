@@ -54,6 +54,9 @@ def build_picture(spec: dict, order: list[str], shots: dict) -> Path:
     graphics = {k: resolve(v) for k, v in spec.get('graphics', {}).items()}
     takes = resolve(spec['takes_dir'])
     fps, width, height = int(spec.get('fps', 24)), int(spec.get('width', 1344)), int(spec.get('height', 768))
+    fade_in = {str(sid) for sid in (spec.get('fade_in_shots') or [])}
+    fade_out = {str(sid) for sid in (spec.get('fade_out_shots') or [])}
+    fade_seconds = float(spec.get('scene_fade_seconds', 0.45))
     entries = []
     expected_frames = 0
     for sid in order:
@@ -63,6 +66,11 @@ def build_picture(spec: dict, order: list[str], shots: dict) -> Path:
         frames = round(float(shots[sid]['duration_seconds']) * fps)
         out = clips / f'{sid}.mp4'
         filters = f'scale={width}:{height}:flags=lanczos,fps={fps},format=yuv420p'
+        if sid in fade_in:
+            filters += f',fade=t=in:st=0:d={fade_seconds:.3f}'
+        if sid in fade_out:
+            fade_start = max(0.0, frames / fps - fade_seconds)
+            filters += f',fade=t=out:st={fade_start:.3f}:d={fade_seconds:.3f}'
         subtitles = spec.get('subtitles')
         if subtitles is not None and sid not in (subtitles.get('skip_shots') or []) and sid not in graphics:
             from .subtitles import build_shot_ass

@@ -182,6 +182,52 @@ def last_frame(take: Path, out: Path) -> None:
     normalise(out)
 
 
+def clean_tail_frame(take: Path, out: Path, *, window: float = 4.0, fps: int = 4) -> dict:
+    """Write the latest tail frame without a native H3 caption.
+
+    H3 sometimes paints the spoken line into the last frame. Reusing that frame
+    as the next shot's first frame would carry the old caption across the cut.
+    Sample the tail and reject frames with a dense near-white cluster in the
+    subtitle band. This is a pixel test, not OCR: it is fast and catches the
+    painted caption even when Tesseract cannot read the period font.
+    """
+    from PIL import Image
+    import numpy as np
+
+    duration = _duration(take)
+
+    def has_caption(seconds: float) -> bool:
+        frame = out.with_suffix('.sample.png')
+        subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+                        '-ss', f'{seconds:.3f}', '-i', str(take), '-frames:v', '1',
+                        str(frame)], check=True)
+        image = np.asarray(Image.open(frame).convert('RGB'))
+        frame.unlink(missing_ok=True)
+        height, width = image.shape[:2]
+        band = image[int(height * 0.74):int(height * 0.99),
+                     int(width * 0.22):int(width * 0.78)]
+        gray = (0.299 * band[:, :, 0] + 0.587 * band[:, :, 1] + 0.114 * band[:, :, 2])
+        return float((gray > 225).mean()) >= 0.004
+
+    start = max(0.0, duration - window)
+    chosen = None
+    for index in range(max(1, int(window * fps))):
+        seconds = start + index / fps
+        if seconds >= duration - 0.03:
+            break
+        if not has_caption(seconds):
+            chosen = seconds
+    fallback = chosen is None
+    if chosen is None:
+        chosen = max(0.0, duration - 0.06)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y',
+                    '-ss', f'{chosen:.3f}', '-i', str(take), '-frames:v', '1', str(out)],
+                   check=True)
+    normalise(out)
+    return {'seconds': round(chosen, 3), 'fallback': fallback, 'duration': round(duration, 3)}
+
+
 def first_frame(take: Path, out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-ss', '0',
