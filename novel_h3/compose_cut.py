@@ -38,12 +38,24 @@ def ebur128(path: Path) -> tuple[float, float]:
     return float(ints[-1]), float(peaks[-1]) if peaks else float('nan')
 
 
+def video_frames(path: Path) -> int:
+    result = subprocess.run(
+        ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+         'stream=nb_frames', '-of', 'default=nw=1:nk=1', str(path)],
+        capture_output=True, text=True)
+    try:
+        return int(result.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        return -1
+
+
 def build_picture(spec: dict, order: list[str], shots: dict) -> Path:
     work = resolve(spec['work_dir']); clips = work / 'clips'; clips.mkdir(parents=True, exist_ok=True)
     graphics = {k: resolve(v) for k, v in spec.get('graphics', {}).items()}
     takes = resolve(spec['takes_dir'])
     fps, width, height = int(spec.get('fps', 24)), int(spec.get('width', 1344)), int(spec.get('height', 768))
     entries = []
+    expected_frames = 0
     for sid in order:
         source = graphics.get(sid, takes / sid / 'native.mp4')
         if not source.is_file():
@@ -70,12 +82,21 @@ def build_picture(spec: dict, order: list[str], shots: dict) -> Path:
              '-crf', '16', '-x264-params', 'keyint=48:min-keyint=48:scenecut=0',
              '-video_track_timescale', '24000', str(out)])
         print('PIC', sid, frames, flush=True)
+        expected_frames += frames
         entries.append(out)
     listing = work / f'concat_{spec.get("tag", "cut")}.txt'
     listing.write_text(''.join(f"file '{p.resolve()}'\n" for p in entries), encoding='utf-8')
     silent = work / f'film_silent_{spec.get("tag", "cut")}.mp4'
     run(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', str(listing),
          '-c', 'copy', '-fflags', '+genpts', '-movflags', '+faststart', str(silent)])
+    actual = video_frames(silent)
+    if actual != expected_frames:
+        print(f'CONCAT REENCODE {actual} != {expected_frames} frames', flush=True)
+        run(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', str(listing),
+             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16',
+             '-x264-params', 'keyint=48:min-keyint=48:scenecut=0',
+             '-video_track_timescale', '24000', '-fflags', '+genpts',
+             '-movflags', '+faststart', str(silent)])
     return silent
 
 
@@ -103,7 +124,9 @@ def build_audio(spec: dict, order: list[str], shots: dict, lines: list[dict], bo
         leveled = audio / f'{sid}_native.wav'
         run(['ffmpeg', '-y', '-loglevel', 'error', '-i', str(raw),
              '-af', f'volume={gain:.2f}dB,alimiter=limit=0.95:level=0', '-ar', '48000', '-ac', '2', str(leveled)])
-        tracks.append({'path': str(leveled), 'role': 'sfx', 'volume': 1.0,
+        # Native dialogue and SFX form the speech bus so the music bed ducks
+        # under every spoken take, not only under narration.
+        tracks.append({'path': str(leveled), 'role': 'speech', 'volume': 1.0,
                        'start_seconds': round(bounds[sid], 4)})
         print('AUD', sid, f'gain={gain:+.1f}dB', flush=True)
     for line in lines:
@@ -125,9 +148,36 @@ def build_audio(spec: dict, order: list[str], shots: dict, lines: list[dict], bo
         role = 'speech' if line['role'] == 'narrator' else 'sfx'
         tracks.append({'path': str(wav), 'role': role, 'volume': 1.0,
                        'start_seconds': round(bounds[line['shot']] + float(line['offset']), 4)})
-    music = resolve(spec['music'])
-    tracks.append({'path': str(music), 'role': 'music',
-                   'volume': float(spec.get('music_volume', 1.0)), 'start_seconds': 0.0})
+    def add_music(path: Path, start_seconds: float, volume: float,
+                  fade_in: float = 0.0, fade_out: float = 0.0) -> None:
+        tracks.append({'path': str(path), 'role': 'music', 'volume': volume,
+                       'start_seconds': round(float(start_seconds), 4),
+                       'fade_in_seconds': float(fade_in), 'fade_out_seconds': float(fade_out)})
+
+    cues = spec.get('music_cues') or []
+    if cues:
+        for index, cue in enumerate(cues):
+            source = resolve(cue['path'])
+            duration = float(cue['duration_seconds'])
+            source_start = float(cue.get('source_start_seconds', 0.0))
+            trimmed = audio / f'music_{index:02d}.wav'
+            run(['ffmpeg', '-y', '-loglevel', 'error', '-ss', f'{source_start:.3f}',
+                 '-t', f'{duration:.3f}', '-i', str(source), '-ar', '48000', '-ac', '2', str(trimmed)])
+            level, _ = ebur128(trimmed)
+            gain = -30.0 - level
+            normalized = audio / f'music_{index:02d}_norm.wav'
+            run(['ffmpeg', '-y', '-loglevel', 'error', '-i', str(trimmed),
+                 '-af', f'volume={gain:.2f}dB,alimiter=limit=0.95:level=0',
+                 '-ar', '48000', '-ac', '2', str(normalized)])
+            add_music(normalized, float(cue.get('start_seconds', 0.0)),
+                      float(cue.get('volume', spec.get('music_volume', 1.0))),
+                      float(cue.get('fade_in_seconds', 0.0)),
+                      float(cue.get('fade_out_seconds', 0.0)))
+            print('MUSIC', index, f'{source_start:.1f}s', f'{duration:.1f}s',
+                  f'{level:.1f}->{gain:+.1f}dB', flush=True)
+    else:
+        music = resolve(spec['music'])
+        add_music(music, 0.0, float(spec.get('music_volume', 1.0)))
     tag = spec.get('tag', 'cut')
     ducking = spec.get('ducking') or {
         'enabled': True, 'music_volume_during_speech': 0.30,
@@ -149,14 +199,14 @@ def build_audio(spec: dict, order: list[str], shots: dict, lines: list[dict], bo
     final = audio / f'{tag}_mix.wav'
     gain = -16.0 - level
     run(['ffmpeg', '-y', '-loglevel', 'error', '-i', str(flat),
-         '-af', f'volume={gain:.2f}dB,alimiter=limit=0.76:level=0,apad=whole_dur={target},atrim=0:{target}',
+         '-af', f'volume={gain:.2f}dB,alimiter=limit=0.72:level=0,apad=whole_dur={target},atrim=0:{target}',
          '-ar', '48000', '-ac', '2', str(final)])
     final_level, peak = ebur128(final)
     if abs(final_level + 16.0) > 0.3:
         correction = -16.0 - final_level
         tmp = audio / f'{tag}_mix_master_tmp.wav'
         run(['ffmpeg', '-y', '-loglevel', 'error', '-i', str(final),
-             '-af', f'volume={correction:.2f}dB,alimiter=limit=0.76:level=0,apad=whole_dur={target},atrim=0:{target}',
+             '-af', f'volume={correction:.2f}dB,alimiter=limit=0.72:level=0,apad=whole_dur={target},atrim=0:{target}',
              '-ar', '48000', '-ac', '2', str(tmp)])
         tmp.replace(final)
         final_level, peak = ebur128(final)

@@ -112,6 +112,32 @@ def audit_takes(takes_dir: Path, shot_ids: Iterable[str]) -> dict:
     return report
 
 
+def plan_native_captions(shots: dict, takes_dir: Path, ids: Iterable[str],
+                         *, samples: int = 96) -> tuple[list[str], dict[str, list[int]]]:
+    """Decide which shots keep their native caption and which need post subs.
+
+    Returns ``(skip_shots, skip_lines)``. Any detected native caption skips
+    the whole shot: a post cue stacked on a painted line is a delivery defect.
+    """
+    takes_dir = Path(takes_dir)
+    skip: list[str] = []
+    skip_lines: dict[str, list[int]] = {}
+    for sid in ids:
+        take = takes_dir / sid / 'native.mp4'
+        if not take.is_file():
+            continue
+        try:
+            scan = scan_take(take, duration=int(shots[sid]['frames']) / 24, samples=samples)
+        except Exception:  # OCR is optional; a failed scan means no skip
+            continue
+        # The delivery rule is strict: any native caption means the whole
+        # shot keeps its native caption and gets no post subtitle. Never stack
+        # a post cue on a painted line, even when OCR only reads part of it.
+        if scan['verdict'] == 'text':
+            skip.append(sid)
+    return skip, skip_lines
+
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from .subtitles import build_shot_ass
+from .subtitles import STYLE, build_shot_ass
 
 FONT = "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc"
 
@@ -70,7 +70,10 @@ def build(project: Path, out: Path, report_path: Path, *, width: int = 854, heig
         ass = work / f"{sid}.ass"
         subtitle_filter = ""
         if shot.get("dialogue"):
-            build_shot_ass(shot, ass, width=width, height=height)
+            style = {**STYLE,
+                     'size': max(24, round(STYLE['size'] * width / 1344)),
+                     'margin_v': max(16, round(STYLE['margin_v'] * height / 768))}
+            build_shot_ass(shot, ass, width=width, height=height, style=style)
             if ass.is_file():
                 subtitle_filter = ",ass=" + str(ass).replace("\\", "/").replace(":", "\\:")
         vf = f"scale={width}:{height}:flags=lanczos,fps=24,format=yuv420p{subtitle_filter}"

@@ -64,6 +64,10 @@ def scan_duplicate_captions(video: Path, *, duration: float, per_second: float =
                 continue
             rows.sort(key=lambda row: row['top'])
             for first, second in zip(rows, rows[1:]):
+                # Tesseract can split one caption row into two overlapping
+                # boxes; those are one row, not a double caption.
+                if second['top'] < first['top'] + min(first['height'], second['height']) * 0.6:
+                    continue
                 if second['top'] - first['top'] >= 30:
                     hits.append({
                         'at_seconds': round(seconds, 2),

@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-LINE_RE = re.compile(r'^([\u4e00-\u9fff]{1,6})(?:（[^）]*）)?：(.+)$')
+LINE_RE = re.compile(r'^([\w\u4e00-\u9fff]{1,16})(?:（[^）]*）)?：(.+)$')
 
 STYLE = {
     'font': 'Noto Sans CJK SC',
@@ -23,8 +23,39 @@ STYLE = {
 }
 
 
+MAX_CHARS = 15
+BREAK_CHARS = '，。！？；：、'
+
+
+def split_text(text: str, limit: int = MAX_CHARS) -> list[str]:
+    """Split a long line at punctuation so one cue stays on one row."""
+    if len(text) <= limit:
+        return [text]
+    segments = [part for part in re.split(f'(?<=[{BREAK_CHARS}])', text) if part]
+    chunks: list[str] = []
+    current = ''
+    for segment in segments:
+        if len(current) + len(segment) <= limit:
+            current += segment
+            continue
+        if current:
+            chunks.append(current)
+        while len(segment) > limit:
+            chunks.append(segment[:limit])
+            segment = segment[limit:]
+        current = segment
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 def shot_cues(shot: dict, timing: list | None = None, skip_lines: tuple[int, ...] = ()) -> list[dict]:
-    """Timed dialogue cues for one shot, in shot-local seconds."""
+    """Timed dialogue cues for one shot, in shot-local seconds.
+
+    A long authored line is split into one-row cues; ``timing`` remains one
+    ``[start, end]`` window per authored line, so the split never loses the
+    ASR-aligned onset or the line's last word.
+    """
     duration = float(shot.get('frames') or 0) / 24 or float(shot.get('duration_seconds') or 0)
     parsed = []
     for raw in (shot.get('dialogue') or '').splitlines():
@@ -37,19 +68,27 @@ def shot_cues(shot: dict, timing: list | None = None, skip_lines: tuple[int, ...
     for position, index in enumerate(kept):
         text = parsed[index]
         if timing and index < len(timing):
-            start, end = timing[index]
-            cues.append({'start': round(float(start), 3), 'end': round(float(end), 3), 'text': text})
-            continue
-        if count == 1:
-            start = 1.5
+            start, end = (float(value) for value in timing[index])
         else:
-            start = 1.2 + position * max(2.0, (duration - 3.5) / (count - 1))
-        start = min(start, max(0.8, duration - 2.0))
-        end = start + 3.4
-        if position + 1 < count:
-            end = min(end, start + max(2.0, (duration - 3.5) / (count - 1)) - 0.15)
-        end = min(end, duration - 0.15)
-        cues.append({'start': round(start, 3), 'end': round(end, 3), 'text': text})
+            if count == 1:
+                start = 1.5
+            else:
+                start = 1.2 + position * max(2.0, (duration - 3.5) / (count - 1))
+            start = min(start, max(0.8, duration - 2.0))
+            end = start + 3.4
+            if position + 1 < count:
+                end = min(end, start + max(2.0, (duration - 3.5) / (count - 1)) - 0.15)
+            end = min(end, duration - 0.15)
+        chunks = split_text(text)
+        total = sum(len(chunk) for chunk in chunks)
+        cursor = start
+        for chunk_index, chunk in enumerate(chunks):
+            if chunk_index + 1 == len(chunks):
+                chunk_end = end
+            else:
+                chunk_end = min(end, cursor + (end - start) * len(chunk) / total)
+            cues.append({'start': round(cursor, 3), 'end': round(chunk_end, 3), 'text': chunk})
+            cursor = chunk_end
     return cues
 
 

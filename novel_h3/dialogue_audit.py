@@ -16,7 +16,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 CJK = re.compile(r'[\u3400-\u9fff]')
-LINE_RE = re.compile(r'^([\u4e00-\u9fff]{1,6})(?:（[^）]*）)?：(.+)$')
+LINE_RE = re.compile(r'^([\w\u4e00-\u9fff]{1,16})(?:（[^）]*）)?：(.+)$')
 WHISPER_MODEL = Path(
     '/home/jx/.cache/huggingface/hub/models--mobiuslabsgmbh--faster-whisper-large-v3-turbo/'
     'snapshots/0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf'
@@ -120,6 +120,32 @@ def align_words(lines: list[dict], words: list[dict], duration: float) -> list[l
         cues.append([round(begin, 3), round(finish, 3)])
         cursor = end + 1
     return cues
+
+
+def align_timing(shots: dict, takes_dir: Path, ids: list[str], model) -> dict:
+    """Word-align every authored line in ``ids`` and return shot cue lists."""
+    from .subtitles import shot_cues
+
+    timing: dict[str, list[list[float]]] = {}
+    for sid in ids:
+        shot = shots[sid]
+        lines = authored_lines(shot)
+        video = Path(takes_dir) / sid / 'native.mp4'
+        if not lines or not video.is_file():
+            continue
+        duration = int(shot['frames']) / 24
+        aligned = align_words(lines, transcribe_words(video, model), duration)
+        nominal = shot_cues(shot)
+        cues = []
+        for index, cue in enumerate(nominal):
+            found = aligned[index] if index < len(aligned) else None
+            cues.append(list(found) if found else [cue['start'], cue['end']])
+        cues.sort(key=lambda cue: cue[0])
+        for index, cue in enumerate(cues):
+            limit = cues[index + 1][0] - 0.1 if index + 1 < len(cues) else duration - 0.1
+            cue[1] = max(cue[0] + 0.6, min(cue[1], limit))
+        timing[sid] = cues
+    return timing
 
 
 def match_segments(lines: list[dict], segments: list[dict]) -> list[dict]:

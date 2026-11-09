@@ -261,6 +261,28 @@ def build_spec(shot: LockedShot, *, require_props: bool = False) -> dict:
             f'{shot.anchor_image.retention_detail}.'
         )
 
+    # H3 follows the first image reference as the opening frame. Move the
+    # concrete keyframe to position one, but keep every <Subject N> label
+    # (and therefore every <Audio N> binding) unchanged: only <Picture N>
+    # labels shift. This keeps the voice-to-character contract intact.
+    if shot.anchor_image and visuals and visuals[-1]['asset_id'] == shot.anchor_image.asset_id:
+        anchor_visual = visuals.pop()
+        visuals.insert(0, anchor_visual)
+        old_anchor_picture = anchor_visual['picture']
+        anchor_visual['picture'] = '<Picture 1>'
+        anchor_picture = '<Picture 1>'
+        picture_map = {old_anchor_picture: '<Picture 1>'}
+        for position, visual in enumerate(visuals[1:], 2):
+            old_picture = visual['picture']
+            new_picture = f'<Picture {position}>'
+            picture_map[old_picture] = new_picture
+            visual['picture'] = new_picture
+        scene_picture = picture_map.get(scene_picture, scene_picture)
+        picture_pattern = re.compile('|'.join(
+            re.escape(label) for label in sorted(picture_map, key=len, reverse=True)))
+        defs = [picture_pattern.sub(lambda match: picture_map[match.group(0)], text) for text in defs]
+        retention = [picture_pattern.sub(lambda match: picture_map[match.group(0)], text) for text in retention]
+
     video_payload: list[dict] = []
     video_defs: list[str] = []
     video_ret: list[str] = []
