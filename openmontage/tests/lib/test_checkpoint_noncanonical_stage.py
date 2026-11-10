@@ -61,17 +61,3 @@ def test_canonical_stage_still_requires_its_artifact():
         validate_checkpoint(
             _checkpoint("compose", "completed", {}, "character-animation")
         )
-
-
-def test_screenplay_stage_requires_treatment_artifact():
-    template = json.loads(
-        (PROJECT_ROOT / "skills/pipelines/novel-cinematic/screenplay-treatment-template.json")
-        .read_text(encoding="utf-8")
-    )
-    validate_checkpoint(
-        _checkpoint("screenplay", "completed", {"screenplay_treatment": template}, "novel-cinematic")
-    )
-    with pytest.raises(CheckpointValidationError):
-        validate_checkpoint(
-            _checkpoint("screenplay", "completed", {}, "novel-cinematic")
-        )

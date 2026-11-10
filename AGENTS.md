@@ -1,336 +1,87 @@
-# novel-h3-studio monorepo — agent contract
+# novel-h3-studio — OpenMontage cinematic workflow
 
-This repository is now the single production monorepo:
-
-- `novel_h3/` — model backends only (FastVideo NVFP4 QAD, strict Ref2VA,
-  batch shot runner, safety/project utilities).
-- `openmontage/` — the only production workflow: pipeline manifests, stage
-  director skills, tool registry, checkpoints, schemas, and the Backlot board.
-- `projects/` — production data (gitignored): scripts, shot specs, takes,
-  renders, reports.
-- `runtime/` — model runtimes and service venvs.
-- `attic/` — archived old novel-h3 workflow code. Do not import it from new
-  work; it is kept only for rollback/reference.
+This repository is the local production host for the **OpenMontage cinematic
+pipeline** plus the local FastH3-Omni NVFP4 QAD model service.
 
 The binding workflow guide is [`openmontage/AGENT_GUIDE.md`](openmontage/AGENT_GUIDE.md).
-Read it before any production work. All production goes through the
-OpenMontage pipeline: manifests + stage director skills + checkpoints + tools.
+Read it before any production work. The old `novel-cinematic` / `novel_h3`
+chain workflow is removed; do not recreate it.
+
+## Architecture
+
+- `openmontage/` — the OpenMontage cinematic workflow: pipeline manifests,
+  stage director skills, tools, schemas, checkpoints, Backlot board.
+- `novel_h3/` — only the local model service backend:
+  `fastvideo.py`, `project.py`, `safety.py`, `previs.py`,
+  `previs_render.py`, `transition_audit.py`, `ref2va.py`, `memory_guard.py`.
+- `projects/` — production data (scripts, scene plans, prompts, requests,
+  shots, music, subtitles, renders).
+- `runtime/` — model runtime, FastVideo service, caches.
 
 ## Defaults
 
-- **Workbench auto-follows the latest version (binding):** the board reads the highest
-  `vN` directory that carries a checkpoint, `artifacts/` or `script.json`. Starting a
-  new version means creating that version directory and its first checkpoint; never
-  hand-edit `project.json` `board_root` to switch the board. An empty `vN/` scratch
-  folder must not steal the board.
-- Video engine: **FastH3-Omni NVFP4 QAD** (FastVideo service on
-  `127.0.0.1:8195`, 8 steps). This is the **default and required delivery engine**.
-  VDN-H3 Turbo is comparison/fallback only; do not switch the default without an
-  explicit user decision.
-- Resolution: **1344x768 @ 24fps** (768P, official FastVideo canvas limit).
-- Prompts: strict six-section **Ref2VA** English format; Chinese only inside
-  `<d>[Chinese] ...</d>` dialogue.
-- Audio: character dialogue and video sound effects are **native H3 take
-  audio**; only narration uses TTS; music reuses the approved bed.
-- Audio gate: `audio_qc` must pass (or every issue be explicitly resolved)
-  before delivery; human listening remains the final gate.
+- **Workflow: OpenMontage `cinematic`.** New projects use
+  `studio.py init <project-id> --pipeline cinematic`.
+- **Backlot is Chinese.** The board at `studio.py board` / `studio.py serve`
+  is the Chinese observer UI; keep new labels in Chinese.
+- **Video engine: FastH3-Omni NVFP4 QAD** on `127.0.0.1:8195`, 8 steps,
+  1344×768 / 24 fps, native H3 audio.
+- **One project = one project directory** with `project.json`,
+  `artifacts/`, `assets/`, `prompts/`, `public/`, `renders/`, `exports/`.
+- **Prompts/requests are project data.** For cinematic work the source of
+  truth is `projects/<id>/assets/requests.json` and `prompts/S*.txt`; do not
+  generate a competing prompt stack in a version script.
+- **Composition:** project-local Remotion composition (atelier) via
+  `video_compose`; use `CinematicRenderer` only when the project chooses the
+  standard cut schema.
+- **Final audio:** native H3 dialogue/sound effects, music bed ducked under
+  speech, subtitles from the project's `.srt` / Remotion props.
 
 ## Commands
 
 ```bash
-# Workflow environment (OpenMontage tools + Backlot board)
+# Workflow environment
 .venv-openmontage/bin/python studio.py doctor
+.venv-openmontage/bin/python studio.py init <project-id> --title "..." --pipeline cinematic
 .venv-openmontage/bin/python studio.py board <project-id>
-.venv-openmontage/bin/python studio.py init <project-id> --title "..." --pipeline novel-cinematic
-.venv-openmontage/bin/python studio.py tool fastvideo_h3_video @payload.json
+.venv-openmontage/bin/python studio.py serve --port 4751
 
-# Model service (FastVideo NVFP4 QAD)
-./runtime/fastvideo-venv/bin/python start_fastvideo.py \
-  --project projects/liaozhai-zhiyi-video-comparison/config.json
+# FastH3 service
+runtime/fastvideo-venv/bin/python start_fastvideo.py \
+  --project projects/liaozhai-wangliulang
 
-# Shot batch (official multi-speaker Ref2VA runner)
-./runtime/fastvideo-venv/bin/python -m novel_h3.fastvideo_batch \
-  --project projects/<project>-fastvideo --all --width 1344 --height 768
+# Render the cinematic project's requests one shot at a time
+.venv-openmontage/bin/python scripts/render_cinematic_shots.py \
+  --project projects/liaozhai-wangliulang-cinematic --force
+
+# Compose via the OpenMontage tool registry
+.venv-openmontage/bin/python studio.py tool video_compose @compose_payload.json
 ```
 
-## Global optimization rule (binding)
+## Cinematic pipeline rules
 
-Every fix or production optimization must land in the shared production code,
-not in a one-off version script:
+1. Run the OpenMontage stages in order: `research` → `proposal` → `script` →
+   `scene_plan` → `assets` → `edit` → `compose` → `publish`.
+2. Each stage writes its checkpoint and artifact under the project directory.
+   Do not skip a gated stage or write a competing artifact format.
+3. `scene_plan` defines the shot list and the visual/sound intent. `assets`
+   must render the project's `assets/requests.json`, not a different prompt
+   stack.
+4. `video_compose` is the only final render path. Atelier composition uses the
+   project-local `index.tsx` / `Composition.tsx` / `public/props.json`.
+5. Backlot is an observer/approval UI. Keep it Chinese; do not replace it with
+   the upstream English UI.
+6. The old `novel-cinematic` coverage/anchor/chain scripts and their pipeline
+   are removed. Do not import them from new work.
 
-- shot construction: `novel_h3/ref2va_builder.py`
-- voice references: `novel_h3/voice_refs.py`
-- shot-to-shot video continuation refs: `novel_h3/continuity_refs.py`
-- end cards: `novel_h3/end_card.py`
-- subtitle audit: `novel_h3/subtitle_audit.py`
-- Blender blocking guides: `novel_h3/previs.py` + `novel_h3/previs_render.py`
-- cast audit: `novel_h3/cast_audit.py`
-- transition audit: `novel_h3/transition_audit.py`
-- batch rendering: `novel_h3/render_batch.py`
-- picture/audio compose: `novel_h3/compose_cut.py`
-- official tools: `openmontage/tools/**`
-- workflow rules: `openmontage/pipeline_defs/` + stage director skills
+## Project-specific notes
 
-`scripts/*.py` are thin CLI wrappers only. Do not fork a new `v5_*`/`v6_*`
-pipeline when the existing production module can be extended. Project-specific
-blocking, cast and voice decisions belong in `projects/<id>/.../authoring.json`,
-not in the core code.
+- `projects/liaozhai-wangliulang-cinematic` is the approved Wang Liulang
+  cinematic project: 45 shots, project-local Remotion composition, Chinese
+  subtitles, native H3 audio.
+- Character/scene/voice references live in
+  `projects/liaozhai-wangliulang/assets/`.
+- FastH3 request payloads use `reference_image_paths` (≤3), optional
+  `reference_audio_paths` (≤3), on the `17n+5` frame grid.
 
-## Locked shot contract (production default)
-
-- **One speaking character per H3 take (binding for new work):** a shot may
-  contain several visible people, but only one of them speaks. The others carry
-  the silent-character lock (lips closed, no voice). Dialogue scenes use
-  shot/reverse-shot coverage instead of one take with several speakers.
-  `build_spec` raises on multiple speakers unless the shot is an explicitly
-  flagged legacy take that already passed `voice_audit`. H3 can carry the
-  previous speaker's timbre into a returning speaker's later line even when
-  the labels are correct; one speaker per take removes that failure mode.
-- Every speaking character must have a dedicated voice reference WAV; a
-  speaker without one is a hard validation error.
-- **Voice binding is cast-ordered (binding):** `<Audio N>` must be the Nth
-  entry in the request's `voices` list and must bind `<Subject N>` for every
-  visible speaker. The builder puts speaking cast first in first-vocal order,
-  then silent visible cast, then off-screen voices. `novel_h3.spec_audit`
-  runs inside `fastvideo_batch.load_spec` and rejects a spec before GPU time
-  when the labels, list order and subject definitions disagree. Never
-  hand-assemble a spec that bypasses this audit. After rendering, run
-  `novel_h3.voice_audit`; a `review` line means the take's timbre is closer to
-  another character's reference and must be re-listened to or re-rendered
-  before delivery. See
-  [`docs/AUDIO_SUBTITLE_CONTRACT.md`](docs/AUDIO_SUBTITLE_CONTRACT.md).
-- Every shot declares its **exact visible cast**; source-reference characters
-  that are off-screen must not be marked visible.
-- Every shot declares its **exact visible props and set elements** in
-  authoring (`props`). `ref2va_builder` injects a `Prop lock` that allows only
-  those items and forbids unlisted tables, chairs, benches, interior
-  furniture, windows, walls, food, bowls, plates, chopsticks and extra
-  vessels; `spec_audit` rejects a spec that declares props without the lock.
-  A table, food service or interior room may appear only when the shot
-  explicitly authors it. A prop that appears without an authored declaration
-  is a generation defect: re-render with the prop lock, never accept it as
-  set dressing or paint it out in post.
-- Craft v4+ scripts, treatments and scene plans declare `location`,
-  `time_of_day`, `props` and `set_dressing` for every scene and shot; the
-  scene plan inherits the script contract. `scripts/audit_scene_contract.py`
-  must pass, and `build_ref2va_specs` rejects any shot without props.
-- Every off-screen dialogue line binds no visible subject
-  (`speaker_subject` absent). Do not put the off-screen voice in the H3
-  generation audio: H3's audio conditioning lip-syncs the only visible face
-  even with a prompt lock. Generate a silent reaction take
-  (`post_dialogue: true`) and lay the approved voice line in compose
-  (`lines.json` entry with `role: "off_screen"` and a `wav` path). The silent
-  take's `overall_soundscape` must also say "no human voice, no speech"; H3
-  will otherwise hallucinate a voice from the action note and the take is not
-  silent. The visible listener keeps lips and jaw still for the whole line. A
-  take where the visible listener lip-syncs an off-screen voice is a defect:
-  re-render silent, never accept it or hide it in post.
-- Consecutive dialogue shots must change shot size or angle by a clear step;
-  never cut between two near-identical medium close-ups from independent
-  takes. If the same angle is intentional, lock one camera setup and use a
-  frame-matched anchor chain. For residual micro-jumps, the compose stage may
-  apply `novel_h3.cut_smooth` (two-frame upper-picture blend, subtitle band
-  hard-cut); it must not change duration, audio or burn a second caption.
-- Every multi-person shot (two or more visible bodies) uses a silent Blender
-  gray-model blocking guide unless the human explicitly waives it.
-- Every shot carries the instance lock: a close-up and a full-body view of one
-  person are the same person, never two; no unlisted servants, guards,
-  silhouettes, portraits or background copies.
-- Every multi-person shot uses individual character reference images, never a
-  group photo as the only identity reference. If a reference image contains
-  other people, the prompt must state that those people are not cast and must
-  be ignored. A duplicate person is a generation defect: re-render with the
-  cast-count/instance lock; never crop or paint the duplicate out of a
-  delivered shot.
-- Every new story's male and female lead reference sheets follow the two-view
-  character-asset contract in [`docs/CHARACTER_ASSET_SHEET.md`](docs/CHARACTER_ASSET_SHEET.md).
-  Build the prompt with `novel_h3.character_sheet.build_character_sheet_prompt`,
-  not with a one-off prompt. The two-view sheet is a casting/design asset; crop
-  one full-body view into a single-body reference before using it in H3 Ref2VA.
-  Never feed the two-view sheet directly to the video model.
-- Every cut with an action/state change records `open_state` / `close_state`
-  handoffs in the authoring data.
-- Same-scene continuation shots default to the previous story-state shot's
-  silent 2–4 s tail as a `<Video N>` continuation reference (`video
-  continuation` in the summary). Insert shots may anchor to the last
-  story-state shot instead of the immediately preceding insert. The video
-  reference must preserve only the ending pose, hand/prop position, costume,
-  light and screen direction; it must not copy framing, cuts, camera movement,
-  old dialogue or audio, and it never replaces the `open_state` / `close_state`
-  text contract. A declared `<Video N>` without a real `video_reference` in the
-  request is a hard validation error. Every same-scene shot after the first
-  must carry a `<Video N>` tail or a previs blocking guide; a bare cast/scene
-  reference is a position-jump defect. `build_spec(continuity_required=True)`
-  enforces this. See [`docs/CONTINUITY_CONTRACT.md`](docs/CONTINUITY_CONTRACT.md).
-- Every hand/body-part insert declares exactly five fingers and one thumb per
-  visible hand; the compiler injects a hand-anatomy lock. Extra, fused,
-  duplicated or missing digits are a render defect, not a style choice.
-- Every delivered cut carries one consistent dialogue subtitle per shot,
-  burned from the authored dialogue by `novel_h3/subtitles.py` (the compose
-  stage does this when the spec has a `subtitles` block). Cue times come from
-  word-level ASR alignment (`novel_h3.dialogue_audit.align_words`), never from
-  a nominal offset or a single best-matching Whisper segment; a line split by
-  pauses must start at its first word, not its tail. H3 sometimes paints the
-  line into a take by itself; `novel_h3.subtitle_audit` scans 96 frames per
-  take and the chapter skips post subtitles for that whole shot. Never stack a
-  burned subtitle on a native caption. `novel_h3.subtitle_qc` scans the
-  finished chapter for two-row frames and records
-  `v3/chapters/<chapter>/subtitle_qc.json`; a `duplicate` verdict is a
-  delivery defect, not a warning to ignore.
-- Every named person keeps one costume across adjacent shots unless an authored
-  costume change is explicit; the compiler injects a costume-continuity lock.
-  A robe colour change between cuts is a continuity error.
-- Every multi-person or hand-only cut preserves camera side and hand ownership:
-  a hand entering from camera-right belongs to the person on camera-right. The
-  compiler injects a screen-direction lock; do not mirror an action in post to
-  hide a generation error.
-- A seated person behind a desk keeps the lower body hidden by the solid desk.
-  No legs, knees, feet, stool, cushion or green cloth may appear below the desk;
-  the compiler injects a lower-body occlusion lock.
-- If narration describes a physical action (dressing, eating, mounting,
-  drinking, etc.), the shot must visibly perform that action with the object in
-  frame. If the generated take cannot show it, change the narration or re-render;
-  do not leave the voiceover describing an action the picture omits.
-- Music is a bed, not a lead voice. Normalize the bed to roughly -30 LUFS,
-  default `music_volume` at or below 0.55, duck to at most 0.22 under speech
-  (attack 250 ms, release 700 ms), and keep the final mix at -16 LUFS with true
-  peak at or below -2 dBFS. Do not use one 5-minute loop for the whole film when
-  the story changes act; use a cue map. Human listening remains the final gate.
-- Every delivered cut ends on one end card whose production credit is this
-  project, never the workflow tool: `改编 / 制作
-  https://github.com/jx1100370217/novel-h3-studio`. Render it with
-  `novel_h3.end_card.build_end_card` or a compose spec's `end_card` block;
-  never bake a one-off card into a cut with ad-hoc ffmpeg text.
-- A video reference does not guarantee the target's first frame. If a take
-  still stages an earlier state (for example a second wake-up or a lie-down
-  before sitting), trim the lead-in at the first frame that matches
-  `open_state`, retime the native line if it fell inside the removed span, and
-  record the trim in the take metadata. Do not accept the earlier state just
-  because the rest of the take is usable.
-- Body-part shots (hand/forearm inserts) must use a body-part take and a
-  body-part reference. Never substitute a full-body clip or a close-up that
-  reveals the actor's face; verify the take with the face audit.
-- Entrance/off-screen dialogue must be timed before the character enters or
-  before the reveal. Verify native line onset with VAD/ASR; if the model places
-  the line late, retime the native audio (mute the late span and insert the
-  approved voice line) or re-render with an explicit early line timing.
-- Kneeling/supplicant blocking must face the superior or high desk, with the
-  back/profile toward camera; never let the character kneel facing away or
-  sideways from the person being addressed.
-- Wake/reveal handoffs must match the previous close state. If A23 ends sitting
-  upright with the mother touching his cheek, A24 must open sitting upright,
-  eyes open; never return to lying down or stage a second awakening.
-- The assets stage runs `scripts/audit_cast.py` (or the global `cast_audit`
-  module) and human-reviews every suspect frame; face-count false positives
-  from statues, portraits and animals must be recorded as such.
-- The edit stage runs `transition_audit`; every `needs_fix` cut is either
-  re-rendered with a handoff or explicitly accepted by the human.
-- `audio_qc` and a human listening pass remain the final audio gate.
-
-## Rules
-
-- **Every novel-cinematic story runs the screenplay stage (binding):** after
-  the faithful breakdown, the story must pass the `screenplay` gate. Do not
-  skip it or go straight to shot planning.
-- **Scene-based screenplay (binding):** the screenplay is 8–14 dramatic scenes,
-  not a list of one-line shots. Each scene has a want, an obstacle and a turn;
-  dialogue carries the story. Narration is only for an unwitnessable time jump.
-- **Screenplay craft gate (binding):** every treatment must record
-  `metadata.opening_hook` (a question in the first 15 seconds) and, per scene,
-  `want` / `obstacle` / `turn` / `coverage`. No two consecutive scenes may do
-  the same job; the key moral choice is shown as a physical process, not a
-  monologue; motifs change at least three times; the ending is an action.
-  `docs/SCREENPLAY_CRAFT.md` is the standard and `screenplay_audit` enforces
-  the fields.
-- **Seven-dimension craft gate (binding):** every new `novel-cinematic` treatment must
-  pass `novel_h3.craft_audit` at `craft_version >= 5.0`: protagonist-owned costly
-  midpoint choice, active antagonism, a stakes clock, scene-job escalation, motifs
-  that change meaning three times, at least three object arcs, dialogue subtext, and
-  an ending that echoes an earlier object/scene. `docs/SCREENPLAY_CRAFT.md` is the
-  rubric; `screenplay_audit` fails a treatment that only repeats the old 12 rules.
-- **Sequence + scene/sequel gate (binding, V6+):** treatments at
-  `craft_version >= 6.0` carry eight sequences and a per-scene `scene_sequel`
-  block (scene: goal/conflict/disaster; sequel: reaction/dilemma/decision).
-  Every sequence's opening state must continue the previous sequence's end
-  state. `novel_h3.sequence_audit` is part of `screenplay_audit`.
-- **Continuity bible gate (binding, V6+):** before assets, every shot has a
-  `continuity_bible.json` entry with cast, costume/prop state, hand ownership,
-  eyeline, axis side, screen direction, light, time, open/close state and an
-  anchor image. `scripts/audit_continuity.py` must pass. A cut that changes
-  side, costume, prop state or light without an authored action is not legal.
-- **Coverage audition gate (binding, V6+):** before any GPU render, build a
-  480p animatic from previs/anchor frames and authored durations; review the
-  cut. Do not start `assets` with an unreviewed animatic or a `revise` verdict.
-- **Anchor-frame rendering (binding, V6+):** every shot must have a frozen
-  first-frame keyframe and use image-to-video; a text-only shot is a drift
-  risk. Prefer fewer, longer, better-staged shots (3–8 per scene) over 9–14
-  independent cuts.
-- **Scene plan splits into shots (binding):** `scene_plan` must split every
-  screenplay scene into 3–12 H3 shots (typically 3–7). Each shot gets exact
-  frames on the `17n+5` grid, camera, lens, movement, lighting, blocking,
-  dialogue, continuity and H3 prompt notes. Never render a whole 60-second
-  scene as one take.
-- **H3 take length cap (binding, reference-count tiered):** on the current
-  61 GB host the limit is set by the number of reference images, not by frame
-  count. A 328-frame take with **≤3 visual references** passed a measured test
-  (13.667 s, 399 s, GPU peak 30.1/31.36 GB, host RSS 37.1 GB, PSI 0.8%);
-  a 4+ reference shot OOMs during text conditioning regardless of length.
-  Cap takes at **328 frames (13.667 s)** when the shot has ≤3 visual
-  references, and at **260 frames (10.833 s)** for 4+ references. Split longer
-  scenes into motivated cuts; re-test before raising either tier. Restart the
-  FastVideo service between heavy takes to release host memory.
-  The local FastVideo runtime is patched to delete the Qwen text encoder after
-  conditioning (`FASTVIDEO_H3_RELEASE_TEXT_ENCODER=1`, set by
-  `start_fastvideo.py`) so VAE decode has host memory headroom; re-apply the
-  patch if the runtime is reinstalled.
-- **Dialogue-first narrative (binding):** carry plot through character dialogue
-  and visible action; narration is a last resort. Do not use a narrator to
-  explain what the audience can see. Connective dialogue may dramatize existing
-  source facts, but every added line must be declared in the screenplay
-  treatment's `added_dialogue` ledger. Do not add new plot events, characters,
-  locations or endings.
-- **Story duration is not a hard cap (binding):** a runtime target is a planning
-  estimate, not a limit. Do not pad or truncate a film to hit it; let the story's
-  beats determine the final length. Record the planned and final runtime. A
-  longer cut is acceptable when the added time is story-driven, not filler; a
-  shorter cut is acceptable when the story is complete. There is no upper limit.
-- **Single-best-version retention (binding):** once the user explicitly states
-  that a version looks better than the historical versions, delete the older
-  versions' media, takes, board media, artifacts, checkpoints/history and old
-  exports; keep only the current best version plus the minimal inputs needed to
-  reproduce it (source refs, voices, script/authoring, compose spec, current
-  takes, final export and QC evidence). Do not let historical versions
-  accumulate as "backups" unless the user explicitly asks to keep a comparison.
-  Before deleting, confirm the best version is complete, playable and QC'd;
-  record the deletion in `decision_log`.
-- **Story-contract gate (binding):** every scene declares a `set_map`,
-  `prop_manifest`, `action_beats` and `time_jump`/`time_jump_visual`; every shot
-  declares which action beats it visibly performs. `scripts/audit_story.py`
-  must pass before anchors or GPU render. A result shot (a full net, a woman
-  already in the water, a gift already in the bundle) is not coverage for the
-  action that caused it; the cause must have its own shot. A complex action
-  beat with no visible shot is a scene-plan failure, not a prompt problem.
-- **Blocking-guide gate (binding):** every multi-person shot carries a silent
-  Blender gray-model blocking guide (or an explicit human waiver). The guide
-  fixes body count, screen positions, boat/bank/room side and camera; the
-  anchor is generated from that guide plus identity/scene refs. A text prompt
-  alone is not a blocking guide. A persistent set declares its `set_map`
-  (for example boat camera-left, bank camera-right, no table/bench/canopy).
-- **Time-jump gate (binding):** a time jump must declare a visible marker
-  (season/light/location/costume/card/montage), not only a dialogue line.
-  Consecutive scenes with a time jump must carry `time_jump_visual`.
-- **Action coverage over tableaux (binding):** if the story says a character
-  drives fish, falls into water, throws a baby, gives gifts, becomes a god or
-  says goodbye in a whirlwind, the film must show the action, not only the
-  result or a character describing it. Add shots rather than compressing a
-  cause-and-result beat into one static 10-second take.
-- **Compose scene fades (binding):** time/location jumps use the authored
-  fade/card/montage transition; within-scene cuts stay hard unless a
-  frame-matched handoff is authored.
-- Every new Ref2VA prompt follows
-  [`.cursor/rules/h3-ref2va.mdc`](.cursor/rules/h3-ref2va.mdc); no exceptions
-  for MiniMax H3, VDN-H3, FastH3 or FastVideo.
-- Do not reintroduce the archived workflow (`attic/`) into new code.
-- Keep production data under `projects/`; never write assets to the repo root
-  or `/tmp`.
-- Structural/technical checks do not replace human story and audio review.
+Structural checks do not replace human story/audio review.

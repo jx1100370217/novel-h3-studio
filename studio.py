@@ -45,7 +45,7 @@ def main(argv: list[str] | None = None) -> int:
     init = sub.add_parser('init', help='initialize an OpenMontage project workspace')
     init.add_argument('project_id')
     init.add_argument('--title', required=True)
-    init.add_argument('--pipeline', default='novel-cinematic')
+    init.add_argument('--pipeline', default='cinematic')
 
     sub.add_parser('doctor', help='print the capability menu')
 

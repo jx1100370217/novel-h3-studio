@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audio QC gate for novel-cinematic dialogue cuts.
+"""Audio QC gate for cinematic dialogue cuts.
 
 Checks the authored timeline before delivery:
 - character dialogue must come from native H3 takes; only narration may use TTS
