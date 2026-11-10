@@ -59,7 +59,7 @@ def main() -> int:
             continue
         shot_data = authoring['shots'][sid]
         source_shot = load(Path(authoring['shots_dir']) / f'{sid}.json')
-        previs_cast = {item['id']: item for item in previs_specs[sid]['cast']}
+        previs_cast = {item['id']: item for item in (previs_specs.get(sid) or {}).get('cast', [])}
         cast = []
         for asset in shot_data['cast']:
             info = authoring['characters'][asset]
@@ -153,6 +153,7 @@ def main() -> int:
             visual_core=shot_data.get('visual_override') or visual_core(source_shot['sections']['detailed_description'], source_shot.get('title', sid)),
             soundscape=source_shot['sections'].get('overall_soundscape') or 'Natural period ambience, cloth movement and synchronous physical sounds. No music.',
             cast=tuple(cast), scene=scene, extras=tuple(shot_data.get('extras', [])),
+            include_scene=not bool(previs_path),
             voices=tuple(voice_bindings), videos=tuple(video_refs), lines=tuple(shot_lines), previs_path=previs_path,
             anchor_image=(
                 AnchorImage(

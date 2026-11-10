@@ -106,6 +106,7 @@ class LockedShot:
     anchor_image: AnchorImage | None = None
     lines: tuple[ShotLine, ...] = ()
     previs_path: str | None = None
+    include_scene: bool = True
     open_state: str = ''
     close_state: str = ''
     framing: str = ''
@@ -211,17 +212,19 @@ def build_spec(shot: LockedShot, *, require_props: bool = False) -> dict:
                 f'{label} (appears in [Shot 1]): fully_preserved - preserve face, age, hair, costume and '
                 f'identity; {'exactly one body, appearing once' if item.instances == 1 else f'exactly {item.instances} distinct bodies, each appearing once'}.'
             )
-    scene_label = f'<Subject {len(cast) + 1}>'
-    scene_picture = f'<Picture {len(cast) + 1}>'
-    visuals.append({
-        'asset_id': shot.scene.asset_id, 'subject': scene_label, 'picture': scene_picture,
-        'kind': 'scene', 'visible': True, 'generation_path': shot.scene.image_path,
-    })
-    defs.append(f'{scene_label} is {shot.scene.name} in {scene_picture}; {shot.scene.definition}')
-    retention.append(
-        f'{scene_label} (appears in [Shot 1]): fully_preserved - preserve architecture, materials and '
-        f'motivated light; do not add people seen in the reference.'
-    )
+    scene_label = scene_picture = None
+    if shot.include_scene:
+        scene_label = f'<Subject {len(cast) + 1}>'
+        scene_picture = f'<Picture {len(cast) + 1}>'
+        visuals.append({
+            'asset_id': shot.scene.asset_id, 'subject': scene_label, 'picture': scene_picture,
+            'kind': 'scene', 'visible': True, 'generation_path': shot.scene.image_path,
+        })
+        defs.append(f'{scene_label} is {shot.scene.name} in {scene_picture}; {shot.scene.definition}')
+        retention.append(
+            f'{scene_label} (appears in [Shot 1]): fully_preserved - preserve architecture, materials and '
+            f'motivated light; do not add people seen in the reference.'
+        )
 
     previs_label = None
     if shot.previs_path:
@@ -277,7 +280,8 @@ def build_spec(shot: LockedShot, *, require_props: bool = False) -> dict:
             new_picture = f'<Picture {position}>'
             picture_map[old_picture] = new_picture
             visual['picture'] = new_picture
-        scene_picture = picture_map.get(scene_picture, scene_picture)
+        if scene_picture:
+            scene_picture = picture_map.get(scene_picture, scene_picture)
         picture_pattern = re.compile('|'.join(
             re.escape(label) for label in sorted(picture_map, key=len, reverse=True)))
         defs = [picture_pattern.sub(lambda match: picture_map[match.group(0)], text) for text in defs]

@@ -206,6 +206,29 @@ def build_river(floor, wall, accent):
     sphere('lantern', (0.0, 0.2, 1.20), (0.12, 0.12, 0.18), floor)
 
 
+def build_river_clean(floor, wall, accent):
+    """Night river: open boat camera-left, grassy bank camera-right, lantern post.
+    No canopy, no cabin, no table — the persistent blocking for the Wang Liulang
+    river scenes."""
+    cube('river bank', (2.6, 0, -0.10), (7.0, 14, 0.20), floor)
+    cube('river water', (-2.0, 0, -0.28), (9.0, 14, 0.12), accent)
+    cube('boat hull', (-1.9, 0, 0.25), (1.5, 4.2, 0.50), wall)
+    cube('boat deck', (-1.9, 0, 0.52), (1.2, 3.6, 0.08), floor)
+    for y in (-4, -2, 0, 2, 4):
+        cyl('bank reed', (3.2, y, 1.0), 0.04, 2.0, wall, 6)
+    cyl('lantern post', (0.0, 0.2, 0.70), 0.04, 1.0, accent)
+    sphere('lantern', (0.0, 0.2, 1.20), (0.12, 0.12, 0.18), floor)
+
+
+def build_riverbank(floor, wall, accent):
+    """Noon river bank: water camera-left, muddy bank camera-right, reeds.
+    No boat, no table — the woman/baby scene."""
+    cube('mud bank', (2.4, 0, -0.10), (7.0, 14, 0.20), floor)
+    cube('river water', (-2.2, 0, -0.28), (9.0, 14, 0.12), accent)
+    for y in (-4, -2, 0, 2, 4):
+        cyl('bank reed', (3.6, y, 1.0), 0.04, 2.0, wall, 6)
+
+
 def build_river_open(floor, wall, accent):
     """Open dusk river bank: boat left, mooring stone right; no lantern post or overhead mat."""
     cube('river bank', (2.6, 0, -0.10), (7.0, 14, 0.20), floor)
@@ -292,6 +315,8 @@ SCENES = {
     'road': build_road,
     'coffin_room': build_coffin_room,
     'river': build_river,
+    'river_clean': build_river_clean,
+    'riverbank': build_riverbank,
     'river_open': build_river_open,
     'ferry': build_ferry,
     'xu_home': build_xu_home,

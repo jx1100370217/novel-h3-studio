@@ -303,6 +303,30 @@ not in the core code.
   accumulate as "backups" unless the user explicitly asks to keep a comparison.
   Before deleting, confirm the best version is complete, playable and QC'd;
   record the deletion in `decision_log`.
+- **Story-contract gate (binding):** every scene declares a `set_map`,
+  `prop_manifest`, `action_beats` and `time_jump`/`time_jump_visual`; every shot
+  declares which action beats it visibly performs. `scripts/audit_story.py`
+  must pass before anchors or GPU render. A result shot (a full net, a woman
+  already in the water, a gift already in the bundle) is not coverage for the
+  action that caused it; the cause must have its own shot. A complex action
+  beat with no visible shot is a scene-plan failure, not a prompt problem.
+- **Blocking-guide gate (binding):** every multi-person shot carries a silent
+  Blender gray-model blocking guide (or an explicit human waiver). The guide
+  fixes body count, screen positions, boat/bank/room side and camera; the
+  anchor is generated from that guide plus identity/scene refs. A text prompt
+  alone is not a blocking guide. A persistent set declares its `set_map`
+  (for example boat camera-left, bank camera-right, no table/bench/canopy).
+- **Time-jump gate (binding):** a time jump must declare a visible marker
+  (season/light/location/costume/card/montage), not only a dialogue line.
+  Consecutive scenes with a time jump must carry `time_jump_visual`.
+- **Action coverage over tableaux (binding):** if the story says a character
+  drives fish, falls into water, throws a baby, gives gifts, becomes a god or
+  says goodbye in a whirlwind, the film must show the action, not only the
+  result or a character describing it. Add shots rather than compressing a
+  cause-and-result beat into one static 10-second take.
+- **Compose scene fades (binding):** time/location jumps use the authored
+  fade/card/montage transition; within-scene cuts stay hard unless a
+  frame-matched handoff is authored.
 - Every new Ref2VA prompt follows
   [`.cursor/rules/h3-ref2va.mdc`](.cursor/rules/h3-ref2va.mdc); no exceptions
   for MiniMax H3, VDN-H3, FastH3 or FastVideo.

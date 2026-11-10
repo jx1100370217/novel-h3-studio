@@ -94,6 +94,7 @@ stages:
       - screenplay_treatment
     produces:
       - scene_plan
+      - story_contract
     tools_available: []
     checkpoint_required: true
     human_approval_default: true
@@ -102,10 +103,14 @@ stages:
       - Each shot has exact frames on the 17n+5 grid, camera, lens, movement, lighting, blocking, dialogue, continuity and H3 notes
       - Every shot declares exact location, time_of_day, props and set_dressing inherited from its scene contract; no unlisted table, chair, interior, window or food
       - Shot coverage answers the dramatic question and the scene turn
+      - Every written action beat is assigned to a shot that can visibly perform it; a result shot alone is not coverage
+      - Every multi-person shot carries a silent Blender blocking guide (or an explicit waiver); the set map fixes who is on the boat/bank/room side
+      - Every scene declares a set_map, prop_manifest and time_jump/time_jump_visual; a time jump is never carried by dialogue alone
       - Screen direction and axis stay coherent across shots
     success_criteria:
       - Schema-valid scene_plan artifact
       - scripts/audit_scene_contract.py reports pass for script + scene_plan
+      - scripts/audit_story.py reports pass for the story_contract (action coverage, blocking guides, time jumps, prop manifest)
       - Every screenplay scene maps to 3–12 shots (typically 3–7), each take ≤328 frames with ≤3 visual references (≤260 with 4+)
       - Every shot has a project-local contract with legal frames and dialogue
 
@@ -115,6 +120,7 @@ stages:
       - script
       - screenplay_treatment
       - scene_plan
+      - story_contract
     produces:
       - continuity_bible
     tools_available: []
@@ -143,6 +149,8 @@ stages:
       - A 480p animatic exists and covers every shot in order
       - Cuts, eyelines and screen direction are reviewed on the animatic, not on isolated stills
       - Repeated/near-identical coverage and missing master shots are flagged
+      - Every complex action beat (drive fish, fall, gift, transformation, farewell) has visible cause and result, not only a result tableau
+      - Every multi-person shot has a blocking guide; the guide is checked before the animatic
       - No render starts before the animatic is pass or explicitly waived
     success_criteria:
       - Schema-valid coverage_audition artifact
@@ -181,7 +189,8 @@ stages:
       - "`<Audio N>` follows the request's voices order and binds `<Subject N>` for every visible speaker; `novel_h3.spec_audit` passes before any render"
       - Every shot declares props/set elements and carries a `Prop lock`; no unlisted table, chair, interior, window or food
       - "Every off-screen dialogue shot is generated silent (`post_dialogue: true`) and post-layered in compose; the visible listener's lips stay closed"
-      - Every multi-person shot uses a Blender blocking guide with the exact authored body count
+      - Every multi-person shot uses a Blender blocking guide with the exact authored body count and set map (boat/bank, room side, no unlisted table/bench/canopy)
+      - Every complex action shot shows the authored action verb; a still tableau that only shows the result is a re-render
       - Strict six-section Ref2VA prompts pass the official validator
     success_criteria:
       - Schema-valid asset_manifest artifact
