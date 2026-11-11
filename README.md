@@ -11,6 +11,16 @@ research → proposal → script → scene_plan → assets → edit → compose 
 每个阶段都有 checkpoint、正式产物和导演技能。工作流入口是 `studio.py`，阶段规范以
 [`openmontage/AGENT_GUIDE.md`](openmontage/AGENT_GUIDE.md) 为准。
 
+## 工作台
+
+Backlot 中文制片看板直接读取 `projects/<id>/` 的阶段检查点、剧本、故事板、镜头版本与决策日志。
+
+![片场 ·《聊斋志异·王六郎（Cinematic）》工作台：8 个阶段、剧本、故事板、决策日志与渲染版本](docs/images/backlot-production.jpg)
+
+剧本审查视图：场次、台词归属与时间窗口。
+
+![剧本审查：场次、角色台词与时间窗口](docs/images/backlot-script.jpg)
+
 ## 当前项目
 
 ```text
