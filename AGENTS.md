@@ -54,8 +54,22 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
 .venv-openmontage/bin/python scripts/render_cinematic_shots.py \
   --project projects/liaozhai-wangliulang-cinematic --force
 
+# Measure takes, align dialogue, rebuild props/captions
+.venv-openmontage/bin/python scripts/qc_cinematic_shots.py \
+  --project projects/liaozhai-wangliulang-cinematic
+.venv-dialogue/bin/python scripts/align_cinematic_dialogue.py \
+  --project projects/liaozhai-wangliulang-cinematic
+.venv-openmontage/bin/python scripts/build_cinematic_edit.py \
+  --project projects/liaozhai-wangliulang-cinematic
+
+# Build the music bed and mix it under the picture
+.venv-openmontage/bin/python scripts/build_cinematic_music_bed.py \
+  --project projects/liaozhai-wangliulang-cinematic
+.venv-openmontage/bin/python scripts/mix_cinematic_audio.py \
+  --project projects/liaozhai-wangliulang-cinematic
+
 # Compose via the OpenMontage tool registry
-.venv-openmontage/bin/python studio.py tool video_compose @compose_payload.json
+.venv-openmontage/bin/python studio.py tool video_compose @compose_picture_payload.json
 ```
 
 ## Cinematic pipeline rules

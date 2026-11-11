@@ -85,28 +85,59 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
 脚本只做批量调度：实际生成由 OpenMontage 的 `fastvideo_h3_video` 工具完成。每次成功后
 会同步 `assets/shots` 与 `public/shots`，并更新 `assets/take_manifest.json` 和 checkpoint。
 
-### 合成
-
-项目使用项目本地 Remotion atelier 合成（`index.tsx` / `Composition.tsx` /
-`public/props.json`），由 OpenMontage `video_compose` 渲染：
-
-```json
-{
-  "operation": "render",
-  "output_path": "projects/liaozhai-wangliulang-cinematic/renders/final.mp4",
-  "edit_decisions": { "render_runtime": "remotion", "composition_mode": "atelier", "...": "..." }
-}
-```
+### 镜头 QC、字幕对齐与剪辑
 
 ```bash
-.venv-openmontage/bin/python studio.py tool video_compose @compose_payload.json
+# 每镜 LUFS / 真峰值 / 对白转写 → artifacts/asset_qc.json
+.venv-openmontage/bin/python scripts/qc_cinematic_shots.py \
+  --project projects/liaozhai-wangliulang-cinematic
+
+# Whisper 词级对齐 → artifacts/asr.json
+.venv-dialogue/bin/python scripts/align_cinematic_dialogue.py \
+  --project projects/liaozhai-wangliulang-cinematic
+
+# 由 QC + ASR + edit_decisions 生成 props / edit_timing / subtitles.srt
+.venv-openmontage/bin/python scripts/build_cinematic_edit.py \
+  --project projects/liaozhai-wangliulang-cinematic
+
+# 检测并裁切 H3 原生字幕镜头（只改 public/shots，保留 assets/shots）
+.venv-dialogue/bin/python scripts/audit_cinematic_assets.py \
+  --project projects/liaozhai-wangliulang-cinematic --crop
 ```
+
+### 音乐床与混音
+
+```bash
+# 按 assets/music/cues.json 生成音乐床（-30 LUFS，4 个 cue）
+.venv-openmontage/bin/python scripts/build_cinematic_music_bed.py \
+  --project projects/liaozhai-wangliulang-cinematic
+```
+
+### 合成
+
+Remotion atelier 只渲染画面 + H3 原生音轨，输出 `renders/wangliulang_picture.mp4`：
+
+```bash
+.venv-openmontage/bin/python studio.py tool video_compose @compose_picture_payload.json
+```
+
+然后把音乐床混入并重新封装：
+
+```bash
+# 提取原生音轨 → 每镜 gain → audio_mixer full_mix（ducking）→ alimiter 封装
+.venv-openmontage/bin/python scripts/mix_cinematic_audio.py \
+  --project projects/liaozhai-wangliulang-cinematic
+```
+
+最终文件是 `renders/wangliulang_final.mp4`，交付副本写到 `exports/wangliulang_final.mp4`。
 
 ### 最终校验
 
-- `ffprobe`：1344×768 / 24fps / H.264 + AAC
-- `subtitle_qc`：没有双层字幕
-- `audio_qc`：对白/音效路由正确
+- `ffprobe`：1344×768 / 24fps / H.264 + AAC 192k
+- `qc_cinematic_shots`：每镜 LUFS / 对白文本比
+- `align_cinematic_dialogue`：Whisper 词级字幕对齐
+- `subtitle_qc`：没有双层字幕；S12/S15/S25/S30 原生字幕已裁切
+- `audio_mix_report`：音乐 bed、ducking、最终响度 / 真峰值
 - `final_review`：画面、音频、字幕、runtime 合同
 
 ## 工作流原则

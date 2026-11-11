@@ -61,7 +61,8 @@ def ocr_band(video: Path, seconds: float, work: Path) -> str:
         row['height'] = max(row['height'], int(parts[8]))
         row['text'] += word
     return ''.join(row['text'] for row in rows.values()
-                   if len(CJK.findall(row['text'])) >= 3 and row['height'] >= 18)
+                   if len(CJK.findall(row['text'])) >= 3 and row['height'] >= 18
+                   and len(set(CJK.findall(row['text']))) >= 2)
 
 
 def scan(video: Path) -> dict:
@@ -110,7 +111,7 @@ def main() -> int:
             crop_for_composition(video, public_dir / f'{sid}.mp4')
             result['cropped_for_composition'] = True
         print(sid, result['verdict'], [hit['text'] for hit in result['hits']], flush=True)
-    out = project / 'artifacts/asset_qc.json'
+    out = project / 'artifacts/asset_caption_qc.json'
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({'version': '1.0', 'shots': report,
                                'caption_shots': [k for k, v in report.items() if v['verdict'] == 'caption']},
