@@ -48,7 +48,8 @@ chain workflow is removed; do not recreate it.
 
 # FastH3 service
 runtime/fastvideo-venv/bin/python start_fastvideo.py \
-  --project projects/liaozhai-wangliulang
+  --project projects/liaozhai-wangliulang-cinematic
+# Full model acquisition/deployment: README.md "模型获取与部署"
 
 # Render the cinematic project's requests one shot at a time
 .venv-openmontage/bin/python scripts/render_cinematic_shots.py \
