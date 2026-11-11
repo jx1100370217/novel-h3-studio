@@ -36,6 +36,9 @@ chain workflow is removed; do not recreate it.
   standard cut schema.
 - **Final audio:** native H3 dialogue/sound effects, music bed ducked under
   speech, subtitles from the project's `.srt` / Remotion props.
+- **Douyin publishing:** use the `douyin-publish` skill
+  (`.agents/skills/douyin-publish/SKILL.md`); it encodes the creator-center
+  flow, correct selectors, cover requirements, and the AI declaration.
 
 ## Commands
 
@@ -71,6 +74,10 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
 
 # Compose via the OpenMontage tool registry
 .venv-openmontage/bin/python studio.py tool video_compose @compose_picture_payload.json
+
+# Generate the poster + Douyin covers (4:3 + 3:4) in one pass.
+# With an approved poster: poster_path. Without one: video_path + poster_time.
+.venv-openmontage/bin/python studio.py tool publish_covers @covers_payload.json
 ```
 
 ## Cinematic pipeline rules
@@ -82,11 +89,14 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
 3. `scene_plan` defines the shot list and the visual/sound intent. `assets`
    must render the project's `assets/requests.json`, not a different prompt
    stack.
-4. `video_compose` is the only final render path. Atelier composition uses the
+4. Whenever the publish poster is produced, immediately generate platform
+   covers with `publish_covers` (4:3 horizontal + 3:4 vertical for Douyin).
+   Upload those covers; never hand-crop on the platform upload page.
+5. `video_compose` is the only final render path. Atelier composition uses the
    project-local `index.tsx` / `Composition.tsx` / `public/props.json`.
-5. Backlot is an observer/approval UI. Keep it Chinese; do not replace it with
+6. Backlot is an observer/approval UI. Keep it Chinese; do not replace it with
    the upstream English UI.
-6. The old `novel-cinematic` coverage/anchor/chain scripts and their pipeline
+7. The old `novel-cinematic` coverage/anchor/chain scripts and their pipeline
    are removed. Do not import them from new work.
 
 ## Project-specific notes

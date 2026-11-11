@@ -168,7 +168,7 @@ CHECK: Output validation
 | G4 | assets | Music alignment, source quality, budget | Revise |
 | G5 | edit | Emotional pacing, timeline | Revise |
 | G6 | compose | Output probe, color grade, audio dynamics | Revise or send-back |
-| G7 | publish | Metadata, poster frame | Revise |
+| G7 | publish | Metadata, poster frame, 4:3/3:4 platform covers | Revise |
 | FINAL | all | Mood coherence, audio, visual polish | Send-back |
 
 ## Execution Limits
