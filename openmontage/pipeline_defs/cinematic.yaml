@@ -277,13 +277,17 @@ stages:
       - script
     produces:
       - publish_log
-    tools_available: []
+    tools_available:
+      - publish_covers
+      - export_bundle
     checkpoint_required: true
     human_approval_default: true
     review_focus:
       - Hero export and derivative exports are clearly labeled
       - Metadata matches the tone and distribution intent
       - Poster-frame or thumbnail concept is coherent
+      - Horizontal 4:3 and vertical 3:4 covers exist and preserve the poster title
     success_criteria:
       - Schema-valid publish_log artifact
       - Export package contains video and metadata outputs
+      - Douyin vertical cover is larger than 600x800
