@@ -375,9 +375,14 @@ class PublishCovers(BaseTool):
             poster_path = poster_out
             files_written.append(str(poster_out))
 
+        cover_suffixes = (
+            ("_cover_4x3.jpg", "_cover_3x4.jpg")
+            if platform == "douyin"
+            else ("_cover_16x9.jpg", "_cover_9x16.jpg")
+        )
         targets = [
-            ("horizontal", horizontal_size, f"{base_name}_cover_4x3.jpg"),
-            ("vertical", vertical_size, f"{base_name}_cover_3x4.jpg"),
+            ("horizontal", horizontal_size, f"{base_name}{cover_suffixes[0]}"),
+            ("vertical", vertical_size, f"{base_name}{cover_suffixes[1]}"),
         ]
         covers: list[dict[str, Any]] = []
         try:

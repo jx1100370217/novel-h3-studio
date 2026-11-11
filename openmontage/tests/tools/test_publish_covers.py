@@ -136,6 +136,23 @@ def test_custom_size_must_keep_platform_aspect(tmp_path):
     assert "aspect ratio" in (result.error or "")
 
 
+def test_generic_platform_uses_16x9_names(tmp_path):
+    poster = tmp_path / "demo_poster.jpg"
+    _make_poster(poster)
+
+    result = PublishCovers().execute(
+        {
+            "poster_path": str(poster),
+            "output_dir": str(tmp_path / "exports"),
+            "base_name": "demo",
+            "platform": "generic",
+        }
+    )
+    assert result.success is True, result.error
+    names = [Path(cover["path"]).name for cover in result.data["covers"]]
+    assert names == ["demo_cover_16x9.jpg", "demo_cover_9x16.jpg"]
+
+
 def test_poster_frame_from_video(tmp_path):
     video = tmp_path / "renders" / "final.mp4"
     _make_video(video)
