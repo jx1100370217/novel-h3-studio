@@ -99,4 +99,28 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
 - FastH3 request payloads use `reference_image_paths` (≤3), optional
   `reference_audio_paths` (≤3), on the `17n+5` frame grid.
 
+## Codex CLI / ChatGPT image auth (2026-11-11 incident)
+
+- The terminal does **not** inherit the desktop Codex app's network proxy.
+  Before any `codex` command, export
+  `HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 ALL_PROXY=http://127.0.0.1:7897`.
+- Do **not** run `codex login --device-auth` to "refresh" a working CLI session.
+  It deletes `~/.codex/auth.json` and leaves the CLI logged out until the device
+  code is completed; the desktop app's login is a separate credential store.
+  Back up `~/.codex/auth.json` first if a re-login is truly required.
+- Before reusing existing character/scene reference images, verify their
+  provenance (which image model generated them). Do not silently substitute
+  local MiniMax H3 images when the user asked for ChatGPT Image 2.5.
+- `codex_image` needs a model supported by the current ChatGPT account. Verify
+  with a one-image sample before batching; `gpt-6.1-sol` / `gpt-6-luna` may be
+  rejected with `model_not_found` on a ChatGPT plan.
+
+## 提交规范（强制）
+
+- 所有 Git commit message 一律使用中文，不使用英文标题或英文正文。
+- 不带英文类型前缀；直接写中文，例如：
+  `文档：记录 Codex 图像鉴权与参考图来源规则`
+- 代码、配置、文档、脚本的提交都适用；如果需要说明范围，用中文括号，例如：
+  `修复（FastH3）：重启服务后等待健康检查`
+
 Structural checks do not replace human story/audio review.
