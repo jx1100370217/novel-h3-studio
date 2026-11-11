@@ -63,7 +63,10 @@ if __name__ == '__main__':
         Path(profile['model_dir']) / 'vae_decoder_nvfp4/decoder-nvfp4.safetensors')
     recipe['server'].update(host='127.0.0.1', port=8195,
         output_dir=str(REPO / 'runtime/fastvideo-output'), served_model_name='fasth3-omni-nvfp4-qad',
-        media_roots=[str((REPO / 'projects').resolve()), str((REPO / 'runtime').resolve())])
+        media_roots=[str((REPO / 'projects').resolve()), str((REPO / 'runtime').resolve()),
+                     *[str(Path(entry).expanduser().resolve())
+                       for entry in os.environ.get('FASTVIDEO_EXTRA_MEDIA_ROOTS', '').split(os.pathsep)
+                       if entry.strip()]])
     config_path = REPO / 'runtime/fastvideo-rtx5090.yaml'
     config_path.write_text(yaml.safe_dump(recipe, sort_keys=False))
     # Apply the maintained official profile without composing/downloading a second model.
