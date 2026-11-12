@@ -99,6 +99,19 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
 7. The old `novel-cinematic` coverage/anchor/chain scripts and their pipeline
    are removed. Do not import them from new work.
 
+## 视频审片规则（强制）
+
+- **禁止只抽 2–3 帧就判断一条生成视频的动作是否正确。** 动作可能发生在开头或结尾；固定时间点抽样会漏掉整段表演。
+- 每条 take 的动作审片必须生成覆盖**完整时间线**的 contact sheet，至少 2 fps，且必须包含首帧与末帧；必要时用 0.5 秒间隔复核。
+- 对白/表演镜头必须逐项检查：动作起点、动作过程、说台词时的身体朝向与视线、结束状态；不能只看“整体构图”。
+- 在声称某个动作缺失、错误或需要重拍之前，必须先用完整时间线复核。只看过局部帧时，不得下结论。
+- QC 记录必须写明抽帧时间点；审片结论必须能追溯到具体帧。
+- 快速生成全时间线审片图：
+  ```bash
+  ffmpeg -i <take>.mp4 -vf "fps=2,scale=420:-1,tile=5x4" -frames:v 1 review_sheet.jpg -y
+  ```
+- **案例（S20，2026-11-12）**：只抽 2s / 5s / 8.5s 三帧，漏掉了 0–1s 的敲门动作，误判为“没有敲门”。实际动作存在，真正的问题是喊“救命”时没有面向庙门。此后同类判断必须先看完整时间线。
+
 ## Project-specific notes
 
 - `projects/liaozhai-wangliulang-cinematic` is the approved Wang Liulang
