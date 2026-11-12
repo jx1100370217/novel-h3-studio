@@ -137,6 +137,13 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
   Review a one-image sample before batching, and clear/replace any reference
   whose face no longer matches the master.
 
+## 发布文案规范（强制）
+
+- 作品发布描述只写观众向的故事钩子、看点和情绪，不写制作技术说明。
+- 不写模型名、H3、原生对白/音效、旁白条数、分辨率、时长、帧率、参考图流程等
+  内部信息；这些留在项目 README、artifacts 和复盘里。
+- 发布描述保持 2–4 句，话题 3–5 个，AI 作品仍必须带“内容由AI生成”声明。
+
 ## 提交规范（强制）
 
 - 所有 Git commit message 一律使用中文，不使用英文标题或英文正文。

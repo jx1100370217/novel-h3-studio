@@ -40,7 +40,9 @@ description: 将 OpenMontage 成片发布到抖音创作者中心网页版，包
    ffprobe -v error -select_streams v:0 \
      -show_entries stream=width,height -of csv=p=0 <cover>
    ```
-4. 准备文案。优先读 `exports/<name>_metadata.json` 或
+4. 准备文案。**只写观众向的故事钩子、看点和情绪**；不要写模型名、H3、
+   原生对白/音效、旁白条数、分辨率、时长、帧率、参考图流程等制作说明。
+   优先读 `exports/<name>_metadata.json` 或
    `checkpoint_publish.json` 的 `metadata_used`：
    - 标题 ≤ 30 字；
    - 简介 ≤ 1000 字，2–4 句，不编造原文没有的信息；
