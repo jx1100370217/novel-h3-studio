@@ -74,6 +74,10 @@ class CodexImageTool(BaseTool):
                 "default": "gpt-6-luna",
                 "description": "Codex model that can call the built-in image_gen tool.",
             },
+            "image_model": {
+                "type": "string",
+                "description": "Exact ChatGPT image model for the built-in image_gen tool, e.g. gpt-image-2.5-sunburst.",
+            },
             "codex_bin": {"type": "string", "default": "codex"},
             "extra_instructions": {"type": "string"},
         },
@@ -134,8 +138,9 @@ class CodexImageTool(BaseTool):
         codex_bin = inputs.get("codex_bin") or shutil.which("codex") or "codex"
         timeout = int(inputs.get("timeout_seconds", 900))
 
+        image_model = inputs.get("image_model")
         instruction = self._build_instruction(
-            prompt, output_path, bool(references), inputs.get("extra_instructions")
+            prompt, output_path, bool(references), inputs.get("extra_instructions"), image_model
         )
 
         workdir = output_path.parent if os.access(output_path.parent, os.W_OK) else Path("/tmp")
@@ -210,14 +215,14 @@ class CodexImageTool(BaseTool):
                 "bytes": output_path.stat().st_size,
                 "sha256": data,
                 "provider": "codex_subscription",
-                "model": model,
-                "model": "gpt-image-2.5",
+                "model": image_model or "gpt-image-2.5",
+                "codex_model": model,
                 "reference_count": len(references),
             },
             artifacts=[str(output_path)],
             cost_usd=0.0,
             duration_seconds=round(time.time() - start, 2),
-            model="gpt-image-2.5",
+            model=image_model or "gpt-image-2.5",
         )
 
     def _build_instruction(
@@ -226,11 +231,12 @@ class CodexImageTool(BaseTool):
         output_path: Path,
         has_references: bool,
         extra: str | None,
+        image_model: str | None = None,
     ) -> str:
         lines = [
             "Use the built-in image_gen tool to produce exactly one image.",
-            f"Image prompt: {prompt}",
         ]
+        lines.append(f"Image prompt: {prompt}")
         if has_references:
             lines.append(
                 "The attached images are style/identity references, not edit targets. "

@@ -124,6 +124,18 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
 - `codex_image` needs a model supported by the current ChatGPT account. Verify
   with a one-image sample before batching; `gpt-6.1-sol` / `gpt-6-luna` may be
   rejected with `model_not_found` on a ChatGPT plan.
+- **Image model (2026-11-12):** the local Codex subscription exposes ChatGPT
+  Image 2.5 Sunburst. The CLI's built-in `image_gen` has no model selector;
+  asking it to use `gpt-image-2.6-sunburst` is rejected as unverifiable. Use
+  `codex_image` with `image_model="gpt-image-2.5-sunburst"` for metadata and let
+  the subscription default generate; do not put a model-selection sentence in
+  the prompt.
+- **Character consistency protocol:** keep one face-crop master per character
+  (`assets/refs/faces/<name>_face.png`). Generate costume variants and group
+  images from that face master with explicit mapping ("Image 1 = face identity;
+  Image 2 = costume only"); never let a group reference supply a named face.
+  Review a one-image sample before batching, and clear/replace any reference
+  whose face no longer matches the master.
 
 ## 提交规范（强制）
 

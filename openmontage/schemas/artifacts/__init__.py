@@ -16,6 +16,7 @@ ARTIFACT_NAMES = [
     "brief",
     "script",
     "screenplay_treatment",
+    "screenplay",
     "character_design",
     "rig_plan",
     "pose_library",
