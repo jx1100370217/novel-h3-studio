@@ -109,33 +109,95 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
 - FastH3 request payloads use `reference_image_paths` (≤3), optional
   `reference_audio_paths` (≤3), on the `17n+5` frame grid.
 
-## Codex CLI / ChatGPT image auth (2026-11-11 incident)
+## Codex CLI / ChatGPT Image 2.5 Sunburst 配置
 
-- The terminal does **not** inherit the desktop Codex app's network proxy.
-  Before any `codex` command, export
-  `HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 ALL_PROXY=http://127.0.0.1:7897`.
-- Do **not** run `codex login --device-auth` to "refresh" a working CLI session.
-  It deletes `~/.codex/auth.json` and leaves the CLI logged out until the device
-  code is completed; the desktop app's login is a separate credential store.
-  Back up `~/.codex/auth.json` first if a re-login is truly required.
-- Before reusing existing character/scene reference images, verify their
-  provenance (which image model generated them). Do not silently substitute
-  local MiniMax H3 images when the user asked for ChatGPT Image 2.5.
-- `codex_image` needs a model supported by the current ChatGPT account. Verify
-  with a one-image sample before batching; `gpt-6.1-sol` / `gpt-6-luna` may be
-  rejected with `model_not_found` on a ChatGPT plan.
-- **Image model (2026-11-12):** the local Codex subscription exposes ChatGPT
-  Image 2.5 Sunburst. The CLI's built-in `image_gen` has no model selector;
-  asking it to use `gpt-image-2.6-sunburst` is rejected as unverifiable. Use
-  `codex_image` with `image_model="gpt-image-2.5-sunburst"` for metadata and let
-  the subscription default generate; do not put a model-selection sentence in
-  the prompt.
-- **Character consistency protocol:** keep one face-crop master per character
-  (`assets/refs/faces/<name>_face.png`). Generate costume variants and group
-  images from that face master with explicit mapping ("Image 1 = face identity;
-  Image 2 = costume only"); never let a group reference supply a named face.
-  Review a one-image sample before batching, and clear/replace any reference
-  whose face no longer matches the master.
+本地参考图使用 **Codex 订阅里的 ChatGPT Image 2.5（Sunburst）**，不经过
+OpenAI API key，也不走 OpenCode 图像 provider。工具入口是
+`codex_image`（`openmontage/tools/graphics/codex_image.py`）。
+
+### 1. 前置条件
+
+- 本机已安装 Codex CLI，并已用 ChatGPT/Codex 计划登录：
+  ```bash
+  codex --version
+  codex login status     # 期望输出：Logged in using ChatGPT
+  ```
+- 终端不会继承桌面 Codex 客户端的代理。跑任何 `codex` 命令前先导出：
+  ```bash
+  export HTTPS_PROXY=http://127.0.0.1:7897
+  export HTTP_PROXY=http://127.0.0.1:7897
+  export ALL_PROXY=http://127.0.0.1:7897
+  ```
+  代理地址按本机实际配置调整；不要把凭据或代理写进仓库。
+- 如果 `codex login status` 不是已登录：先设置代理，再执行
+  `codex login --device-auth`，打开它给出的 URL 输入一次性代码。
+  **不要**为了“刷新”而先删 `~/.codex/auth.json`；该文件是 CLI 的凭据，
+  删除会让 CLI 立刻变成未登录。确需重登时先备份：
+  ```bash
+  cp ~/.codex/auth.json ~/.codex/auth.json.bak
+  ```
+
+### 2. 调用方式
+
+`codex_image` 的 `model` 是“能调用内置 image_gen 的 Codex 文本模型”，
+默认 `gpt-6-luna`；`image_model` 只是记录本次生成使用的图像模型
+（`gpt-image-2.5-sunburst`），**不是** CLI 的模型选择参数。
+
+```json
+{
+  "prompt": "Use the attached head-and-shoulders portrait as the absolute identity reference...",
+  "output_path": "projects/<project-id>/assets/refs/<name>.png",
+  "reference_paths": [
+    "projects/<project-id>/assets/refs/faces/<name>_face.png"
+  ],
+  "model": "gpt-6-luna",
+  "image_model": "gpt-image-2.5-sunburst",
+  "timeout_seconds": 900,
+  "extra_instructions": "Image 1 is the absolute face identity; preserve the face exactly."
+}
+```
+
+```bash
+HTTPS_PROXY=http://127.0.0.1:7897 HTTP_PROXY=http://127.0.0.1:7897 ALL_PROXY=http://127.0.0.1:7897 .venv-openmontage/bin/python studio.py tool codex_image @ref_payload.json
+```
+
+成功时返回 `provider=codex_subscription`、`model=gpt-image-2.5-sunburst`。
+Codex 内置 `image_gen` 没有暴露图像模型选择器，实际生成使用订阅默认的
+2.5 图像模型；不要在 prompt 里写“请使用 gpt-image-2.6-sunburst”之类的
+模型选择句，Codex agent 会拒绝执行。
+
+### 3. 参考图一致性协议（强制）
+
+1. 每个角色先有且只有一张脸部主参考：
+   `assets/refs/faces/<name>_face.png`。
+2. 官服、群像、变体只从这张脸做“换装/换场景”，不重新文生图一个“同名人”。
+3. 多参考图必须显式逐人绑定：
+   - `Image 1 = Song Gong face identity`
+   - `Image 2 = official robe/pose only`
+   - `Image 3 = horse/prop only`
+4. 群像图不要让“群像参考”决定名字脸；群像只提供构图。视频提示词只绑定
+   个人参考。
+5. 先出一张样图，人工确认脸、年龄、胡须、服装；通过后再批量。
+6. 发现脸漂移就清掉旧图，放入 `assets/refs/inconsistent_backup/`，用脸部
+   主参考重生成；不要用裁剪或换脸去掩盖身份错误。
+
+### 4. 常见故障
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `401 Missing bearer authentication` | CLI 没有有效 auth | 设置代理后 `codex login status`；未登录则设备登录 |
+| `403 Forbidden` / `workspace routing timed out` | 终端没走代理或工作区不可达 | 导出 `HTTPS_PROXY` 后重试 |
+| `model_not_found` | Codex 文本模型不可用 | 用 `model: "gpt-6-luna"` |
+| “无法核验 gpt-image-2.6-sunburst” | 本地 CLI 未暴露 2.6 | 改用 2.5 Sunburst；不要伪造 2.6 |
+| 生成了图但脸不对 | 身份参考不够近 | 用脸部特写 `faces/<name>_face.png` 重生成 |
+
+### 5. 成本与边界
+
+- 走 ChatGPT/Codex 订阅额度，不产生 OpenAI API 账单；仍然消耗订阅配额，
+  批量前先出一张样图。
+- 不要声称 CLI 能精确切换 Flare/Sunburst；本机当前实际是 2.5 订阅默认。
+- 参考图是生产资产，输出必须落在 `projects/<id>/assets/refs/`；
+  生成后做 contact sheet 人工复核。
 
 ## 发布文案规范（强制）
 

@@ -476,6 +476,49 @@ uv pip install faster-whisper numpy
 `docs/FastVideo基准接入.md` 中的 ComfyUI FastH3-8-Step-V2 单文件模型只用于历史速度基准，
 不是 cinematic 生产链路依赖。
 
+## 参考图生成：ChatGPT Image 2.5 Sunburst（Codex 订阅）
+
+本仓库的人物/场景参考图使用本地 Codex 订阅里的 ChatGPT Image 2.5
+Sunburst，不走 OpenAI API key，也不走 OpenCode 图像 provider。
+
+```bash
+# 1. Codex CLI 已用 ChatGPT 计划登录
+codex --version
+codex login status          # 期望：Logged in using ChatGPT
+
+# 2. 终端代理（桌面 Codex 的代理不会自动继承）
+export HTTPS_PROXY=http://127.0.0.1:7897
+export HTTP_PROXY=http://127.0.0.1:7897
+export ALL_PROXY=http://127.0.0.1:7897
+
+# 3. 通过注册工具生成一张参考图
+.venv-openmontage/bin/python studio.py tool codex_image @ref_payload.json
+```
+
+`ref_payload.json` 的关键字段：
+
+```json
+{
+  "prompt": "Use the attached head-and-shoulders portrait as the absolute identity reference...",
+  "output_path": "projects/<project-id>/assets/refs/<name>.png",
+  "reference_paths": ["projects/<project-id>/assets/refs/faces/<name>_face.png"],
+  "model": "gpt-6-luna",
+  "image_model": "gpt-image-2.5-sunburst",
+  "timeout_seconds": 900,
+  "extra_instructions": "Image 1 is the absolute face identity; preserve the face exactly."
+}
+```
+
+`model` 是调用内置 image_gen 的 Codex 文本模型；`image_model` 只记录本次
+使用的图像模型，不是 CLI 的选择参数。Codex 内置 `image_gen` 没有模型
+选择器，实际使用订阅默认的 2.5 图像模型；不要在 prompt 里写
+“请使用 gpt-image-2.6-sunburst”，否则 Codex agent 会拒绝执行。
+
+一致性协议：每个角色先做 `assets/refs/faces/<name>_face.png` 脸部主参考；
+官服/群像只从脸部主参考换装、换场景，逐人显式绑定；先出样图再批量；脸漂移
+的旧图移入 `assets/refs/inconsistent_backup/`。完整配置、故障排查与边界见
+`AGENTS.md` 的「Codex CLI / ChatGPT Image 2.5 Sunburst 配置」。
+
 ## 模型运行时
 
 `novel_h3/` 只保留本地模型服务所需的模块：
