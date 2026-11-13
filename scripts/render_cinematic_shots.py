@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -60,6 +61,55 @@ def dump(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
 
+def voice_binding_errors(sid: str, request: dict) -> list[str]:
+    """Every H3 shot with spoken dialogue must bind each line to a voice reference.
+
+    This is a hard contract, not a repair step after a lip-sync failure.  A
+    dialogue prompt without ``reference_audio_paths`` or without an explicit
+    ``(Sx) <Audio N>`` binding immediately before every ``<d>`` line is rejected
+    before the GPU service is touched.
+    """
+    prompt = str(request.get('prompt') or '')
+    if '<d>' not in prompt:
+        return []
+    problems: list[str] = []
+    paths = [str(p) for p in (request.get('reference_audio_paths') or [])]
+    labels = sorted({int(n) for n in re.findall(r'<Audio (\d+)>', prompt)})
+    if not paths:
+        problems.append(f'{sid}: dialogue prompt has no reference_audio_paths')
+    if not labels:
+        problems.append(f'{sid}: dialogue prompt has no <Audio N> labels')
+    if paths and labels and max(labels) > len(paths):
+        problems.append(
+            f'{sid}: <Audio {max(labels)}> exceeds {len(paths)} reference audio file(s)'
+        )
+    for raw in paths:
+        if not Path(raw).expanduser().is_file():
+            problems.append(f'{sid}: reference audio does not exist: {raw}')
+
+    definitions = prompt.split('subject_definitions:', 1)[-1].split('summary:', 1)[0]
+    summary = prompt.split('summary:', 1)[-1].split('retention_analysis:', 1)[0]
+    if 'audio reference' not in summary.lower() and 'audio reuse' not in summary.lower():
+        problems.append(f'{sid}: summary lacks the [audio reference] task marker')
+    for number in labels:
+        if f'<Audio {number}>' not in definitions:
+            problems.append(f'{sid}: <Audio {number}> is not defined in subject_definitions')
+        if not re.search(
+            rf'<Audio {number}>: (?:fully_copy|partially_copy|reference|weak_reference) - ',
+            prompt,
+        ):
+            problems.append(f'{sid}: <Audio {number}> has no retention relationship')
+
+    for index, match in enumerate(re.finditer(r'<d>', prompt), 1):
+        prefix = prompt[max(0, match.start() - 320):match.start()]
+        if not re.search(r'\((S\d+)\)\s*<Audio (\d+)>[^\n]{0,140}$', prefix):
+            problems.append(
+                f'{sid}: dialogue line {index} lacks an explicit (Sx) <Audio N> binding'
+            )
+    return problems
+
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project', type=Path, required=True)
@@ -74,6 +124,19 @@ def main() -> int:
     project = args.project.resolve()
     requests = load(project / 'assets/requests.json')
     wanted = [s.strip() for s in args.shots.split(',') if s.strip()] or sorted(requests)
+    binding_problems: list[str] = []
+    for sid in wanted:
+        if sid not in requests:
+            binding_problems.append(f'{sid}: missing from assets/requests.json')
+            continue
+        binding_problems.extend(voice_binding_errors(sid, requests[sid]))
+    if binding_problems:
+        for problem in binding_problems:
+            log('VOICE-BINDING ' + problem)
+        raise SystemExit(
+            'Refusing to render: every shot with spoken dialogue must define '
+            'reference_audio_paths and bind each <d> line to (Sx) <Audio N>.'
+        )
     staged = project / 'assets/shots_new'
     jobs = project / 'assets/jobs'
     staged.mkdir(parents=True, exist_ok=True)

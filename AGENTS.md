@@ -115,11 +115,14 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
 ## FastH3 生成与字幕清理规则（强制）
 
 - **近景用脸部主参考**：特写/近景绑定 `assets/refs/faces/<name>_face.png`；全身参考只用于中远景。全身图的脸太小，近景会漂移成另一张脸。
-- **对口型错配先用参考音频做强绑定，不要默认切单人近景**：每句对白在提示词里写成
-  `<Subject N> (Sx) <Audio M>: <d>[Chinese] ...</d>`，并在 `subject_definitions`
-  定义 `<Audio M>` 是 `<Subject N> (Sx)` 的音色参考；`retention_analysis` 用
-  `reference`，明确只借音色/节奏、不复制参考录音。多人对白镜头优先保留双人/群像构图，
-  用音频绑定和“说话者才动嘴、听者闭嘴”约束解决，而不是把每个说话人都切成单人特写。
+- **所有含对白的 H3 分镜必须做强绑定（无条件，不等出错）**：每个说话角色先有
+  `assets/voices/<name>_ref.wav` 音色参考；每句对白写成
+  `<Subject N> (Sx) <Audio M>: <d>[Chinese] ...</d>`；`subject_definitions` 定义
+  `<Audio M>` 是 `<Subject N> (Sx)` 的音色参考；`retention_analysis` 用 `reference`，
+  只借音色/节奏，不复制参考录音。多人口型镜头保留双人/群像构图，用音频绑定和
+  “说话者才动嘴、听者闭嘴”约束解决，不默认切单人特写。
+  `scripts/render_cinematic_shots.py` 在启动 FastH3 前强制预检：缺少
+  `reference_audio_paths`、`<Audio N>` 或每句 `(Sx) <Audio N>` 绑定的项目直接拒绝渲染。
 - **每镜 1–2 个命名角色**：需要 3 人以上或复杂动作时，拆成近景、反应镜、阴影/画外音，不要让 H3 在一个镜头里完成多人调度。
 - **恐怖动作靠镜头语法**：优先拍头部突然转动、手/指甲、影子、门缝、反应脸和画外声；不要依赖全身“走过去/扑过去”的僵硬动作。
 - **原生字幕用字形蒙版清理**：不要把整条底部压黑。用
