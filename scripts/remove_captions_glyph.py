@@ -150,13 +150,35 @@ def main() -> int:
             log(f"MISSING {sid} ({index}/{len(wanted)})")
             continue
         output = out_dir / f"{sid}.mp4"
-        if output.is_file() and output.stat().st_mtime >= video.stat().st_mtime and not args.force:
-            log(f"SKIP {sid} (already cleaned)")
-            rows.append({"shot": sid, "method": "skip"})
-            continue
+        marker_dir = out_dir / ".caption_cleanup"
+        marker = marker_dir / f"{sid}.json"
+        source_stat = video.stat()
+        if marker.is_file() and not args.force:
+            try:
+                previous = json.loads(marker.read_text(encoding="utf-8"))
+            except Exception:
+                previous = {}
+            if (previous.get("source_size") == source_stat.st_size
+                    and previous.get("source_mtime") == source_stat.st_mtime
+                    and output.is_file()):
+                log(f"SKIP {sid} (already cleaned for this source take)")
+                rows.append({"shot": sid, "method": "skip"})
+                continue
         log(f"CLEAN {sid} ({index}/{len(wanted)})")
-        rows.append(clean_video(video, output, lama, args))
-        log(f"  cleaned {rows[-1].get('cleaned_frames', 0)}/{rows[-1].get('frames', 0)} frames")
+        result = clean_video(video, output, lama, args)
+        rows.append(result)
+        marker_dir.mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps({
+            "shot": sid,
+            "source": str(video),
+            "source_size": source_stat.st_size,
+            "source_mtime": source_stat.st_mtime,
+            "output": str(output),
+            "method": result.get("method"),
+            "cleaned_frames": result.get("cleaned_frames"),
+            "frames": result.get("frames"),
+        }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        log(f"  cleaned {result.get('cleaned_frames', 0)}/{result.get('frames', 0)} frames")
     report = project / "artifacts/caption_cleanup.json"
     report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(json.dumps({"version": "1.0", "shots": rows}, ensure_ascii=False, indent=2) + "\n",
