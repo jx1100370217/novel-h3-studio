@@ -112,6 +112,20 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
   ```
 - **案例（S20，2026-11-12）**：只抽 2s / 5s / 8.5s 三帧，漏掉了 0–1s 的敲门动作，误判为“没有敲门”。实际动作存在，真正的问题是喊“救命”时没有面向庙门。此后同类判断必须先看完整时间线。
 
+## FastH3 生成与字幕清理规则（强制）
+
+- **近景用脸部主参考**：特写/近景绑定 `assets/refs/faces/<name>_face.png`；全身参考只用于中远景。全身图的脸太小，近景会漂移成另一张脸。
+- **每镜 1–2 个命名角色**：需要 3 人以上或复杂动作时，拆成近景、反应镜、阴影/画外音，不要让 H3 在一个镜头里完成多人调度。
+- **恐怖动作靠镜头语法**：优先拍头部突然转动、手/指甲、影子、门缝、反应脸和画外声；不要依赖全身“走过去/扑过去”的僵硬动作。
+- **原生字幕用字形蒙版清理**：不要把整条底部压黑。用
+  ```bash
+  .venv-dialogue/bin/python scripts/remove_captions_glyph.py --project projects/<id>
+  ```
+  只检测白色字形、膨胀后 LaMa 修补，输出到 `public/shots`，原始 take 留在 `assets/shots`。
+- **长批量每镜重启 FastH3**：`render_cinematic_shots.py --service-unit om-fastvideo --restart-every 1`；失败后也重启。主机 swap 接近满时先释放内存再提交。
+- **scene_plan 的每个 shot 必须有 `duration_seconds`**；旧文件缺字段时，脚本会回退到 `frames/24`，不要再让 align/edit 因 KeyError 中断。
+- **QC/对齐用 `.venv-dialogue`**：`qc_cinematic_shots.py` 和 `align_cinematic_dialogue.py` 依赖 `faster_whisper`，`.venv-openmontage` 里没有。
+
 ## Project-specific notes
 
 - `projects/liaozhai-wangliulang-cinematic` is the approved Wang Liulang
