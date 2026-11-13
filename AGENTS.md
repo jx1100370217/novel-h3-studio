@@ -126,6 +126,14 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
 - **scene_plan 的每个 shot 必须有 `duration_seconds`**；旧文件缺字段时，脚本会回退到 `frames/24`，不要再让 align/edit 因 KeyError 中断。
 - **QC/对齐用 `.venv-dialogue`**：`qc_cinematic_shots.py` 和 `align_cinematic_dialogue.py` 依赖 `faster_whisper`，`.venv-openmontage` 里没有。
 
+## 配乐定制规则（强制）
+
+- **每部影片的配乐必须按题材、时代、地域、情绪曲线和声音设计重新定制**；不得默认复用上一部影片的 `music bed`、`cues.json` 或同一组曲目。
+- 在 proposal/asset 阶段写明本片的音乐方向：乐器、音色、能量、进入/退出点、静默窗口；再按该方向选曲或生成。
+- 复用已有曲目时必须在 `decision_log` 记录理由，并确认它符合本片风格；不能因为“现成”而复用。
+- 恐怖片优先低频 drone、呼吸/金属/木质纹理、画外声与静默；古装/志怪按时代与地域选乐器，避免把“古琴 + 箫”当成所有聊斋片的默认配乐。
+- 音乐床的 cue 表、来源、许可证和最终混音报告随项目保存，作为下一部影片的反例/参考，而不是模板。
+
 ## Project-specific notes
 
 - `projects/liaozhai-wangliulang-cinematic` is the approved Wang Liulang
