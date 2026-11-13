@@ -115,6 +115,11 @@ def main() -> int:
         if result is None or not result.success or not (staged / f'{sid}.mp4').is_file():
             failures.append({'shot': sid, 'error': getattr(result, 'error', 'no result')})
             dump(failure_path, failures)
+            if args.service_unit:
+                try:
+                    restart_service(args.service_unit)
+                except Exception as exc:
+                    log(f'WARN restart after failure failed: {exc}')
             continue
         final_take.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(staged / f'{sid}.mp4', final_take)

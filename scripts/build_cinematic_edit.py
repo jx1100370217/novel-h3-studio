@@ -122,6 +122,15 @@ def shot_gain(lufs: float | None, has_dialogue: bool) -> float:
     return round(min(cap, max(1.0, 10 ** ((target - lufs) / 20))), 3)
 
 
+def shot_seconds(shot: dict) -> float:
+    """Duration in seconds, tolerating older scene plans without the field."""
+    if shot.get('duration_seconds') is not None:
+        return float(shot['duration_seconds'])
+    if shot.get('frames') is not None:
+        return float(shot['frames']) / FPS
+    return float(shot['end_seconds']) - float(shot['start_seconds'])
+
+
 def srt_time(seconds: float) -> str:
     milliseconds = int(round(max(0.0, seconds) * 1000))
     hours, rest = divmod(milliseconds, 3_600_000)
@@ -159,7 +168,7 @@ def main() -> int:
         if not video.is_file():
             raise SystemExit(f'missing take: {sid}')
         cut = cuts.get(sid) or {}
-        duration = float(cut.get('out_seconds') or spec['duration_seconds'])
+        duration = float(cut.get('out_seconds') or shot_seconds(spec))
         duration -= float(cut.get('in_seconds') or 0.0)
         frames = int(round(duration * FPS))
         fade_in = int(round(float(cut.get('transition_duration') or 0) * FPS)) \

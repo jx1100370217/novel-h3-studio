@@ -110,8 +110,17 @@ def align(lines: list[str], segments: list[dict]) -> list[dict] | None:
     return best
 
 
+def shot_seconds(shot: dict) -> float:
+    """Duration in seconds, tolerating older scene plans without the field."""
+    if shot.get('duration_seconds') is not None:
+        return float(shot['duration_seconds'])
+    if shot.get('frames') is not None:
+        return float(shot['frames']) / 24.0
+    return float(shot['end_seconds']) - float(shot['start_seconds'])
+
+
 def shot_durations(scene_plan: dict, edit_decisions: dict | None) -> dict[str, float]:
-    durations = {shot['id']: float(shot['duration_seconds'])
+    durations = {shot['id']: shot_seconds(shot)
                  for shot in scene_plan['metadata']['shots']}
     cuts = (edit_decisions or {}).get('cuts') or []
     for cut in cuts:
