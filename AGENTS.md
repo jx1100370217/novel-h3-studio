@@ -124,7 +124,7 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
   `scripts/render_cinematic_shots.py` 在启动 FastH3 前强制预检：缺少
   `reference_audio_paths`、`<Audio N>` 或每句 `(Sx) <Audio N>` 绑定的项目直接拒绝渲染。
 - **每镜 1–2 个命名角色**：需要 3 人以上或复杂动作时，拆成近景、反应镜、阴影/画外音，不要让 H3 在一个镜头里完成多人调度。
-- **恐怖动作靠镜头语法**：优先拍头部突然转动、手/指甲、影子、门缝、反应脸和画外声；不要依赖全身“走过去/扑过去”的僵硬动作。
+- **恐怖动作靠镜头语法**：优先拍头部突然转动、手/指甲、影子、门缝、反应脸、POV/手持追逐、负空间和突然贴近；用硬切与声音/静默制造节奏，不要依赖全身“走过去/扑过去”的僵硬动作。说话人的对白必须由画面内本人嘴部承担；女鬼/怪物不能替人说话，必要时只拍她的手/身体，把脸移出画外。
 - **原生字幕用字形蒙版清理**：不要把整条底部压黑。用
   ```bash
   .venv-dialogue/bin/python scripts/remove_captions_glyph.py --project projects/<id>

@@ -28,6 +28,11 @@ def main() -> int:
     cues_path = args.cues or project / 'assets/music/cues.json'
     output = args.output or project / 'assets/music/music_bed.wav'
     cues = load(cues_path)
+    if isinstance(cues, dict) and cues.get('custom_bed'):
+        if not output.is_file():
+            raise SystemExit(f'custom bed declared but missing: {output}')
+        print(f'custom bed declared in {cues_path}; leaving {output} untouched')
+        return 0
     timing = load(project / 'artifacts/edit_timing.json')
     total = float(timing['total_seconds'])
     starts = {shot['id']: float(shot['start']) for shot in timing['shots']}
