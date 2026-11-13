@@ -71,6 +71,8 @@ def main() -> int:
     parser.add_argument('--output', type=Path, default=None)
     parser.add_argument('--music', type=Path, default=None)
     parser.add_argument('--target-lufs', type=float, default=None)
+    parser.add_argument('--limiter', type=float, default=0.70,
+                        help='final alimiter ceiling as a linear value (0-1); 0.89 is about -1 dBFS')
     parser.add_argument('--music-volume', type=float, default=None)
     parser.add_argument('--duck-volume', type=float, default=None)
     parser.add_argument('--attack-ms', type=float, default=None)
@@ -91,6 +93,7 @@ def main() -> int:
                  else float(duck_config.get('attack_ms', 250)))
     release_ms = (args.release_ms if args.release_ms is not None
                   else float(duck_config.get('release_ms', 700)))
+    limiter_ceiling = min(max(float(args.limiter), 0.05), 1.0)
     target_lufs = (args.target_lufs if args.target_lufs is not None
                    else float((edit_decisions.get('metadata') or {}).get('loudnorm_target', -16)))
     picture = (args.picture or project / 'renders/wangliulang_picture.mp4').resolve()
@@ -145,7 +148,7 @@ def main() -> int:
     subprocess.run(
         ['ffmpeg', '-v', 'error', '-y', '-i', str(picture), '-i', str(mix_path),
          '-map', '0:v', '-map', '1:a', '-c:v', 'copy',
-         '-af', 'alimiter=limit=0.70:level=false',
+         '-af', f'alimiter=limit={limiter_ceiling:.3f}:level=false',
          '-c:a', 'aac', '-b:a', '192k', '-shortest', str(output)], check=True)
 
     lufs, peak = loudness(output)
@@ -161,7 +164,8 @@ def main() -> int:
         'loudnorm_target': target_lufs,
         'integrated_lufs': lufs,
         'true_peak_dbfs': peak,
-        'limiter': 'alimiter=limit=0.70:level=false',
+        'limiter': f'alimiter=limit={limiter_ceiling:.3f}:level=false',
+        'limiter_ceiling': limiter_ceiling,
     }
     dump(project / 'artifacts/audio_mix_report.json', report)
     log(f'FINAL {output} {report["duration_seconds"]:.3f}s '
