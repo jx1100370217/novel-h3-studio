@@ -152,6 +152,8 @@ def main() -> int:
     edit_decisions = load(project / 'artifacts/edit_decisions.json')
     existing_path = project / 'public/props.json'
     existing = load(existing_path) if existing_path.is_file() else {}
+    cards_path = project / 'artifacts/cards.json'
+    cards = load(cards_path) if cards_path.is_file() else {}
 
     qc_by_shot = {row['shot']: row for row in qc.get('shots', [])}
     cuts = {cut['id']: cut for cut in edit_decisions.get('cuts', [])}
@@ -223,11 +225,19 @@ def main() -> int:
         caption['endFrame'] = int(round(caption['end'] * FPS))
 
     title_cards = []
-    for card in existing.get('titleCards', []):
+    title_card_source = cards.get('titleCards') or edit_decisions.get('titleCards') or existing.get('titleCards', [])
+    for card in title_card_source:
         updated = dict(card)
         updated['startFrame'] = int(round(float(card['start']) * FPS))
         updated['durationInFrames'] = int(round(float(card['duration']) * FPS))
         title_cards.append(updated)
+
+    name_cards = []
+    for card in (cards.get('nameCards') or edit_decisions.get('nameCards', [])):
+        updated = dict(card)
+        updated['startFrame'] = int(round(float(card['start']) * FPS))
+        updated['durationInFrames'] = int(round(float(card['duration']) * FPS))
+        name_cards.append(updated)
 
     props = {
         'fps': FPS,
@@ -237,6 +247,7 @@ def main() -> int:
         'shots': [{key: value for key, value in shot.items()
                    if key not in ('duration', 'start')} for shot in shots],
         'titleCards': title_cards,
+        'nameCards': name_cards,
         'captions': captions,
         'showCaptions': True,
     }

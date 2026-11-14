@@ -94,6 +94,10 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
    Upload those covers; never hand-crop on the platform upload page.
 5. `video_compose` is the only final render path. Atelier composition uses the
    project-local `index.tsx` / `Composition.tsx` / `public/props.json`.
+6. **人物名牌与剧情说明卡（强制）**：每部影片在 `artifacts/cards.json` 写 `nameCards`
+   （角色名 + 身份，首次出场时出现）和 `titleCards`（剧情推动所需的说明，如“儿媳新丧·尚未下葬”
+   “符镇女尸”“县官验尸·写证明”）。`build_cinematic_edit.py` 会把它们写入 `public/props.json`。
+   不要用“一”“二”这类无意义的幕间数字卡；说明卡必须帮助观众理解人物关系或剧情因果。
 6. Backlot is an observer/approval UI. Keep it Chinese; do not replace it with
    the upstream English UI.
 7. The old `novel-cinematic` coverage/anchor/chain scripts and their pipeline
