@@ -198,7 +198,7 @@ def main() -> int:
     captions = []
     for shot, spec in zip(shots, scene_plan['metadata']['shots']):
         sid = shot['id']
-        if sid in asr:
+        if sid in asr and asr[sid].get('lines'):
             for line in asr[sid].get('lines', []):
                 start = float(line['global_start'])
                 end = min(float(line['global_end']), shot['start'] + shot['duration'] - 0.15)
