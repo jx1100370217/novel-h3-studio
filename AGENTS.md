@@ -66,8 +66,14 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
 .venv-openmontage/bin/python scripts/build_cinematic_edit.py \
   --project projects/liaozhai-wangliulang-cinematic
 
+# Tighten action takes: dead-time trims, speed, shake (artifacts/pacing.json)
+.venv-openmontage/bin/python scripts/pace_cinematic_shots.py \
+  --project projects/liaozhai-wangliulang-cinematic
+
 # Build the music bed and mix it under the picture
 .venv-openmontage/bin/python scripts/build_cinematic_music_bed.py \
+  --project projects/liaozhai-wangliulang-cinematic
+.venv-dialogue/bin/python scripts/build_cinematic_score.py \
   --project projects/liaozhai-wangliulang-cinematic
 .venv-openmontage/bin/python scripts/mix_cinematic_audio.py \
   --project projects/liaozhai-wangliulang-cinematic
@@ -116,6 +122,14 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
   ```
 - **案例（S20，2026-11-12）**：只抽 2s / 5s / 8.5s 三帧，漏掉了 0–1s 的敲门动作，误判为“没有敲门”。实际动作存在，真正的问题是喊“救命”时没有面向庙门。此后同类判断必须先看完整时间线。
 
+## 动作镜头节奏规则（强制）
+
+- **静止尾段必须裁掉**：动作、追逐、打斗镜头里连续静止超过约 1.5 秒的尾段要裁掉。判断依据是逐秒运动量或全时间线 contact sheet，不能凭单帧或印象。
+- **动作戏用多镜头切角**：同一段动作优先写成多镜头 prompt（`[Shot N] At MM:SS.mmm`），每段约 5 秒（124 帧），一个镜头只放一个主要动作。不要用单机位长镜头硬拍 3–5 个动作，那样会拍成慢动作。
+- **修剪只走配方**：用 `scripts/pace_cinematic_shots.py` 和 `artifacts/pacing.json` 裁剪、变速、加抖动；原始镜头不动，成片写入 `public/shots`。带台词的镜头只允许裁尾部，脚本会拒绝其他修剪（字幕时间按镜头起点计算）。
+- **时间线随动**：卡片用 `anchor` + `offset` 锚定到镜头；字幕用镜头内相对时间（`local_start` / `local_end`）。改了镜头时长后，依次重建剪辑、配乐、合成载荷。
+- **音效要卡点**：动作音效写入 `artifacts/sfx_cues.json`（按镜头内偏移），由 `scripts/build_cinematic_score.py` 与配乐一起生成；偏移应对照运动峰值或全时间线确定，不要在临时脚本里硬编码绝对时间。
+
 ## FastH3 生成与字幕清理规则（强制）
 
 - **近景用脸部主参考**：特写/近景绑定 `assets/refs/faces/<name>_face.png`；全身参考只用于中远景。全身图的脸太小，近景会漂移成另一张脸。
@@ -134,6 +148,7 @@ runtime/fastvideo-venv/bin/python start_fastvideo.py \
   .venv-dialogue/bin/python scripts/remove_captions_glyph.py --project projects/<id>
   ```
   只检测白色字形、膨胀后 LaMa 修补，输出到 `public/shots`，原始 take 留在 `assets/shots`。
+  **只对确认有烧录字幕的镜头运行**：脚本按亮度阈值找白色像素，白色袍袖、符纸、布帘在底部时会被误判（逐帧“清理”，涂抹衣料）。无台词镜头和没有可见字幕的镜头一律用原始 take；运行前先抽底部条带确认。
 - **长批量每镜重启 FastH3**：`render_cinematic_shots.py --service-unit om-fastvideo --restart-every 1`；失败后也重启。主机 swap 接近满时先释放内存再提交。
 - **scene_plan 的每个 shot 必须有 `duration_seconds`**；旧文件缺字段时，脚本会回退到 `frames/24`，不要再让 align/edit 因 KeyError 中断。
 - **QC/对齐用 `.venv-dialogue`**：`qc_cinematic_shots.py` 和 `align_cinematic_dialogue.py` 依赖 `faster_whisper`，`.venv-openmontage` 里没有。
