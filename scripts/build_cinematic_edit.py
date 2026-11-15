@@ -131,6 +131,13 @@ def shot_seconds(shot: dict) -> float:
     return float(shot['end_seconds']) - float(shot['start_seconds'])
 
 
+def card_start(card: dict, starts: dict[str, float]) -> float:
+    """Cards anchored to a shot id follow that shot when the timeline changes."""
+    if card.get('anchor') in starts:
+        return starts[card['anchor']] + float(card.get('offset', 0.0))
+    return float(card['start'])
+
+
 def srt_time(seconds: float) -> str:
     milliseconds = int(round(max(0.0, seconds) * 1000))
     hours, rest = divmod(milliseconds, 3_600_000)
@@ -200,8 +207,8 @@ def main() -> int:
         sid = shot['id']
         if sid in asr and asr[sid].get('lines'):
             for line in asr[sid].get('lines', []):
-                start = float(line['global_start'])
-                end = min(float(line['global_end']), shot['start'] + shot['duration'] - 0.15)
+                start = shot['start'] + float(line['local_start'])
+                end = min(shot['start'] + float(line['local_end']), shot['start'] + shot['duration'] - 0.15)
                 if end > start:
                     words = [{'text': word['text'],
                               'start': shot['start'] + float(word['local_start']),
@@ -224,18 +231,21 @@ def main() -> int:
         caption['startFrame'] = int(round(caption['start'] * FPS))
         caption['endFrame'] = int(round(caption['end'] * FPS))
 
+    shot_starts = {shot['id']: shot['start'] for shot in shots}
     title_cards = []
     title_card_source = cards.get('titleCards') or edit_decisions.get('titleCards') or existing.get('titleCards', [])
     for card in title_card_source:
         updated = dict(card)
-        updated['startFrame'] = int(round(float(card['start']) * FPS))
+        updated['start'] = round(card_start(card, shot_starts), 3)
+        updated['startFrame'] = int(round(updated['start'] * FPS))
         updated['durationInFrames'] = int(round(float(card['duration']) * FPS))
         title_cards.append(updated)
 
     name_cards = []
     for card in (cards.get('nameCards') or edit_decisions.get('nameCards', [])):
         updated = dict(card)
-        updated['startFrame'] = int(round(float(card['start']) * FPS))
+        updated['start'] = round(card_start(card, shot_starts), 3)
+        updated['startFrame'] = int(round(updated['start'] * FPS))
         updated['durationInFrames'] = int(round(float(card['duration']) * FPS))
         name_cards.append(updated)
 

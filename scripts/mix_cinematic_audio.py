@@ -64,6 +64,17 @@ def gain_expression(shots: list[dict], fps: float) -> str:
     return expression
 
 
+def default_picture(project: Path) -> Path:
+    """The composed picture: ``<project-id>_picture.mp4`` or the newest one present."""
+    exact = project / 'renders' / f'{project.name}_picture.mp4'
+    if exact.is_file():
+        return exact
+    candidates = sorted((project / 'renders').glob('*_picture.mp4'), key=lambda p: p.stat().st_mtime)
+    if candidates:
+        return candidates[-1]
+    return exact
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project', type=Path, required=True)
@@ -96,9 +107,9 @@ def main() -> int:
     limiter_ceiling = min(max(float(args.limiter), 0.05), 1.0)
     target_lufs = (args.target_lufs if args.target_lufs is not None
                    else float((edit_decisions.get('metadata') or {}).get('loudnorm_target', -16)))
-    picture = (args.picture or project / 'renders/wangliulang_picture.mp4').resolve()
+    picture = (args.picture or default_picture(project)).resolve()
     music = (args.music or project / 'assets/music/music_bed.wav').resolve()
-    output = (args.output or project / 'renders/wangliulang_final.mp4').resolve()
+    output = (args.output or project / 'renders' / f'{project.name}_final.mp4').resolve()
     if not picture.is_file():
         raise SystemExit(f'missing picture render: {picture}')
     if not music.is_file():
