@@ -9,7 +9,9 @@ cannot be derived on the upload screen without hand-cropping:
 
 This tool crops the approved poster (or extracts a poster frame from the final
 video) and writes deterministic, dimension-checked cover files plus a manifest.
-It never invents a new design; it only reframes the approved artwork.
+It does not invent a new design; it can optionally stamp a title block (title +
+kicker + tagline) onto both aspect ratios at layout positions that stay inside
+each crop.
 """
 
 from __future__ import annotations
@@ -125,6 +127,27 @@ class PublishCovers(BaseTool):
                 "description": "Vertical crop anchor when the source is taller than the target.",
                 "default": "center",
             },
+            "title": {
+                "type": "string",
+                "description": "Optional main title burned into both covers (e.g. the film title).",
+            },
+            "title_kicker": {
+                "type": "string",
+                "description": "Optional small line above the title (series name, e.g. 聊斋志异).",
+            },
+            "title_tagline": {
+                "type": "string",
+                "description": "Optional small line below the title (hook or subtitle).",
+            },
+            "title_font": {
+                "type": "string",
+                "description": "Path to a CJK font file. Required when title/kicker/tagline is set.",
+            },
+            "title_color": {
+                "type": "string",
+                "description": "Title fill color as #RRGGBB.",
+                "default": "#F4E7D0",
+            },
         },
     }
     output_schema = {
@@ -220,6 +243,62 @@ class PublishCovers(BaseTool):
                 return stem[: -len(suffix)]
         return stem
 
+    @staticmethod
+    def _escape_text(value: str) -> str:
+        for char in ("\\", ":", "'", "%", ",", "[", "]"):
+            value = value.replace(char, "\\" + char)
+        return value
+
+    @staticmethod
+    def _ffmpeg_color(value: str) -> str:
+        value = value.strip()
+        if re.fullmatch(r"#[0-9A-Fa-f]{6}", value):
+            return "0x" + value[1:]
+        return value
+
+    def _title_filter(
+        self,
+        target: tuple[int, int],
+        *,
+        title: str,
+        kicker: str,
+        tagline: str,
+        font: Path,
+        color: str,
+    ) -> str:
+        width, height = target
+        title_size = round(height * 0.16)
+        if title:
+            title_size = min(title_size, round(width * 0.92 / max(1, len(title))))
+        kicker_size = round(height * 0.038)
+        tagline_size = round(height * 0.032)
+
+        title_y = round(height * 0.05)
+        cursor = title_y + round(title_size * 1.18)
+        lines: list[tuple[str, int, int]] = [(title, title_size, title_y)]
+        if kicker:
+            lines.append((kicker, kicker_size, cursor))
+            cursor += round(kicker_size * 1.45)
+        if tagline:
+            lines.append((tagline, tagline_size, cursor))
+
+        font_path = self._escape_text(str(font))
+        fill = self._ffmpeg_color(color)
+        filters: list[str] = []
+        for text, size, y in lines:
+            filters.append(
+                "drawtext="
+                f"fontfile={font_path}:"
+                f"text='{self._escape_text(text)}':"
+                f"fontsize={size}:"
+                f"fontcolor={fill}:"
+                f"borderw={max(3, size // 40)}:"
+                "bordercolor=black@0.7:"
+                "shadowcolor=black@0.55:shadowx=0:shadowy=8:"
+                f"x=(w-text_w)/2:y={y}"
+            )
+        return ",".join(filters)
+
     def _write_cover(
         self,
         source: Path,
@@ -228,6 +307,7 @@ class PublishCovers(BaseTool):
         *,
         horizontal_focus: str,
         vertical_focus: str,
+        extra_filters: str | None = None,
     ) -> dict[str, Any]:
         src_w, src_h = self._probe_image_size(source)
         target_w, target_h = target
@@ -237,6 +317,8 @@ class PublishCovers(BaseTool):
         scale = f"crop={crop_w}:{crop_h}:{x}:{y},scale={target_w}:{target_h}:flags=lanczos"
         if target_w > crop_w or target_h > crop_h:
             scale += ",unsharp=5:5:0.4"
+        if extra_filters:
+            scale += "," + extra_filters
         self.run_command(
             [
                 "ffmpeg",
@@ -333,6 +415,18 @@ class PublishCovers(BaseTool):
         if vertical_focus not in {"top", "center", "bottom"}:
             return ToolResult(success=False, error=f"invalid vertical_focus: {vertical_focus}")
 
+        title = (inputs.get("title") or "").strip()
+        kicker = (inputs.get("title_kicker") or "").strip()
+        tagline = (inputs.get("title_tagline") or "").strip()
+        title_font = Path(inputs["title_font"]).expanduser() if inputs.get("title_font") else None
+        title_color = inputs.get("title_color") or "#F4E7D0"
+        if (title or kicker or tagline) and not title:
+            return ToolResult(success=False, error="title_kicker/title_tagline need a title")
+        if (title or kicker or tagline) and not title_font:
+            return ToolResult(success=False, error="title_font is required when adding title text")
+        if title_font and not title_font.is_file():
+            return ToolResult(success=False, error=f"title_font not found: {title_font}")
+
         poster_path = Path(poster_in).expanduser() if poster_in else None
         video_path = Path(video_in).expanduser() if video_in else None
         if poster_path and not poster_path.is_file():
@@ -388,12 +482,25 @@ class PublishCovers(BaseTool):
         try:
             for name, size, filename in targets:
                 out_path = output_dir / filename
+                extra = (
+                    self._title_filter(
+                        size,
+                        title=title,
+                        kicker=kicker,
+                        tagline=tagline,
+                        font=title_font,  # type: ignore[arg-type]
+                        color=title_color,
+                    )
+                    if title
+                    else None
+                )
                 cover = self._write_cover(
                     poster_path,
                     size,
                     out_path,
                     horizontal_focus=horizontal_focus,
                     vertical_focus=vertical_focus,
+                    extra_filters=extra,
                 )
                 cover["name"] = name
                 cover["aspect"] = f"{size[0]}:{size[1]}"
@@ -411,6 +518,11 @@ class PublishCovers(BaseTool):
                 "height": self._probe_image_size(poster_path)[1],
             },
             "focus": {"horizontal": horizontal_focus, "vertical": vertical_focus},
+            "title": (
+                {"text": title, "kicker": kicker, "tagline": tagline, "font": str(title_font), "color": title_color}
+                if title
+                else None
+            ),
             "covers": covers,
         }
         manifest_path = output_dir / f"{base_name}_covers.json"
