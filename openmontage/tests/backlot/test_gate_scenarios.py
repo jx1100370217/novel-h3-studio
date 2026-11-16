@@ -60,6 +60,38 @@ def test_completed_gated_stage_without_approval_is_rejected(tmp_path):
         )
 
 
+def test_pending_proposal_can_wait_but_cannot_be_completed(tmp_path):
+    from tests.contracts.test_phase0_contracts import sample_artifact
+
+    _approve_predecessors(tmp_path, "film", "cinematic", "research")
+    proposal = sample_artifact("proposal_packet")
+    proposal["approval"]["status"] = "pending"
+    del proposal["production_plan"]["render_runtime"]
+    write_checkpoint(
+        tmp_path, "film", "proposal", "awaiting_human",
+        {"proposal_packet": proposal}, pipeline_type="cinematic",
+    )
+    with pytest.raises(CheckpointValidationError, match="approval.status"):
+        write_checkpoint(
+            tmp_path, "film", "proposal", "completed",
+            {"proposal_packet": proposal}, pipeline_type="cinematic",
+            human_approved=True,
+        )
+    proposal["approval"]["status"] = "approved"
+    with pytest.raises(CheckpointValidationError, match="render_runtime"):
+        write_checkpoint(
+            tmp_path, "film", "proposal", "completed",
+            {"proposal_packet": proposal}, pipeline_type="cinematic",
+            human_approved=True,
+        )
+    proposal["production_plan"]["render_runtime"] = "remotion"
+    write_checkpoint(
+        tmp_path, "film", "proposal", "completed",
+        {"proposal_packet": proposal}, pipeline_type="cinematic",
+        human_approved=True,
+    )
+
+
 def test_typo_pipeline_type_fails_closed(tmp_path):
     with pytest.raises(CheckpointValidationError, match="Unknown pipeline_type"):
         write_checkpoint(

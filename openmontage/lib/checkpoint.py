@@ -546,6 +546,14 @@ def write_checkpoint(
 
     validate_checkpoint(checkpoint)
 
+    if stage == "proposal" and status == "completed":
+        approval = artifacts["proposal_packet"].get("approval", {})
+        if approval.get("status") not in {"approved", "approved_with_changes"}:
+            raise CheckpointValidationError(
+                "GATE VIOLATION: completed proposal requires approval.status "
+                "to be 'approved' or 'approved_with_changes'."
+            )
+
     # Reject invalid stage/artifact payloads before persisting their decisions.
     if "decision_log" in artifacts and isinstance(artifacts["decision_log"], dict):
         _merge_decision_log(pipeline_dir, project_id, artifacts["decision_log"])

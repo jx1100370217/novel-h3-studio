@@ -5,6 +5,15 @@
   "description": "Pre-production proposal containing concept options, production plan, cost estimate, and approval gate. The user reviews and approves this before any assets are generated or money is spent.",
   "type": "object",
   "required": ["version", "concept_options", "selected_concept", "production_plan", "cost_estimate", "approval"],
+  "allOf": [
+    {
+      "if": {
+        "properties": { "approval": { "properties": { "status": { "enum": ["approved", "approved_with_changes"] } }, "required": ["status"] } },
+        "required": ["approval"]
+      },
+      "then": { "properties": { "production_plan": { "required": ["render_runtime"] } } }
+    }
+  ],
   "properties": {
     "version": { "type": "string", "const": "1.0" },
     "concept_options": {
@@ -66,7 +75,7 @@
     },
     "production_plan": {
       "type": "object",
-      "required": ["pipeline", "stages", "render_runtime"],
+      "required": ["pipeline", "stages"],
       "properties": {
         "pipeline": { "type": "string", "description": "Pipeline manifest name, e.g., 'animated-explainer'" },
         "playbook": { "type": "string", "description": "Selected style playbook" },
