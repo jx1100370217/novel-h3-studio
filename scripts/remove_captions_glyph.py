@@ -101,12 +101,13 @@ def clean_video(video: Path, output: Path, lama: SimpleLama, args: argparse.Name
             return {"shot": video.stem, "frames": len(frame_paths), "cleaned_frames": 0,
                     "method": "copy"}
         tmp_out = output.with_suffix(".tmp.mp4")
+        # A shorter audio stream must not truncate the cleaned video frames.
         subprocess.run(
             ["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(fps),
              "-i", str(frames / "%06d.png"), "-i", str(video),
              "-map", "0:v:0", "-map", "1:a:0?",
              "-c:v", "libx264", "-preset", "veryfast", "-crf", str(args.crf),
-             "-pix_fmt", "yuv420p", "-c:a", "copy", "-shortest",
+             "-pix_fmt", "yuv420p", "-c:a", "copy",
              "-movflags", "+faststart", str(tmp_out)],
             check=True,
         )
