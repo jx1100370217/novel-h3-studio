@@ -1,6 +1,6 @@
 ---
 name: douyin-publish
-description: 将 OpenMontage 成片发布到抖音创作者中心网页版，包括标题、简介、话题、AI 生成声明、4:3 横封面和 3:4 竖封面，并验证发布状态。Use when the user asks to publish or upload a video to Douyin/抖音, or to diagnose a Douyin upload that did not go through.
+description: 将 OpenMontage 成片发布到抖音创作者中心网页版，包括标题、简介、话题、AI 生成声明、4:3 横封面和 3:4 竖封面、中视频收益（同时发布到今日头条/西瓜）以及发布状态验证。Use when the user asks to publish or upload a video to Douyin/抖音, or to diagnose a Douyin upload that did not go through.
 ---
 
 # 抖音发布
@@ -130,6 +130,24 @@ agent-browser --session douyin --profile Default --headed \
 点「自主声明」→ 选「内容由AI生成」→「确定」。这是 AI 影片的合规声明，不要跳过。
 预览区底部应出现「作者声明：内容由AI生成」。
 
+## 中视频收益（发布设置）
+
+目标：让作品进入中视频收益口径——抖音侧的播放量也能产生创作收益。靠的是
+「中视频伙伴计划」+ 发布时同步到今日头条/西瓜视频，不是发布页上的一个独立按钮。
+
+1. 账号前置（一次性）：账号必须已加入中视频伙伴计划，并绑定同实名的西瓜视频账号。
+   加入入口在抖音 App：我 → 三横线 → 创作者中心 → 全部 → 收益变现 →
+   中视频伙伴计划 → 立即加入。创作者中心网页版没有加入入口，不要在这里反复找。
+2. 每条作品发布时，在「发布设置 → 同时发布」选「同时发布到」，开启「今日头条」；
+   页面若同时列出「西瓜视频」，一并开启。只发抖音、不同步，拿不到头条/西瓜侧收益。
+3. 如果发布页出现「参加中视频创作」开关，必须勾选。**没有这个开关**说明账号未加入
+   计划或当前体裁不适用：按第 1 步去加入，不要伪造入口，也不要谎称已参加。
+4. 建议同时开启「记住我的选择」，之后每条作品默认同步到已勾选平台，避免漏开。
+5. **收益还要求原创声明**：AI 生成作品不得为了收益勾选「原创」或谎报版权；能否声明
+   原创以平台规则和素材授权为准。宁可不拿这份收益，也不做虚假声明。
+6. 把同步了哪些平台、是否勾选「参加中视频创作」、没有该开关时的原因，写进
+   `publish_log.json` 的 `distribution` 字段，方便下一条作品核对。
+
 ## 发布
 
 1. 滚到底部，让「发布」按钮可见：
@@ -159,7 +177,8 @@ agent-browser --session douyin --profile Default --headed \
    `https://www.douyin.com/video/<work-id>`。`<work-id>` 可从编辑页 URL 的
    `mid=` 取得。确认标题、时长、封面、AI 声明都在。
 6. 把结果写回项目的 `artifacts/publish_log.json`：平台 `douyin`、公开链接、
-   work id、发布时间、状态（`in_review` 或 `published`）、使用的标题/简介/话题。
+   work id、发布时间、状态（`in_review` 或 `published`）、使用的标题/简介/话题，
+   以及 `distribution`（同步平台、是否参加中视频创作、原因）。
 
 ## 常见故障
 
@@ -172,12 +191,17 @@ agent-browser --session douyin --profile Default --headed \
 - **竖封面报「分辨率过低」**：重新用 `publish_covers` 生成 1080x1440，不要用
   576x768 原图。
 - **简介重复或多了 `*`**：清空后重填，点击标题框收起话题弹层，并用 `eval` 校验。
+- **发布页找不到「参加中视频创作」**：该账号未加入中视频伙伴计划，或当前体裁不适用。
+  先去抖音 App 加入并绑定同实名西瓜账号；当条作品至少开启「同时发布到 → 今日头条」，
+  不要为了收益虚假声明原创。
 - **发布按钮点不动**：先 `scrollintoview`，确认 ref 是底部按钮而不是导航按钮。
 
 ## 硬性规则
 
 - 不发布未批准的文案或可见范围；不擅自设为公开。
 - 不跳过 AI 声明；不把 AI 影片声明成「无需添加自主声明」。
+- 不为了中视频/播放收益勾选「原创」或做虚假版权声明。
+- 不因为页面上没有「参加中视频创作」开关就默认已参加；把实际状态写进 `publish_log.json`。
 - 不上传 `_reference.mp4`、未混音版本或错误项目。
 - 不在封面缺失时发布；先补齐 4:3 和 3:4。
 - 不在发布失败时删除草稿；先恢复并诊断。
