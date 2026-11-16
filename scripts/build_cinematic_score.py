@@ -76,6 +76,9 @@ def place(bed: np.ndarray, y: np.ndarray, at: float, gain: float, fade_in: float
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--project', type=Path, required=True)
+    parser.add_argument('--cues', type=Path, default=None)
+    parser.add_argument('--output', type=Path, default=None)
+    parser.add_argument('--raw-output', type=Path, default=None)
     args = parser.parse_args()
     project = args.project.resolve()
 
@@ -84,7 +87,8 @@ def main() -> int:
     starts = {shot['id']: float(shot['start']) for shot in timing['shots']}
     bed = np.zeros((2, int(total * SR)))
 
-    for cue in load(project / 'assets/music/score_cues.json'):
+    cues_path = args.cues or project / 'assets/music/score_cues.json'
+    for cue in load(cues_path):
         source = resolve(cue['file'], project)
         y = normalise(read(source, float(cue.get('source_start', 0.0)), float(cue['duration'])), 0.62)
         fade = float(cue.get('fade', 2.0))
@@ -103,11 +107,11 @@ def main() -> int:
     delay = int(0.004 * SR)
     bed[1, delay:] = 0.94 * bed[1, delay:] + 0.06 * bed[0, :-delay]
     bed = np.tanh(bed * 1.05) / 1.05
-    raw = project / 'assets/music/music_bed_real_raw.wav'
+    raw = args.raw_output or project / 'assets/music/music_bed_real_raw.wav'
     sf.write(raw, bed.T.astype(np.float32), SR, subtype='PCM_16')
     print(f'wrote {raw} total {total:.3f}s peak {float(np.max(np.abs(bed))):.3f}', flush=True)
 
-    bed_path = project / 'assets/music/music_bed.wav'
+    bed_path = args.output or project / 'assets/music/music_bed.wav'
     subprocess.run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-y', '-i', str(raw),
                     '-af', 'loudnorm=I=-20:TP=-3:LRA=9', '-ar', str(SR), '-c:a', 'pcm_s16le', str(bed_path)],
                    check=True)
