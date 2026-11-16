@@ -4,6 +4,16 @@
 
 This stage prepares the usable media for the final cinematic edit: source selects, title-card assets, optional support inserts, music, ambience, and subtitle assets when needed.
 
+## Music Direction (MANDATORY)
+
+Follow root `AGENTS.md` > **“统一配乐方案（全局，强制）”**. Default to a
+per-film score generated locally with ACE-Step 1.5 (`comfyui_music`), 4–6
+instrumental stems arranged on shot anchors in `assets/music/score_cues.json`.
+Do not reuse a previous film's music bed or cues. Licensed libraries
+(Pixabay/Freesound/Incompetech) are the fallback only, and still need a custom
+edit, license record and hash. Record model, prompt, seed, key, BPM, SHA-256 and
+audition status in `artifacts/music_research.json`.
+
 ## Animation authoring for cinematic titles and overlays
 
 Before authoring title cards, name plates, or SVG overlays, read **`skills/meta/animation-runtime-selector.md`** for runtime routing. Cinematic pieces lean on a handful of high-craft motion patterns:
@@ -27,7 +37,7 @@ Before authoring title cards, name plates, or SVG overlays, read **`skills/meta/
 |-------|----------|---------|
 | Schema | `schemas/artifacts/asset_manifest.schema.json` | Artifact validation |
 | Prior artifacts | `state.artifacts["scene_plan"]["scene_plan"]`, `state.artifacts["script"]["script"]`, `state.artifacts["proposal"]["proposal_packet"]` | Scene intent and beat plan |
-| Tools | `subtitle_gen`, `audio_enhance`, `image_selector`, `video_selector`, `pixabay_music` (free, default), `freesound_music` (free), `music_gen` (ElevenLabs, paid) — selectors auto-discover all available providers from the registry. **Default to `pixabay_music` before reaching for `music_gen`.** | Optional support asset creation |
+| Tools | `subtitle_gen`, `audio_enhance`, `image_selector`, `video_selector`, `comfyui_music` (local ACE-Step 1.5, default), `pixabay_music` / `freesound_music` (licensed fallback), `music_gen` (ElevenLabs, paid) — selectors auto-discover all available providers from the registry. **Default to local ACE-Step 1.5; only fall back to licensed libraries when it is unavailable.** | Optional support asset creation |
 | Playbook | Active style playbook | Brand and typography consistency |
 
 ## Process

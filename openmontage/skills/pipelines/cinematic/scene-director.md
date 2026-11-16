@@ -4,6 +4,16 @@
 
 You are deciding how each cinematic beat will look and transition. This is where mood becomes a visual plan.
 
+## Default Visual Grammar (MANDATORY)
+
+For period, fantasy, supernatural, 志怪, 奇情 and 年代 projects, follow root
+`AGENTS.md` > **“统一影像风格：邵氏电影风格（全局，强制）”**: 1970s Shaw
+Brothers studio sets, layered woodwork/curtains/doorways/murals, rich oxblood
+red / stone green / indigo / warm gold, tungsten key with restrained blue
+shadows, stable compositions, hard cuts and motivated pushes. Declare
+“1970s Shaw Brothers period fantasy studio look” in `art-direction.md`, the
+scene_plan and every H3 prompt. Do not copy a specific film, actor or logo.
+
 ## Prerequisites
 
 | Layer | Resource | Purpose |

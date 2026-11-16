@@ -227,6 +227,11 @@ Let the user select, combine, modify, or redirect entirely.
 
 Cinematic videos live and die by their audio. Surface the music situation before the user approves.
 
+**Default scheme:** follow root `AGENTS.md` > **“统一配乐方案（全局，强制）”**.
+Prefer a per-film local ACE-Step 1.5 instrumental score (4–6 stems, cue-based),
+then licensed libraries as fallback. Do not propose reusing a previous film's
+music bed.
+
 Check availability in this order:
 1. **User music library** — query `registry.get_by_capability("music_library")` and list available tracks
 2. **Royalty-free search** — query `registry.get_by_capability("music_search")` and report providers/licensing

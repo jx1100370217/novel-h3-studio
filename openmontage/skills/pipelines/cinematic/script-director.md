@@ -45,6 +45,11 @@ Title-card copy should feel trailer-like:
 - more whitespace,
 - more timing precision.
 
+**House style (MANDATORY):** follow root `AGENTS.md` >
+**“统一字幕/说明卡规范（全局，强制）”**. Name cards are character + identity
+(4–7 characters); plot cards describe a causal turn or theme, not a location
+log or a numbered intertitle; keep 3–5 plot cards per film.
+
 ### 4. Store Beat Truth In Metadata
 
 Recommended metadata keys:

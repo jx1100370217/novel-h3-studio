@@ -4,6 +4,15 @@
 
 Render the cinematic piece with careful attention to grade, audio dynamics, and frame treatment. This is not a generic export step.
 
+## Unified Subtitle/Card House Style (MANDATORY)
+
+Before composing, read root `AGENTS.md` > **“统一字幕/说明卡规范（全局，强制）”**.
+All cinematic projects use the same system: MaShanZheng vertical name cards,
+full-screen calligraphy plot cards, top-center time cards, and Noto Serif
+dialogue captions. Reference implementation:
+`projects/liaozhai-huabi-cinematic/Composition.tsx` (`InkCard`,
+`NameCardLayer`, `CaptionLayer`). Do not invent a separate card style.
+
 ## Runtime Routing (MANDATORY first step)
 
 Read `edit_decisions.render_runtime`. Cinematic work routes to:
