@@ -1,5 +1,9 @@
 # MiniMax Music 3 本地部署
 
+> **2026-11-16 试听结论：** 当前默认配乐仍为 **ACE-Step 1.5**。MiniMax Music3
+> 已完成同片 A/B 试听，用户判断不如现有版本；本部署保留为可选实验路径，
+> 除非用户明确要求，不作为默认配乐方案。
+
 本机用 **ComfyUI 核心节点 + Comfy-Org 重打包权重** 运行 MiniMax Music 3。
 模型可从 ComfyUI 工作流模板 `Audio > MiniMax Music 3` 直接调用。
 
