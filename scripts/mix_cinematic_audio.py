@@ -81,6 +81,8 @@ def main() -> int:
     parser.add_argument('--picture', type=Path, default=None)
     parser.add_argument('--output', type=Path, default=None)
     parser.add_argument('--music', type=Path, default=None)
+    parser.add_argument('--native', type=Path, default=None,
+                        help='Pre-built native dialogue timeline WAV; skips extracting audio from the picture.')
     parser.add_argument('--target-lufs', type=float, default=None)
     parser.add_argument('--limiter', type=float, default=0.70,
                         help='final alimiter ceiling as a linear value (0-1); 0.89 is about -1 dBFS')
@@ -116,16 +118,21 @@ def main() -> int:
         raise SystemExit(f'missing music bed: {music}')
 
     renders = project / 'renders'
-    native = renders / 'native.wav'
+    native = (args.native.resolve() if args.native else renders / 'native.wav')
     gained = renders / 'native_gained.wav'
     mix_path = renders / 'final_mix.wav'
     fps = float(props.get('fps', 24))
     expression = gain_expression(props['shots'], fps)
     log(f'gain expression: {len(expression)} chars')
 
-    subprocess.run(
-        ['ffmpeg', '-v', 'error', '-y', '-i', str(picture), '-vn',
-         '-ac', '2', '-ar', '48000', '-c:a', 'pcm_s16le', str(native)], check=True)
+    if args.native:
+        if not native.is_file():
+            raise SystemExit(f'missing native timeline: {native}')
+        log(f'using native timeline: {native}')
+    else:
+        subprocess.run(
+            ['ffmpeg', '-v', 'error', '-y', '-i', str(picture), '-vn',
+             '-ac', '2', '-ar', '48000', '-c:a', 'pcm_s16le', str(native)], check=True)
     subprocess.run(
         ['ffmpeg', '-v', 'error', '-y', '-i', str(native), '-af',
          f"volume='{expression}':eval=frame", '-ac', '2', '-ar', '48000',
